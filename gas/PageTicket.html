@@ -1,0 +1,288 @@
+<!--
+  File: PageTicket.html
+  Ticket detail: header, workflow action buttons (from server permissions), items + price comparison,
+  document checklist, attachments (upload / open / delete), traceability timeline.
+-->
+<script>
+Pages.ticket = (function () {
+  /** UI for each workflow action. Server re-checks every rule; this only shapes the dialog. */
+  const ACTION_UI = {
+    manager_approve: { label: 'อนุมัติ', cls: 'primary', comment: 'optional', confirm: 'ยืนยันอนุมัติใบ {no} ส่งต่อให้ GM?' },
+    manager_return: { label: 'ส่งกลับให้แก้ไข', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ Sales แก้ไข' },
+    manager_reject: { label: 'ไม่อนุมัติ', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ไม่อนุมัติ', confirm: 'ไม่อนุมัติใบ {no}? ใบจะถูกปิดและแก้ไขต่อไม่ได้' },
+    gm_approve: { label: 'อนุมัติ (GM)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันอนุมัติใบ {no} ส่งต่อให้ SR?' },
+    gm_reject: { label: 'ไม่อนุมัติ (GM)', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ไม่อนุมัติ', confirm: 'ไม่อนุมัติใบ {no}? ใบจะถูกปิด' },
+    claim: { label: 'รับงานนี้', cls: 'primary', comment: 'none', confirm: 'รับงานใบ {no}? ระบบจะบันทึกคุณเป็น SR ผู้รับผิดชอบ' },
+    assign: { label: 'มอบหมาย SR', cls: '', comment: 'optional', select: 'sr' },
+    request_info: { label: 'ขอข้อมูลเพิ่มจาก Sales', cls: '', comment: 'required', commentLabel: 'ข้อมูล/เอกสารที่ต้องการ', checklist: true },
+    respond_info: { label: 'ส่งข้อมูลเพิ่มให้ SR', cls: 'primary', comment: 'required', commentLabel: 'คำตอบ / รายละเอียดที่ส่งเพิ่ม (แนบไฟล์ด้านล่างก่อนกดส่ง)' },
+    accept: { label: 'รับทราบและตกลงราคา (ปิดงาน)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันรับทราบราคาและปิดใบ {no}?' },
+    request_revision: { label: 'ขอให้ SR ปรับราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ปรับ' },
+    resubmit: { label: 'ส่งให้ Manager อีกครั้ง', cls: 'primary', comment: 'optional', confirm: 'ส่งใบ {no} ให้ Manager พิจารณาอีกครั้ง?' },
+    cancel: { label: 'ยกเลิกใบขอราคา', cls: 'danger', comment: 'optional', commentLabel: 'เหตุผลที่ยกเลิก', confirm: 'ยกเลิกใบ {no}? ยกเลิกแล้วเปิดใหม่ไม่ได้' }
+  };
+  const CATEGORY_LABEL = { request: 'เอกสารประกอบคำขอ', info_response: 'ข้อมูลเพิ่มเติม', quotation: 'ใบเสนอราคา vendor', other: 'อื่นๆ' };
+
+  function header(d) {
+    const t = d.ticket;
+    return '<div class="page-head"><h1>' + esc(t.ticket_no) + ' · ' + esc(t.title) + '</h1>' +
+      statusBadge(t.status, t.status_label) + '<span class="badge">' + esc(t.stage_label) + '</span></div>' +
+      '<div class="card"><dl class="kv">' +
+      '<dt>ผู้ขอราคา</dt><dd>' + esc(t.requestor_name) + ' <span class="muted small">(' + esc(t.department_code) + ')</span></dd>' +
+      '<dt>ลูกค้า</dt><dd>' + esc(t.customer_name || '–') + '</dd>' +
+      '<dt>ความเร่งด่วน</dt><dd>' + prioText(t.priority) + '</dd>' +
+      '<dt>ต้องการราคาภายใน</dt><dd>' + esc(fmtDate(t.due_date)) + '</dd>' +
+      '<dt>SR ผู้รับงาน</dt><dd>' + esc(t.sr_name || '–') + '</dd>' +
+      '<dt>สร้างเมื่อ</dt><dd>' + esc(fmtDateTime(t.created_at)) + '</dd>' +
+      (t.revision_count ? '<dt>ขอแก้ราคา</dt><dd>' + t.revision_count + ' ครั้ง</dd>' : '') +
+      (t.rejection_reason ? '<dt>เหตุผล</dt><dd>' + esc(t.rejection_reason) + '</dd>' : '') +
+      '</dl>' + (t.description ? '<p style="white-space:pre-wrap;margin-bottom:0">' + esc(t.description) + '</p>' : '') + '</div>';
+  }
+
+  function notices(d) {
+    const t = d.ticket;
+    let html = '';
+    if (t.stage === 'need_info' && t.info_request) {
+      const labels = (t.info_request.items || []).map(function (k) {
+        const c = d.checklist.filter(function (x) { return x.item_key === k || x.check_id === k; })[0];
+        return c ? c.label : k;
+      });
+      html += '<div class="notice warn"><b>SR ขอข้อมูลเพิ่ม:</b> ' + esc(t.info_request.comment) +
+        (labels.length ? '<div class="small">รายการที่ขาด: ' + esc(labels.join(', ')) + '</div>' : '') + '</div>';
+    }
+    if (t.stage === 'returned') html += '<div class="notice warn">Manager ส่งกลับให้แก้ไข — ดูเหตุผลใน Timeline ด้านล่าง แล้วกด “แก้ไขใบขอราคา”</div>';
+    if (t.stage === 'awaiting_sales_ack') html += '<div class="notice">SR ส่งราคาแล้ว กรุณาตรวจตารางเทียบราคา แล้วกดรับทราบ หรือขอให้ปรับราคา</div>';
+    return html;
+  }
+
+  function actionBar(d) {
+    const t = d.ticket;
+    const p = d.permissions;
+    const buttons = [];
+    if (p.can_edit_request) buttons.push('<button class="btn" data-nav="edit">✏️ แก้ไขใบขอราคา</button>');
+    const srWork = p.actions.indexOf('doc_complete') !== -1 || p.actions.indexOf('submit_quote') !== -1;
+    if (srWork) buttons.push('<button class="btn primary" data-nav="pricing">' + (t.stage === 'doc_check' ? '📋 ตรวจเอกสาร' : '💰 กรอกราคา / เทียบราคา') + '</button>');
+    p.actions.forEach(function (a) {
+      const ui = ACTION_UI[a];
+      if (ui) buttons.push('<button class="btn ' + ui.cls + '" data-action="' + a + '">' + esc(ui.label) + '</button>');
+    });
+    if (!buttons.length) return '';
+    return '<div class="card"><div class="actions">' + buttons.join('') + '</div></div>';
+  }
+
+  function itemsHtml(d) {
+    const showQ = d.permissions.can_view_quotes;
+    return '<div class="card"><h3>รายการสินค้า (' + d.items.length + ')</h3>' + d.items.map(function (it) {
+      let html = '<div class="item-row"><div class="head"><span>#' + it.line_no + ' ' + esc(it.product_name) + '</span><span class="sep"></span>' +
+        '<span class="badge">' + esc(it.product_group_name) + '</span></div>' +
+        '<div class="small"><b>' + fmtNum(it.qty) + ' ' + esc(it.uom) + '</b>' +
+        (it.target_price != null ? ' · ราคาเป้าหมาย ' + fmtMoney(it.target_price) + ' ' + esc(it.target_currency) : '') + '</div>' +
+        (it.spec ? '<div class="small">Spec: ' + esc(it.spec) + '</div>' : '') +
+        (it.description ? '<div class="small muted" style="white-space:pre-wrap">' + esc(it.description) + '</div>' : '');
+      if (showQ && it.quotations.length) {
+        html += '<div class="tbl-wrap" style="margin-top:8px"><table class="tbl stack"><thead><tr><th>Vendor</th><th class="num">ราคา/หน่วย</th>' +
+          '<th>VAT</th><th class="num">ต้นทุนสุทธิ/หน่วย (฿)</th><th class="num">รวมสุทธิ (฿)</th><th class="num">รวมจ่ายจริง (฿)</th><th>เงื่อนไข</th></tr></thead><tbody>' +
+          it.quotations.slice().sort(function (a, b) { return a.cost_rank - b.cost_rank; }).map(function (q) {
+            return '<tr' + (q.is_selected ? ' style="background:#F1F8FB"' : '') + '><td class="main">' + esc(q.vendor_name) + ' ' +
+              (q.is_selected ? '<span class="badge tag-win">✔ ผู้ชนะ</span> ' : '') + (q.is_cheapest ? '<span class="badge tag-cheap">ถูกที่สุด</span>' : '') +
+              (q.is_selected && q.selection_reason ? '<div class="small muted">เหตุผล: ' + esc(q.selection_reason) + '</div>' : '') + '</td>' +
+              '<td class="num" data-label="ราคา/หน่วย">' + fmtNum(q.unit_price) + ' ' + esc(q.currency) + (q.currency !== 'THB' ? '<div class="small muted">@' + fmtNum(q.fx_rate) + '</div>' : '') + '</td>' +
+              '<td data-label="VAT">' + esc(vatLabel(q.vat_term)) + '</td>' +
+              '<td class="num" data-label="ต้นทุนสุทธิ/หน่วย">' + fmtMoney(q.net_unit_cost_thb) + '</td>' +
+              '<td class="num" data-label="รวมสุทธิ"><b>' + fmtMoney(q.total_cost_thb) + '</b></td>' +
+              '<td class="num" data-label="รวมจ่ายจริง">' + fmtMoney(q.total_gross_thb) + '</td>' +
+              '<td data-label="เงื่อนไข" class="small">' + [q.moq != null ? 'MOQ ' + fmtNum(q.moq) : '', q.lead_time_days != null ? 'Lead ' + q.lead_time_days + ' วัน' : '',
+                q.payment_term, q.valid_until ? 'ยืนราคาถึง ' + fmtDate(q.valid_until) : ''].filter(Boolean).map(esc).join(' · ') + '</td></tr>';
+          }).join('') + '</tbody></table></div>';
+      } else if (!showQ && ['on_process'].indexOf(d.ticket.status) !== -1) {
+        html += '<div class="small muted" style="margin-top:6px">ราคาจะแสดงเมื่อ SR ส่งราคาแล้ว</div>';
+      }
+      return html + '</div>';
+    }).join('') + '</div>';
+  }
+
+  function vatLabel(k) {
+    const v = (state.ref.vat_terms || []).filter(function (x) { return x.key === k; })[0];
+    return v ? v.label : k;
+  }
+
+  function checklistHtml(d) {
+    if (!d.checklist.length) return '';
+    const done = d.checklist.filter(function (c) { return c.is_checked; }).length;
+    return '<div class="card"><h3>ตรวจเอกสาร (' + done + '/' + d.checklist.length + ')</h3><ul style="margin:0;padding-left:0;list-style:none">' +
+      d.checklist.map(function (c) {
+        return '<li style="padding:4px 0">' + (c.is_checked ? '✅' : '⬜') + ' ' + esc(c.label) + (c.is_required ? '' : ' <span class="muted small">(ไม่บังคับ)</span>') +
+          (c.note ? '<div class="small muted" style="margin-left:26px">' + esc(c.note) + '</div>' : '') + '</li>';
+      }).join('') + '</ul></div>';
+  }
+
+  function attachmentsHtml(d) {
+    const p = d.permissions;
+    let html = '<div class="card"><h3>ไฟล์แนบ (' + d.attachments.length + ')</h3>';
+    if (!d.attachments.length) html += '<div class="muted small">ยังไม่มีไฟล์แนบ</div>';
+    html += d.attachments.map(function (a) {
+      const mine = a.uploaded_by === state.me.email;
+      return '<div class="actions" style="align-items:center;padding:6px 0;border-bottom:1px solid var(--line)">' +
+        '<span>📎 <a href="#" data-open="' + esc(a.attachment_id) + '">' + esc(a.file_name) + '</a> <span class="small muted">' +
+        fileSize(a.size_bytes) + ' · ' + esc(CATEGORY_LABEL[a.category] || a.category) + ' · ' + esc(fmtDateTime(a.uploaded_at)) + '</span></span><span class="sep"></span>' +
+        (mine && p.can_upload ? '<button class="btn sm danger" data-del="' + esc(a.attachment_id) + '">ลบ</button>' : '') + '</div>';
+    }).join('');
+    if (p.can_upload) {
+      const cat = d.ticket.stage === 'need_info' ? 'info_response' : (state.me.role === 'sr' ? 'quotation' : 'request');
+      html += '<div style="margin-top:12px"><label class="btn"><input type="file" id="att-input" multiple hidden ' +
+        'accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.xls,.xlsx,.csv">➕ แนบไฟล์ (PDF/รูป/Excel ≤ ' + state.ref.max_upload_mb + ' MB)</label>' +
+        '<input type="hidden" id="att-cat" value="' + cat + '"><div id="att-progress"></div></div>';
+    }
+    return html + '</div>';
+  }
+
+  const FIELD_LABEL = {
+    title: 'ชื่อเรื่อง', description: 'รายละเอียด', customer_name: 'ลูกค้า', priority: 'ความเร่งด่วน', due_date: 'วันที่ต้องการ',
+    product_group_code: 'กลุ่มสินค้า', product_name: 'ชื่อสินค้า', spec: 'Spec', qty: 'จำนวน', uom: 'หน่วย', target_price: 'ราคาเป้าหมาย',
+    target_currency: 'สกุลเงินเป้าหมาย', vendor_id: 'รหัส vendor', vendor_name: 'Vendor', unit_price: 'ราคาต่อหน่วย', currency: 'สกุลเงิน',
+    fx_rate: 'อัตราแลกเปลี่ยน', vat_term: 'VAT', vat_rate: 'อัตรา VAT', moq: 'MOQ', lead_time_days: 'Lead time (วัน)', payment_term: 'เงื่อนไขชำระเงิน',
+    valid_until: 'ยืนราคาถึง', remark: 'หมายเหตุ', attachment_file_id: 'ไฟล์ใบเสนอราคา', is_checked: 'ติ๊กแล้ว', note: 'หมายเหตุ'
+  };
+  function showVal(k, v) {
+    if (v === true) return 'ใช่';
+    if (v === false) return 'ไม่';
+    if (v === '' || v == null) return '(ว่าง)';
+    if (k === 'vat_term') return vatLabel(v);
+    if (k === 'product_group_code') return groupName(v);
+    return String(v);
+  }
+
+  function timelineHtml(d) {
+    const dataCount = d.timeline.filter(function (l) { return l.log_type !== 'transition'; }).length;
+    return '<div class="card"><h3>Timeline (ประวัติการทำรายการ)</h3>' +
+      (dataCount ? '<label class="small" style="display:flex;gap:8px;align-items:center;min-height:36px;margin-bottom:8px">' +
+        '<input type="checkbox" id="tl-data"> แสดงการแก้ไขข้อมูลด้วย (' + dataCount + ' รายการ)</label>' : '') +
+      '<ul class="timeline" id="tl">' + d.timeline.slice().reverse().map(function (l) {
+        const isTransition = l.log_type === 'transition';
+        const m = l.metadata || {};
+        let detail = '';
+        if (isTransition) {
+          detail = esc(l.from_stage ? stageText(l.from_stage) + ' → ' + stageText(l.to_stage) : '→ ' + stageText(l.to_stage));
+          if (m.from_sr !== undefined && m.to_sr) detail += '<div>มอบหมายให้ ' + esc(m.to_sr) + '</div>';
+        } else {
+          const added = m.quote && m.quote.vendor_name ? m.quote.vendor_name['new'] || m.quote.vendor_name : '';
+          const itemName = m.item && m.item.product_name ? ' ' + m.item.product_name : '';
+          const subject = m.label || m.vendor_name || added || m.file_name || (m.line_no ? 'รายการที่ ' + m.line_no + itemName : '');
+          if (subject) detail += '<div>' + esc(subject) + '</div>';
+          if (m.diff) {
+            detail += Object.keys(m.diff).map(function (k) {
+              return '<div>' + esc(FIELD_LABEL[k] || k) + ': ' + esc(showVal(k, m.diff[k].old)) + ' → <b>' + esc(showVal(k, m.diff[k]['new'])) + '</b></div>';
+            }).join('');
+          }
+          if (m.reason) detail += '<div>เหตุผล: ' + esc(m.reason) + '</div>';
+        }
+        return '<li class="' + (isTransition ? '' : 'data') + '"' + (isTransition ? '' : ' data-kind="data" hidden') + '><div><b>' + esc(l.action_label) + '</b> · ' + esc(l.actor_name) +
+          ' <span class="muted small">(' + esc(l.actor_role) + ')</span></div><div class="meta">' + esc(l.ts_bkk) +
+          (l.stage_duration_sec != null && isTransition && l.from_stage ? ' · อยู่ในขั้นตอนก่อนหน้า ' + esc(fmtHours(l.stage_duration_sec / 3600)) : '') + '</div>' +
+          (detail ? '<div class="small">' + detail + '</div>' : '') +
+          (l.comment ? '<div class="cmt">' + esc(l.comment) + '</div>' : '') + '</li>';
+      }).join('') + '</ul></div>';
+  }
+
+  function runAction(view, d, action) {
+    const t = d.ticket;
+    const ui = ACTION_UI[action];
+    let html = '';
+    if (ui.select === 'sr') {
+      html = '<label class="field"><span>มอบหมายให้ SR <span class="req">*</span></span><select id="dlg-sr"><option value="">— เลือก SR —</option>' +
+        state.ref.sr_users.filter(function (u) { return u.email !== t.sr_email; })
+          .map(function (u) { return '<option value="' + esc(u.email) + '">' + esc(u.full_name) + '</option>'; }).join('') + '</select></label>';
+    }
+    if (ui.checklist && d.checklist.length) {
+      html = '<p class="small">เลือกเอกสารที่ยังขาด (ถ้ามี)</p>' + d.checklist.map(function (c) {
+        return '<label style="display:flex;gap:8px;align-items:center;min-height:36px"><input type="checkbox" class="dlg-miss" value="' + esc(c.item_key) + '"' +
+          (c.is_checked ? '' : ' checked') + '> ' + esc(c.label) + '</label>';
+      }).join('');
+    }
+    dialog({
+      title: ui.label, message: (ui.confirm || '').replace('{no}', t.ticket_no), html: html,
+      comment: ui.comment, commentLabel: ui.commentLabel, danger: ui.cls === 'danger', confirmText: ui.label,
+      validate: function (root) { if (ui.select === 'sr' && !$('#dlg-sr', root).value) return 'กรุณาเลือก SR'; return null; }
+    }).then(function (res) {
+      if (!res) return;
+      const payload = { expected_version: t.version };
+      if (ui.select === 'sr') payload.sr_email = $('#dlg-sr', res.root).value;
+      if (ui.checklist) payload.missing_items = $all('.dlg-miss', res.root).filter(function (x) { return x.checked; }).map(function (x) { return x.value; });
+      toast('กำลังบันทึก...');
+      api('transitionTicket', t.ticket_id, action, res.comment, payload).then(function (r) {
+        toast(ui.label + ' สำเร็จ — ' + r.ticket.ticket_no + ' : ' + r.ticket.stage_label, 'ok');
+        refreshPoll();
+        load(view, t.ticket_id);
+      }).catch(function (e) {
+        toast(e.error, 'err');
+        if (e.code === 'VERSION_CONFLICT') load(view, t.ticket_id);
+      });
+    });
+  }
+
+  function bind(view, d) {
+    const t = d.ticket;
+    $all('[data-action]', view).forEach(function (b) { b.onclick = function () { runAction(view, d, b.getAttribute('data-action')); }; });
+    $all('[data-nav]', view).forEach(function (b) { b.onclick = function () { go({ page: b.getAttribute('data-nav'), id: t.ticket_id }); }; });
+    $all('[data-open]', view).forEach(function (a) {
+      a.onclick = function (e) {
+        e.preventDefault();
+        const w = window.open('about:blank', '_blank');   // open synchronously so pop-up blockers allow it
+        api('openAttachment', a.getAttribute('data-open')).then(function (r) {
+          if (w) w.location = r.url; else window.open(r.url, '_blank');
+        }).catch(function (err) { if (w) w.close(); toast(err.error, 'err'); });
+      };
+    });
+    $all('[data-del]', view).forEach(function (b) {
+      b.onclick = function () {
+        dialog({ title: 'ลบไฟล์แนบ', message: 'ยืนยันลบไฟล์นี้?', danger: true, confirmText: 'ลบ' }).then(function (res) {
+          if (!res) return;
+          api('deleteAttachment', b.getAttribute('data-del')).then(function () { toast('ลบไฟล์แล้ว', 'ok'); load(view, t.ticket_id); })
+            .catch(function (e) { toast(e.error, 'err'); });
+        });
+      };
+    });
+    const tl = $('#tl-data', view);
+    if (tl) tl.onchange = function () { $all('[data-kind="data"]', view).forEach(function (li) { li.hidden = !tl.checked; }); };
+    const input = $('#att-input', view);
+    if (input) {
+      input.onchange = function () {
+        const files = Array.prototype.slice.call(input.files || []);
+        input.value = '';
+        const box = $('#att-progress', view);
+        let chain = Promise.resolve();
+        files.forEach(function (f) {
+          chain = chain.then(function () {
+            const row = document.createElement('div');
+            row.innerHTML = '<div class="small">' + esc(f.name) + '</div><div class="progress"><div></div></div>';
+            box.appendChild(row);
+            return uploadFile(f, { ticket_id: t.ticket_id, category: $('#att-cat', view).value }, function (p) {
+              row.querySelector('.progress > div').style.width = Math.round(p * 100) + '%';
+            }).then(function () { toast('แนบไฟล์ ' + f.name + ' แล้ว', 'ok'); })
+              .catch(function (e) { toast(f.name + ': ' + e.error, 'err'); row.remove(); });
+          });
+        });
+        chain.then(function () { load(view, t.ticket_id); });
+      };
+    }
+  }
+
+  function load(view, id, isCurrent) {
+    api('getTicket', id).then(function (d) {
+      if (isCurrent && !isCurrent()) return;
+      view.innerHTML = header(d) + notices(d) + actionBar(d) + itemsHtml(d) + checklistHtml(d) + attachmentsHtml(d) + timelineHtml(d);
+      bind(view, d);
+    }).catch(function (e) {
+      if (isCurrent && !isCurrent()) return;
+      view.innerHTML = errorHtml(e, 'App.reload()') + '<p style="text-align:center"><button class="btn" onclick="App.go({page:\'tickets\'})">กลับไปหน้ารายการ</button></p>';
+    });
+  }
+
+  return {
+    render: function (view, route, isCurrent) {
+      if (!route.id) { go({ page: 'tickets' }, true); return; }
+      load(view, route.id, isCurrent);
+    }
+  };
+})();
+</script>

@@ -76,8 +76,11 @@ function enqueueNotifications_(emails, t, type, title, body, link) {
   return rowsToInsert.length;
 }
 
-/** Web-app deep link to a ticket page. */
+/** Web-app deep link to a ticket page (deployed /exec URL, or Script Property WEBAPP_URL). */
 function ticketLink_(t, page) {
-  const base = PropertiesService.getScriptProperties().getProperty(CFG.PROP.WEBAPP_URL) || '';
+  let base = PropertiesService.getScriptProperties().getProperty(CFG.PROP.WEBAPP_URL) || '';
+  if (!base) {
+    try { base = ScriptApp.getService().getUrl() || ''; } catch (e) { base = ''; }
+  }
   return base + '?page=' + (page || 'ticket') + '&id=' + encodeURIComponent(t.ticket_id);
 }

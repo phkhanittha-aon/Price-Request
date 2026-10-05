@@ -1,0 +1,268 @@
+<!--
+  File: PageForm.html
+  Create a price request (page=new) or edit one that is still pending_manager / returned (page=edit).
+  - client_key generated once per form → a double click or a retry after timeout creates ONE ticket
+  - item_id generated in the browser → re-saving an item never duplicates it
+  - draft kept in memory while navigating inside the app
+-->
+<script>
+Pages.new = Pages.edit = (function () {
+  const UOMS = ['กก.', 'ตัน', 'กล่อง', 'แพ็ค', 'ชิ้น', 'เครื่อง', 'ชุด', 'แผง', 'เมตร', 'ม้วน', 'ขวด', 'ซอง', 'ลิตร'];
+
+  function blankItem() {
+    return { item_id: uuid(), product_group_code: '', product_name: '', spec: '', description: '', qty: '', uom: '', target_price: '', target_currency: 'THB' };
+  }
+  function newDraft() {
+    return { client_key: uuid(), title: '', customer_name: '', priority: 'normal', due_date: '', description: '', items: [blankItem()], files: [] };
+  }
+
+  function itemHtml(it, i, count) {
+    const cur = state.ref.currencies.map(function (c) { return '<option' + (it.target_currency === c ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('');
+    return '<div class="item-row" data-i="' + i + '"><div class="head"><span>รายการที่ ' + (i + 1) + '</span><span class="sep"></span>' +
+      (count > 1 ? '<button type="button" class="btn sm danger" data-remove="' + i + '">ลบรายการ</button>' : '') + '</div>' +
+      '<div class="row">' +
+      '<label class="field" style="flex:1 1 260px"><span>กลุ่มสินค้า <span class="req">*</span></span><select data-k="product_group_code">' + groupOptions(it.product_group_code, false) + '</select></label>' +
+      '<label class="field" style="flex:2 1 260px"><span>ชื่อสินค้า <span class="req">*</span></span><input type="text" data-k="product_name" maxlength="300" value="' + esc(it.product_name) + '"></label>' +
+      '</div><div class="row">' +
+      '<label class="field" style="flex:1 1 120px"><span>จำนวน <span class="req">*</span></span><input type="number" inputmode="decimal" min="0" step="any" data-k="qty" value="' + esc(it.qty) + '"></label>' +
+      '<label class="field" style="flex:1 1 120px"><span>หน่วย <span class="req">*</span></span><input type="text" list="uom-list" data-k="uom" maxlength="30" value="' + esc(it.uom) + '"></label>' +
+      '<label class="field" style="flex:1 1 140px"><span>ราคาเป้าหมาย/หน่วย</span><input type="number" inputmode="decimal" min="0" step="any" data-k="target_price" value="' + esc(it.target_price) + '"></label>' +
+      '<label class="field" style="flex:0 1 110px"><span>สกุลเงิน</span><select data-k="target_currency">' + cur + '</select></label>' +
+      '</div>' +
+      '<label class="field"><span>Spec (ขนาด / เกรด / รุ่น / kW ฯลฯ)</span><input type="text" data-k="spec" maxlength="2000" value="' + esc(it.spec) + '"></label>' +
+      '<label class="field"><span>รายละเอียดเพิ่มเติม</span><textarea data-k="description" maxlength="2000">' + esc(it.description) + '</textarea></label>' +
+      '</div>';
+  }
+
+  function formHtml(d, mode, ticket) {
+    return '<div class="page-head"><h1>' + (mode === 'edit' ? 'แก้ไข ' + esc(ticket.ticket_no) : 'สร้างใบขอราคา') + '</h1></div>' +
+      (mode === 'edit' && ticket.stage === 'returned' ? '<div class="notice warn">Manager ส่งกลับให้แก้ไข — แก้แล้วกด “บันทึกและส่งให้ Manager อีกครั้ง”</div>' : '') +
+      '<form id="pr-form" novalidate><div class="card"><h3>ข้อมูลใบขอราคา</h3>' +
+      '<label class="field"><span>ชื่อเรื่อง <span class="req">*</span></span><input type="text" id="f-title" maxlength="200" value="' + esc(d.title) + '" placeholder="เช่น Inverter 50kW สำหรับโครงการ ABC"></label>' +
+      '<div class="row">' +
+      '<label class="field"><span>ลูกค้า / โครงการ</span><input type="text" id="f-customer" maxlength="200" value="' + esc(d.customer_name) + '"></label>' +
+      '<label class="field"><span>ความเร่งด่วน</span><select id="f-priority">' +
+      [['low', 'ต่ำ'], ['normal', 'ปกติ'], ['high', 'สูง'], ['urgent', 'ด่วนมาก']].map(function (o) {
+        return '<option value="' + o[0] + '"' + (d.priority === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
+      '<label class="field"><span>ต้องการราคาภายในวันที่</span><input type="date" id="f-due" min="' + todayYmd(0) + '" value="' + esc(d.due_date) + '"></label>' +
+      '</div><label class="field"><span>รายละเอียด / หมายเหตุถึง SR</span><textarea id="f-desc" maxlength="2000">' + esc(d.description) + '</textarea></label></div>' +
+      '<div class="card"><h3>รายการสินค้า</h3><div id="items">' + d.items.map(function (it, i) { return itemHtml(it, i, d.items.length); }).join('') + '</div>' +
+      '<button type="button" class="btn" id="add-item">+ เพิ่มรายการสินค้า</button></div>' +
+      (mode === 'new' ? '<div class="card"><h3>ไฟล์แนบ (ไม่บังคับ)</h3><p class="small muted">Spec, รูปสินค้า, Datasheet, ใบอนุญาต ฯลฯ — PDF/รูป/Excel ไม่เกิน ' + state.ref.max_upload_mb +
+        ' MB ต่อไฟล์ ระบบจะอัปโหลดหลังสร้างใบเสร็จ</p><input type="file" id="f-files" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.xls,.xlsx,.csv">' +
+        '<div id="file-list" class="small"></div></div>' : '') +
+      '<datalist id="uom-list">' + UOMS.map(function (u) { return '<option value="' + esc(u) + '">'; }).join('') + '</datalist>' +
+      '<div class="err-text" id="form-err" style="margin-bottom:8px"></div>' +
+      '<div class="actions"><button type="button" class="btn" id="cancel-btn">ยกเลิก</button><span class="sep"></span>' +
+      (mode === 'edit' ? '<button type="button" class="btn" id="save-btn">บันทึก</button>' +
+        (ticket.stage === 'returned' ? '<button type="button" class="btn primary" id="save-resubmit">บันทึกและส่งให้ Manager อีกครั้ง</button>' : '')
+        : '<button type="button" class="btn primary" id="save-btn">ส่งใบขอราคาให้ Manager</button>') +
+      '</div><div id="upload-progress" style="margin-top:12px"></div></form>';
+  }
+
+  /** Read the form into the draft object (so re-render / navigation keeps input). */
+  function collect(view, d) {
+    d.title = $('#f-title', view).value;
+    d.customer_name = $('#f-customer', view).value;
+    d.priority = $('#f-priority', view).value;
+    d.due_date = $('#f-due', view).value;
+    d.description = $('#f-desc', view).value;
+    $all('.item-row', view).forEach(function (row) {
+      const it = d.items[Number(row.getAttribute('data-i'))];
+      $all('[data-k]', row).forEach(function (el) { it[el.getAttribute('data-k')] = el.value; });
+    });
+  }
+
+  /** Client-side validation (server repeats all of it). Returns number of errors. */
+  function validate(view, d) {
+    $all('.invalid', view).forEach(function (el) { el.classList.remove('invalid'); });
+    $all('.field .err-text', view).forEach(function (el) { el.remove(); });
+    let errors = 0;
+    const mark = function (el, msg) {
+      errors++;
+      el.classList.add('invalid');
+      const m = document.createElement('div');
+      m.className = 'err-text';
+      m.textContent = msg;
+      el.parentNode.appendChild(m);
+    };
+    if (d.title.trim().length < 3) mark($('#f-title', view), 'กรุณากรอกชื่อเรื่องอย่างน้อย 3 ตัวอักษร');
+    $all('.item-row', view).forEach(function (row) {
+      const get = function (k) { return $('[data-k="' + k + '"]', row); };
+      if (!get('product_group_code').value) mark(get('product_group_code'), 'เลือกกลุ่มสินค้า');
+      if (!get('product_name').value.trim()) mark(get('product_name'), 'กรอกชื่อสินค้า');
+      const q = Number(get('qty').value);
+      if (!get('qty').value || !(q > 0)) mark(get('qty'), 'จำนวนต้องมากกว่า 0');
+      if (!get('uom').value.trim()) mark(get('uom'), 'กรอกหน่วย');
+      if (get('target_price').value !== '' && Number(get('target_price').value) < 0) mark(get('target_price'), 'ต้องไม่ติดลบ');
+    });
+    $('#form-err', view).textContent = errors ? 'ยังกรอกไม่ครบ ' + errors + ' ช่อง (ไฮไลต์สีแดง)' : '';
+    if (errors) { const first = $('.invalid', view); if (first) first.focus(); }
+    return errors;
+  }
+
+  function payloadItem(it) {
+    return { item_id: it.item_id, product_group_code: it.product_group_code, product_name: it.product_name.trim(), spec: it.spec, description: it.description,
+      qty: it.qty, uom: it.uom.trim(), target_price: it.target_price, target_currency: it.target_currency };
+  }
+
+  function setBusy(view, busy, text) {
+    $all('#pr-form button', view).forEach(function (b) { b.disabled = busy; });
+    const btn = $('#save-btn', view);
+    if (btn && text) btn.textContent = text;
+  }
+
+  function uploadAll(view, ticketId, files) {
+    const box = $('#upload-progress', view);
+    let chain = Promise.resolve();
+    let failed = 0;
+    files.forEach(function (f) {
+      chain = chain.then(function () {
+        const row = document.createElement('div');
+        row.innerHTML = '<div class="small">' + esc(f.name) + '</div><div class="progress"><div></div></div>';
+        box.appendChild(row);
+        return uploadFile(f, { ticket_id: ticketId, category: 'request' }, function (p) {
+          row.querySelector('.progress > div').style.width = Math.round(p * 100) + '%';
+        }).catch(function (e) { failed++; toast(f.name + ': ' + e.error, 'err'); });
+      });
+    });
+    return chain.then(function () { return failed; });
+  }
+
+  function submitNew(view, d) {
+    collect(view, d);
+    if (validate(view, d)) return;
+    setBusy(view, true, 'กำลังส่ง...');
+    api('createTicket', {
+      client_key: d.client_key, title: d.title.trim(), customer_name: d.customer_name, priority: d.priority, due_date: d.due_date,
+      description: d.description, items: d.items.map(payloadItem)
+    }).then(function (res) {
+      const t = res.ticket;
+      return uploadAll(view, t.ticket_id, d.files).then(function (failed) {
+        delete state.drafts['new'];
+        toast('ส่งใบขอราคา ' + t.ticket_no + ' ให้ Manager แล้ว' + (failed ? ' (ไฟล์แนบไม่สำเร็จ ' + failed + ' ไฟล์ — แนบใหม่ได้ในหน้ารายละเอียด)' : ''), failed ? 'err' : 'ok', 7000);
+        refreshPoll();
+        go({ page: 'ticket', id: t.ticket_id }, true);
+      });
+    }).catch(function (e) {
+      setBusy(view, false, 'ส่งใบขอราคาให้ Manager');
+      $('#form-err', view).textContent = e.error;
+      toast(e.error, 'err');
+    });
+  }
+
+  /** Edit: header + items saved one call at a time, carrying the new version forward. */
+  function submitEdit(view, d, original, resubmit) {
+    collect(view, d);
+    if (validate(view, d)) return;
+    setBusy(view, true);
+    const t = original.ticket;
+    let version = t.version;
+    const steps = [];
+    const header = { title: d.title.trim(), customer_name: d.customer_name, priority: d.priority, due_date: d.due_date, description: d.description };
+    steps.push(function () {
+      return api('updateTicketRequest', t.ticket_id, header, version).then(function (r) { version = r.ticket.version; });
+    });
+    const keep = {};
+    d.items.forEach(function (it) {
+      keep[it.item_id] = true;
+      steps.push(function () {
+        return api('saveItem', t.ticket_id, payloadItem(it), version).then(function (r) { version = r.version; });
+      });
+    });
+    original.items.forEach(function (it) {
+      if (!keep[it.item_id]) steps.push(function () {
+        return api('deleteItem', t.ticket_id, it.item_id, version).then(function (r) { version = r.version; });
+      });
+    });
+    if (resubmit) steps.push(function () {
+      return api('transitionTicket', t.ticket_id, 'resubmit', '', { expected_version: version });
+    });
+    steps.reduce(function (p, step) { return p.then(step); }, Promise.resolve()).then(function () {
+      delete state.drafts['edit:' + t.ticket_id];
+      toast(resubmit ? 'บันทึกและส่งให้ Manager แล้ว' : 'บันทึกการแก้ไขแล้ว', 'ok');
+      refreshPoll();
+      go({ page: 'ticket', id: t.ticket_id }, true);
+    }).catch(function (e) {
+      setBusy(view, false);
+      $('#form-err', view).textContent = e.error;
+      toast(e.error, 'err');
+    });
+  }
+
+  function mount(view, d, mode, original) {
+    view.innerHTML = formHtml(d, mode, original && original.ticket);
+    const rerender = function () { collect(view, d); mount(view, d, mode, original); };
+    $('#add-item', view).onclick = function () {
+      collect(view, d);
+      if (d.items.length >= 100) { toast('ใบขอราคา 1 ใบมีได้ไม่เกิน 100 รายการ', 'err'); return; }
+      d.items.push(blankItem());
+      mount(view, d, mode, original);
+      const rows = $all('.item-row', view);
+      rows[rows.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    $all('[data-remove]', view).forEach(function (b) {
+      b.onclick = function () { collect(view, d); d.items.splice(Number(b.getAttribute('data-remove')), 1); rerender(); };
+    });
+    $('#pr-form', view).addEventListener('input', function () { collect(view, d); });
+    $('#cancel-btn', view).onclick = function () {
+      if (mode === 'edit') go({ page: 'ticket', id: original.ticket.ticket_id });
+      else { delete state.drafts['new']; go({ page: 'tickets', scope: 'mine' }); }
+    };
+    const files = $('#f-files', view);
+    if (files) {
+      const showFiles = function () {
+        $('#file-list', view).innerHTML = d.files.map(function (f, i) {
+          const tooBig = f.size > state.ref.max_upload_mb * 1048576;
+          return '<div>' + (tooBig ? '⛔ ' : '📎 ') + esc(f.name) + ' (' + fileSize(f.size) + ')' + (tooBig ? ' <span class="err-text">ใหญ่เกินกำหนด</span>' : '') +
+            ' <button type="button" class="btn sm ghost" data-rmf="' + i + '">เอาออก</button></div>';
+        }).join('');
+        $all('[data-rmf]', view).forEach(function (b) { b.onclick = function () { d.files.splice(Number(b.getAttribute('data-rmf')), 1); showFiles(); }; });
+      };
+      files.onchange = function () {
+        Array.prototype.slice.call(files.files).forEach(function (f) {
+          if (f.size <= state.ref.max_upload_mb * 1048576) d.files.push(f); else toast(f.name + ': ไฟล์ใหญ่เกิน ' + state.ref.max_upload_mb + ' MB', 'err');
+        });
+        files.value = '';
+        showFiles();
+      };
+      showFiles();
+    }
+    if (mode === 'new') $('#save-btn', view).onclick = function () { submitNew(view, d); };
+    else {
+      $('#save-btn', view).onclick = function () { submitEdit(view, d, original, false); };
+      if ($('#save-resubmit', view)) $('#save-resubmit', view).onclick = function () { submitEdit(view, d, original, true); };
+    }
+  }
+
+  return {
+    render: function (view, route, isCurrent) {
+      if (route.page === 'new') {
+        if (state.me.role !== 'sales') { view.innerHTML = errorHtml({ error: 'เฉพาะ Sales เท่านั้นที่สร้างใบขอราคาได้' }); return; }
+        const d = state.drafts['new'] = state.drafts['new'] || newDraft();
+        mount(view, d, 'new', null);
+        return;
+      }
+      if (!route.id) { go({ page: 'tickets' }, true); return; }
+      api('getTicket', route.id).then(function (o) {
+        if (!isCurrent()) return;
+        if (!o.permissions.can_edit_request) {
+          view.innerHTML = errorHtml({ error: 'ใบนี้แก้ไขไม่ได้แล้ว (แก้ได้เฉพาะ Sales เจ้าของใบ ก่อน Manager อนุมัติ)' }) +
+            '<p style="text-align:center"><button class="btn" onclick="App.go({page:\'ticket\',id:\'' + esc(route.id) + '\'})">กลับไปหน้าใบขอราคา</button></p>';
+          return;
+        }
+        const key = 'edit:' + route.id;
+        const t = o.ticket;
+        const d = state.drafts[key] = state.drafts[key] || {
+          title: t.title, customer_name: t.customer_name || '', priority: t.priority, due_date: t.due_date || '', description: t.description || '',
+          items: o.items.map(function (it) {
+            return { item_id: it.item_id, product_group_code: it.product_group_code, product_name: it.product_name, spec: it.spec, description: it.description,
+              qty: it.qty, uom: it.uom, target_price: it.target_price == null ? '' : it.target_price, target_currency: it.target_currency };
+          }), files: []
+        };
+        mount(view, d, 'edit', o);
+      }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+    }
+  };
+})();
+</script>

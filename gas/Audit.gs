@@ -97,27 +97,30 @@ function normForDiff_(v) {
 
 /**
  * Admin / owner tool: recompute the whole chain. Run from the editor.
- * Returns { ok, rows, brokenAt? }.
+ * Returns { ok, data: { valid, rows, brokenAt?, reason? } }.
  */
 function verifyLogChain() {
   return api_('verifyLogChain', function () {
     requireAdminOrOwner_();
-    const list = rows_(TAB.LOGS).slice().sort(function (a, b) { return Number(a.log_id) - Number(b.log_id); });
-    let prev = 'GENESIS';
-    for (let i = 0; i < list.length; i++) {
-      const r = list[i];
-      if (Number(r.log_id) !== i + 1) {
-        return { valid: false, rows: list.length, brokenAt: r.log_id, reason: 'log_id ไม่ต่อเนื่อง (มีการลบหรือแทรกแถว)' };
-      }
-      if (String(r.prev_hash) !== prev) {
-        return { valid: false, rows: list.length, brokenAt: r.log_id, reason: 'prev_hash ไม่ตรงกับแถวก่อนหน้า' };
-      }
-      const expected = sha256Hex_(logCanonical_(r));
-      if (expected !== String(r.hash)) {
-        return { valid: false, rows: list.length, brokenAt: r.log_id, reason: 'ข้อมูลในแถวถูกแก้ไข (hash ไม่ตรง)' };
-      }
-      prev = String(r.hash);
-    }
-    return { valid: true, rows: list.length };
+    return verifyLogChainCore_();
   });
+}
+
+function verifyLogChainCore_() {
+  const list = rows_(TAB.LOGS).slice().sort(function (a, b) { return Number(a.log_id) - Number(b.log_id); });
+  let prev = 'GENESIS';
+  for (let i = 0; i < list.length; i++) {
+    const r = list[i];
+    if (Number(r.log_id) !== i + 1) {
+      return { valid: false, rows: list.length, brokenAt: r.log_id, reason: 'log_id ไม่ต่อเนื่อง (มีการลบหรือแทรกแถว)' };
+    }
+    if (String(r.prev_hash) !== prev) {
+      return { valid: false, rows: list.length, brokenAt: r.log_id, reason: 'prev_hash ไม่ตรงกับแถวก่อนหน้า' };
+    }
+    if (sha256Hex_(logCanonical_(r)) !== String(r.hash)) {
+      return { valid: false, rows: list.length, brokenAt: r.log_id, reason: 'ข้อมูลในแถวถูกแก้ไข (hash ไม่ตรง)' };
+    }
+    prev = String(r.hash);
+  }
+  return { valid: true, rows: list.length };
 }

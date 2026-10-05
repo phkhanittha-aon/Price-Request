@@ -1,0 +1,341 @@
+<!--
+  File: App.html
+  Core client code: server calls, router, shared UI helpers, notifications, uploads.
+  Pages register themselves in `Pages` (see Page*.html).
+-->
+<script>
+/* ===== 1. State ===== */
+const state = {
+  me: null, ref: null, menu: [], poll: { inbox: 0, unread: 0 },
+  route: { page: 'dashboard' }, renderSeq: 0, drafts: {}
+};
+const Pages = {};
+
+/* ===== 2. Server calls ===== */
+/**
+ * Promise wrapper over google.script.run. Resolves with `data`, rejects with { code, error }.
+ * Every call has a failure handler and a timeout (Apps Script calls are slow on mobile networks).
+ */
+function api(fn) {
+  const args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function (resolve, reject) {
+    let settled = false;
+    const timer = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      reject({ code: 'TIMEOUT', error: 'ยังไม่ทราบผลจากเซิร์ฟเวอร์ — กรุณาตรวจสอบสถานะก่อนกดซ้ำ' });
+    }, 60000);
+    const runner = google.script.run
+      .withSuccessHandler(function (res) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (res && res.ok) resolve(res.data);
+        else reject(res || { code: 'SYSTEM_ERROR', error: 'ระบบตอบกลับไม่ถูกต้อง' });
+      })
+      .withFailureHandler(function (e) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject({ code: 'NETWORK', error: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ กรุณาลองใหม่ (' + ((e && e.message) || e) + ')' });
+      });
+    runner[fn].apply(runner, args);
+  });
+}
+
+/* ===== 3. Helpers ===== */
+function esc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function $(sel, root) { return (root || document).querySelector(sel); }
+function $all(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+function uuid() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+const nf0 = new Intl.NumberFormat('th-TH', { maximumFractionDigits: 0 });
+const nf2 = new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nf4 = new Intl.NumberFormat('th-TH', { maximumFractionDigits: 4 });
+function fmtInt(n) { return n == null || n === '' ? '–' : nf0.format(Number(n)); }
+function fmtMoney(n) { return n == null || n === '' || isNaN(n) ? '–' : nf2.format(Number(n)); }
+function fmtNum(n) { return n == null || n === '' || isNaN(n) ? '–' : nf4.format(Number(n)); }
+const dtf = new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+const df = new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short', year: 'numeric' });
+function fmtDateTime(iso) { return iso ? dtf.format(new Date(iso)) : '–'; }
+function fmtDate(ymdOrIso) {
+  if (!ymdOrIso) return '–';
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(ymdOrIso) ? new Date(ymdOrIso + 'T00:00:00+07:00') : new Date(ymdOrIso);
+  return df.format(d);
+}
+function todayYmd(offsetDays) {
+  const d = new Date(Date.now() + (offsetDays || 0) * 86400000 + 7 * 3600000);
+  return d.toISOString().slice(0, 10);
+}
+function fmtHours(h) {
+  if (h == null || h === '') return '–';
+  if (h < 1) return Math.round(h * 60) + ' นาที';
+  if (h < 48) return (Math.round(h * 10) / 10) + ' ชม.';
+  return (Math.round(h / 24 * 10) / 10) + ' วัน';
+}
+function fileSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB'; }
+function debounce(fn, ms) {
+  let t; return function () { const a = arguments; clearTimeout(t); t = setTimeout(function () { fn.apply(null, a); }, ms); };
+}
+function statusBadge(status, label) { return '<span class="badge st-' + esc(status) + '">' + esc(label || status) + '</span>'; }
+function stageText(stage) { return (state.ref && state.ref.stage_labels[stage]) || stage; }
+/** SLA: colour + icon + words (never colour alone). */
+function slaBadge(s) {
+  const map = {
+    ok: ['ok', '✓', 'ตามเวลา'], warning: ['warning', '⚠', 'ใกล้ครบ SLA'], breach: ['breach', '⛔', 'เกิน SLA'],
+    none: ['', '', ''], done: ['', '', '']
+  };
+  const m = map[s] || map.none;
+  return m[2] ? '<span class="sla ' + m[0] + '">' + m[1] + ' ' + m[2] + '</span>' : '';
+}
+function prioText(p) {
+  const map = { low: 'ต่ำ', normal: 'ปกติ', high: 'สูง', urgent: 'ด่วนมาก' };
+  return '<span class="prio-' + esc(p) + '">' + esc(map[p] || p) + '</span>';
+}
+function groupName(code) {
+  const g = (state.ref.product_groups || []).filter(function (x) { return x.code === code; })[0];
+  return g ? g.name : code;
+}
+function groupOptions(selected, includeAll) {
+  const groups = state.ref.product_groups;
+  const parents = groups.filter(function (g) { return !g.parent_code; });
+  let html = includeAll ? '<option value="">ทุกกลุ่มสินค้า</option>' : '<option value="">— เลือกกลุ่มสินค้า —</option>';
+  parents.forEach(function (p) {
+    const kids = groups.filter(function (g) { return g.parent_code === p.code; });
+    html += '<optgroup label="' + esc(p.name) + '">';
+    if (includeAll || !kids.length) {
+      html += '<option value="' + esc(p.code) + '"' + (selected === p.code ? ' selected' : '') + '>' + esc(p.name) + (includeAll ? ' (ทั้งหมด)' : '') + '</option>';
+    }
+    kids.forEach(function (k) {
+      html += '<option value="' + esc(k.code) + '"' + (selected === k.code ? ' selected' : '') + '>' + esc(k.name) + '</option>';
+    });
+    html += '</optgroup>';
+  });
+  return html;
+}
+function loadingHtml(text) { return '<div class="loading"><span class="spinner"></span>' + esc(text || 'กำลังโหลดข้อมูล...') + '</div>'; }
+function errorHtml(err, retryJs) {
+  return '<div class="error-box"><p>' + esc((err && err.error) || 'เกิดข้อผิดพลาด') + '</p>' +
+    (retryJs ? '<button class="btn" onclick="' + retryJs + '">ลองใหม่</button>' : '') + '</div>';
+}
+
+/* ===== 4. Toast, dialogs, tooltip ===== */
+function toast(msg, type, ms) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + (type || '');
+  el.textContent = msg;
+  $('#toast-root').appendChild(el);
+  setTimeout(function () { el.remove(); }, ms || (type === 'err' ? 7000 : 4000));
+}
+
+/**
+ * Generic dialog. opts: { title, message, html, confirmText, danger, comment: 'none'|'optional'|'required',
+ *   commentLabel, validate(root) → string|null, onOpen(root) }
+ * Resolves with { comment, root } or null when cancelled.
+ */
+function dialog(opts) {
+  return new Promise(function (resolve) {
+    const o = opts || {};
+    const root = document.createElement('div');
+    root.className = 'overlay';
+    const needComment = o.comment && o.comment !== 'none';
+    root.innerHTML = '<div class="dialog" role="dialog" aria-modal="true">' +
+      '<h3>' + esc(o.title || 'ยืนยัน') + '</h3>' +
+      (o.message ? '<p>' + esc(o.message) + '</p>' : '') + (o.html || '') +
+      (needComment ? '<label class="field"><span>' + esc(o.commentLabel || 'หมายเหตุ') +
+        (o.comment === 'required' ? ' <span class="req">*</span>' : ' <span class="muted">(ไม่บังคับ)</span>') +
+        '</span><textarea id="dlg-comment" maxlength="2000"></textarea></label>' : '') +
+      '<div class="err-text" id="dlg-err"></div>' +
+      '<div class="actions" style="margin-top:12px"><span class="sep"></span>' +
+      '<button class="btn" id="dlg-cancel">ยกเลิก</button>' +
+      '<button class="btn ' + (o.danger ? 'danger' : 'primary') + '" id="dlg-ok">' + esc(o.confirmText || 'ยืนยัน') + '</button></div></div>';
+    $('#modal-root').appendChild(root);
+    const close = function (val) { root.remove(); document.removeEventListener('keydown', onKey); resolve(val); };
+    const onKey = function (e) { if (e.key === 'Escape') close(null); };
+    document.addEventListener('keydown', onKey);
+    root.addEventListener('click', function (e) { if (e.target === root) close(null); });
+    $('#dlg-cancel', root).onclick = function () { close(null); };
+    $('#dlg-ok', root).onclick = function () {
+      const comment = needComment ? $('#dlg-comment', root).value.trim() : '';
+      let err = '';
+      if (o.comment === 'required' && !comment) err = 'กรุณากรอก ' + (o.commentLabel || 'หมายเหตุ');
+      if (!err && o.validate) err = o.validate(root) || '';
+      if (err) { $('#dlg-err', root).textContent = err; return; }
+      close({ comment: comment, root: root });
+    };
+    if (o.onOpen) o.onOpen(root);
+    const first = $('textarea, select, input', root) || $('#dlg-ok', root);
+    if (first) first.focus();
+  });
+}
+
+/* Hover / tap tooltip for chart marks: any element with data-tip */
+(function () {
+  const show = function (e) {
+    const t = e.target.closest && e.target.closest('[data-tip]');
+    const tip = document.getElementById('tip');
+    if (!t || !tip) { if (tip) tip.style.display = 'none'; return; }
+    tip.textContent = t.getAttribute('data-tip');
+    tip.style.display = 'block';
+    const x = (e.touches ? e.touches[0].clientX : e.clientX) + 14;
+    const y = (e.touches ? e.touches[0].clientY : e.clientY) + 14;
+    tip.style.left = Math.min(x, window.innerWidth - tip.offsetWidth - 8) + 'px';
+    tip.style.top = Math.min(y, window.innerHeight - tip.offsetHeight - 8) + 'px';
+  };
+  document.addEventListener('mousemove', show);
+  document.addEventListener('touchstart', show, { passive: true });
+  document.addEventListener('scroll', function () { const tip = document.getElementById('tip'); if (tip) tip.style.display = 'none'; }, true);
+})();
+
+/* ===== 5. Router (google.script.history keeps the browser back button working) ===== */
+const ROUTE_KEYS = ['page', 'id', 'scope'];
+function cleanRoute(p) {
+  const r = {};
+  ROUTE_KEYS.forEach(function (k) { if (p && p[k]) r[k] = String(p[k]); });
+  if (!r.page || ['dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing'].indexOf(r.page) === -1) r.page = 'dashboard';
+  return r;
+}
+function go(route, replace) {
+  const r = cleanRoute(route);
+  if (replace) google.script.history.replace(r, r);
+  else google.script.history.push(r, r);
+  render(r);
+}
+function render(route) {
+  state.route = cleanRoute(route);
+  const seq = ++state.renderSeq;
+  renderNav();
+  window.scrollTo(0, 0);
+  const view = $('#view');
+  const page = Pages[state.route.page] || Pages.dashboard;
+  view.innerHTML = loadingHtml();
+  try {
+    page.render(view, state.route, function isCurrent() { return seq === state.renderSeq; });
+  } catch (e) {
+    view.innerHTML = errorHtml({ error: 'หน้าจอขัดข้อง: ' + e.message }, 'App.reload()');
+    console.error(e);
+  }
+}
+function routeKey(r) { return r.page + '|' + (r.scope || ''); }
+function renderNav() {
+  const cur = state.route;
+  $('#nav').innerHTML = state.menu.map(function (m, i) {
+    const active = routeKey(cleanRoute(m.route)) === routeKey(cur) && !cur.id;
+    const count = m.badge === 'inbox' && state.poll.inbox ? '<span class="count">' + state.poll.inbox + '</span>' : '';
+    return '<button data-i="' + i + '" class="' + (active ? 'active ' : '') + (m.primary ? 'primary' : '') + '">' + esc(m.label) + count + '</button>';
+  }).join('');
+  $all('#nav button').forEach(function (b) {
+    b.onclick = function () { go(state.menu[Number(b.getAttribute('data-i'))].route); };
+  });
+}
+
+/* ===== 6. Notifications & polling ===== */
+function applyPoll(p) {
+  state.poll = p || state.poll;
+  const dot = $('#bell-dot');
+  dot.hidden = !state.poll.unread;
+  dot.textContent = state.poll.unread > 99 ? '99+' : state.poll.unread;
+  renderNav();
+}
+function refreshPoll() { return api('getPoll').then(applyPoll).catch(function () { /* silent: next tick retries */ }); }
+function startPolling() {
+  setInterval(function () { if (document.visibilityState === 'visible') refreshPoll(); }, 60000);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') refreshPoll(); });
+}
+function openNotifications() {
+  const root = document.createElement('div');
+  root.innerHTML = '<div class="overlay" id="nt-ov"></div><aside class="drawer" role="dialog" aria-label="การแจ้งเตือน">' +
+    '<header><h3>การแจ้งเตือน</h3><button class="btn sm" id="nt-all">อ่านทั้งหมด</button>' +
+    '<button class="btn sm ghost" id="nt-close" aria-label="ปิด">✕</button></header><div class="list" id="nt-list">' + loadingHtml() + '</div></aside>';
+  $('#modal-root').appendChild(root);
+  const close = function () { root.remove(); };
+  $('#nt-ov', root).onclick = close;
+  $('#nt-close', root).onclick = close;
+  $('#nt-all', root).onclick = function () {
+    api('markNotificationsRead', null).then(function () { close(); refreshPoll(); toast('อ่านทั้งหมดแล้ว', 'ok'); })
+      .catch(function (e) { toast(e.error, 'err'); });
+  };
+  api('getNotifications', 50).then(function (d) {
+    const list = $('#nt-list', root);
+    if (!d.items.length) { list.innerHTML = '<div class="empty">ยังไม่มีการแจ้งเตือน</div>'; return; }
+    list.innerHTML = d.items.map(function (n) {
+      return '<button class="notif ' + (n.is_read ? '' : 'unread') + '" data-id="' + esc(n.notif_id) + '" data-t="' + esc(n.ticket_id) + '">' +
+        '<div class="t">' + esc(n.title) + '</div><div class="small muted">' + esc(n.created_bkk) + '</div>' +
+        '<div class="small" style="white-space:pre-line">' + esc(n.body).slice(0, 300) + '</div></button>';
+    }).join('');
+    $all('.notif', list).forEach(function (b) {
+      b.onclick = function () {
+        const id = b.getAttribute('data-id');
+        api('markNotificationsRead', [id]).then(refreshPoll).catch(function () {});
+        close();
+        if (b.getAttribute('data-t')) go({ page: 'ticket', id: b.getAttribute('data-t') });
+      };
+    });
+  }).catch(function (e) { $('#nt-list', root).innerHTML = errorHtml(e); });
+}
+
+/* ===== 7. Chunked upload (≤ 20 MB, 2 MB per call, progress + one retry per chunk) ===== */
+function readSliceBase64(file, start, end) {
+  return new Promise(function (resolve, reject) {
+    const r = new FileReader();
+    r.onload = function () { const s = String(r.result); resolve(s.slice(s.indexOf(',') + 1)); };
+    r.onerror = function () { reject({ code: 'FILE_READ', error: 'อ่านไฟล์ไม่สำเร็จ' }); };
+    r.readAsDataURL(file.slice(start, end));
+  });
+}
+function uploadFile(file, meta, onProgress) {
+  const maxMb = state.ref.max_upload_mb || 20;
+  if (file.size > maxMb * 1048576) return Promise.reject({ code: 'FILE_TOO_LARGE', error: file.name + ': ไฟล์ใหญ่เกิน ' + maxMb + ' MB' });
+  return api('beginUpload', Object.assign({}, meta, { file_name: file.name, mime_type: file.type, size_bytes: file.size }))
+    .then(function (s) {
+      let index = 0;
+      const next = function () {
+        const start = index * s.chunk_bytes;
+        const end = Math.min(start + s.chunk_bytes, file.size);
+        return readSliceBase64(file, start, end).then(function (b64) {
+          const send = function () { return api('uploadChunk', s.upload_id, index, b64); };
+          return send().catch(function (e) { if (e.code === 'NETWORK' || e.code === 'TIMEOUT') return send(); throw e; });
+        }).then(function (res) {
+          index++;
+          if (onProgress) onProgress(Math.min(1, end / file.size));
+          if (res.done) return res.attachment;
+          return next();
+        });
+      };
+      return next();
+    });
+}
+
+/* ===== 8. Boot ===== */
+const App = {
+  start: function () {
+    $('#brand').onclick = function () { go({ page: 'dashboard' }); };
+    $('#bell').onclick = openNotifications;
+    api('getBootstrap').then(function (b) {
+      state.me = b.me; state.ref = b.ref; state.menu = b.menu;
+      $('#who').innerHTML = '<div>' + esc(b.me.full_name) + '</div><small>' + esc(b.me.role_label) +
+        (b.me.is_sr_lead ? ' · Lead' : '') + ' <span class="email">· ' + esc(b.me.email) + '</span></small>';
+      applyPoll(b.poll);
+      google.script.history.setChangeHandler(function (e) { render(e.state || (e.location && e.location.parameter) || {}); });
+      google.script.url.getLocation(function (loc) { render(loc.parameter || {}); });
+      startPolling();
+    }).catch(function (e) {
+      $('#nav').innerHTML = '';
+      const unreg = e.code === 'NOT_REGISTERED' || e.code === 'INACTIVE_USER';
+      $('#view').innerHTML = '<div class="card" style="max-width:560px;margin:40px auto;text-align:center">' +
+        '<h2>' + (unreg ? 'ยังไม่มีสิทธิ์ใช้งานระบบ' : 'เปิดระบบไม่สำเร็จ') + '</h2><p>' + esc(e.error) + '</p>' +
+        (unreg ? '<p class="muted small">แจ้งผู้ดูแลระบบให้เพิ่มอีเมลของคุณในแท็บ Users พร้อมกำหนด role และแผนก</p>' :
+          '<button class="btn primary" onclick="App.reload()">ลองใหม่</button>') + '</div>';
+    });
+  },
+  reload: function () { render(state.route); },
+  go: go
+};
+</script>

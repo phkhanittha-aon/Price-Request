@@ -17,9 +17,13 @@ function runAcceptanceTests() {
     setupSchema_(tmp, { protect: false });
     withLock_(function () { seedMaster_(); seedUsers_(); });
     runCases_(results);
+    runPhase2Cases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
+    TEST_HTTP_ = null;
+    TEST_DRIVE_ = null;
+    TEST_LARK_ = null;
     DB_SS_ = null;
     TABLE_CACHE_ = {};
     try { DriveApp.getFileById(tmp.getId()).setTrashed(true); } catch (e) { console.warn('could not trash temp file', e); }
@@ -297,5 +301,251 @@ function runCases_(results) {
     }), 'Every notification belongs to a logged ticket');
     ok(n.some(function (r) { return r.user_email === U.mgrSolar && r.type === 'approval_required'; }), 'Manager notified of new ticket');
     ok(n.some(function (r) { return r.user_email === U.salesSolar && r.type === 'quote_ready'; }), 'Sales notified when prices are ready');
+  });
+}
+
+// =============================================================================
+// Phase 2 — list / inbox / dashboard / notifications / upload / Lark / SLA
+// =============================================================================
+
+/** Fake UrlFetchApp: Drive resumable upload + permissions, Lark auth / user ids / messages. */
+function fakeHttp_() {
+  const calls = [];
+  const resp = function (code, body, headers) {
+    return {
+      getResponseCode: function () { return code; },
+      getContentText: function () { return typeof body === 'string' ? body : JSON.stringify(body); },
+      getAllHeaders: function () { return headers || {}; }
+    };
+  };
+  return {
+    calls: calls,
+    failOpenIds: {},          // open_id → true : Lark message call fails
+    unknownEmails: {},        // email → true   : Lark has no such user
+    fetch: function (url, opt) {
+      const o = opt || {};
+      const payload = typeof o.payload === 'string' ? parseJson_(o.payload, {}) : null;
+      calls.push({ url: url, method: o.method, headers: o.headers || {}, payload: payload });
+      if (url.indexOf('/upload/drive/v3/files?uploadType=resumable') !== -1) {
+        return resp(200, '', { Location: 'https://upload.fake/session/' + calls.length });
+      }
+      if (url.indexOf('https://upload.fake/session/') === 0) {
+        const m = /bytes (\d+)-(\d+)\/(\d+)/.exec(o.headers['Content-Range']);
+        return Number(m[2]) + 1 < Number(m[3]) ? resp(308, '') : resp(200, { id: 'drive-file-' + calls.length });
+      }
+      if (url.indexOf('/drive/v3/files/') !== -1 && url.indexOf('/permissions') !== -1) return resp(200, { id: 'perm' });
+      if (url.indexOf('/auth/v3/tenant_access_token') !== -1) return resp(200, { code: 0, tenant_access_token: 'tok' });
+      if (url.indexOf('/contact/v3/users/batch_get_id') !== -1) {
+        const self = this;
+        return resp(200, { code: 0, data: { user_list: payload.emails.filter(function (e) { return !self.unknownEmails[e]; })
+          .map(function (e) { return { email: e, user_id: 'ou_' + e.split('@')[0] }; }) } });
+      }
+      if (url.indexOf('/im/v1/messages') !== -1) {
+        if (this.failOpenIds[payload.receive_id]) return resp(200, { code: 230001, msg: 'bot not in chat' });
+        return resp(200, { code: 0, data: { message_id: 'om_' + calls.length } });
+      }
+      return resp(404, { code: 404, msg: 'unexpected url ' + url });
+    }
+  };
+}
+
+function fakeDrive_() {
+  const trashed = {};
+  return {
+    trashed: trashed,
+    getFileById: function (id) { return { setTrashed: function () { trashed[id] = true; } }; },
+    getFolderById: function () {
+      return {
+        getFoldersByName: function () { return { hasNext: function () { return false; } }; },
+        createFolder: function (name) { return { getId: function () { return 'folder-' + name; } }; }
+      };
+    }
+  };
+}
+
+function runPhase2Cases_(results) {
+  const U = demoUsers_();
+  // Never touch real Drive / Lark from a test run, even if production Script Properties are set
+  TEST_HTTP_ = fakeHttp_();
+  TEST_DRIVE_ = fakeDrive_();
+  TEST_LARK_ = { app_id: 'cli_test', app_secret: 'secret', host: 'https://open.larksuite.com', group_chat_id: 'oc_group' };
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const wrap = function (name, fn) {
+    try { fn(); } catch (e) {
+      results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: ' + name + ' — ' + e.message + '\n' + e.stack);
+    }
+  };
+
+  wrap('BOOTSTRAP', function () {
+    const b = as(U.salesFood1, function () { return must(getBootstrap()); });
+    ok(b.me.role === 'sales' && b.menu.some(function (m) { return m.key === 'new'; }), 'Bootstrap: Sales menu has "สร้างใบขอราคา"');
+    const g = as(U.gm, function () { return must(getBootstrap()); });
+    ok(!g.menu.some(function (m) { return m.key === 'new'; }) && g.menu.some(function (m) { return m.key === 'all'; }), 'Bootstrap: GM menu has no create, has all tickets');
+    ok(b.ref.product_groups.length === 15 && b.ref.vat_rate === 0.07, 'Bootstrap: reference data (product groups, VAT rate)');
+    expectErr(as('nobody@' + DEMO_DOMAIN, function () { return getBootstrap(); }), 'NOT_REGISTERED', 'Bootstrap: unregistered user gets NOT_REGISTERED');
+  });
+
+  wrap('LIST', function () {
+    const total = rows_(TAB.TICKETS).length;
+    const gm = as(U.gm, function () { return must(listTickets({ scope: 'all', page_size: 200 })); });
+    ok(gm.total === total, 'GM list shows every ticket (' + total + ')');
+    const s2 = as(U.salesFood2, function () { return must(listTickets({ scope: 'all', page_size: 200 })); });
+    ok(s2.total > 0 && s2.rows.every(function (r) { return r.requestor_email === U.salesFood2; }), 'AC-1 Sales list contains only own tickets (even with scope=all)');
+    const solarMgr = as(U.mgrSolar, function () { return must(listTickets({ scope: 'all', page_size: 200 })); });
+    ok(solarMgr.rows.every(function (r) { return r.department_code === 'SALES-SOLAR'; }), 'Manager list limited to own department');
+    const sr = as(U.sr2, function () { return must(listTickets({ scope: 'all', page_size: 200 })); });
+    ok(sr.rows.every(function (r) { return ['pending_manager', 'pending_gm', 'returned', 'cancelled'].indexOf(r.stage) === -1; }), 'SR list hides tickets not yet approved by GM');
+    const inbox = as(U.mgrFood, function () { return must(listTickets({ scope: 'inbox', page_size: 200 })); });
+    ok(inbox.total > 0 && inbox.rows.every(function (r) { return r.stage === 'pending_manager' && r.department_code === 'SALES-FOOD'; }),
+      'Manager inbox = pending_manager tickets of own department (' + inbox.total + ')');
+    const first = gm.rows[gm.rows.length - 1];
+    const byNo = as(U.gm, function () { return must(listTickets({ q: first.ticket_no })); });
+    ok(byNo.total === 1 && byNo.rows[0].ticket_no === first.ticket_no, 'Search by ticket number');
+    const solar = as(U.gm, function () { return must(listTickets({ group_code: 'SOLAR', page_size: 200 })); });
+    ok(solar.total >= 1 && solar.rows.every(function (r) { return r.root_codes.indexOf('SOLAR') !== -1; }), 'Filter by parent product group (Solar)');
+    const closed = as(U.gm, function () { return must(listTickets({ status: ['closed'] })); });
+    ok(closed.rows.every(function (r) { return r.status === 'closed'; }), 'Filter by status');
+    ok(gm.rows.every(function (r) { return ['ok', 'warning', 'breach', 'none', 'done'].indexOf(r.sla_status) !== -1 && r.age_days >= 0; }), 'Every row has aging + SLA status');
+    const page2 = as(U.gm, function () { return must(listTickets({ page_size: 10, page: 2 })); });
+    ok(page2.rows.length === Math.min(10, Math.max(total - 10, 0)) && page2.page === 2, 'Pagination');
+  });
+
+  wrap('DASHBOARD', function () {
+    const d = as(U.gm, function () { return must(getDashboard({})); });
+    const openCount = rows_(TAB.TICKETS).filter(function (r) { return OPEN_STATUSES.indexOf(r.status) !== -1; }).length;
+    ok(d.kpi.open === openCount, 'Dashboard KPI open = ' + openCount);
+    ok(d.aging.length === 4 && d.aging.reduce(function (a, b) { return a + b.count; }, 0) === openCount, 'Aging buckets add up to open tickets');
+    ok(d.cycle_time.length > 0 && d.cycle_time.every(function (c) { return c.avg_hours >= 0 && c.count > 0; }), 'Cycle time per stage computed from logs');
+    ok(d.top_vendors.length > 0 && d.top_vendors[0].wins >= 1, 'Top winning vendors');
+    ok(d.group_share.some(function (g) { return g.code === 'SOLAR'; }), 'Product group share by parent group');
+    ok(d.sr_workload.length === 3, 'SR workload lists 3 SRs');
+    const s = as(U.salesFood2, function () { return must(getDashboard({})); });
+    ok(s.by_sales.length === 1 && s.by_sales[0].email === U.salesFood2, 'Sales dashboard counts only own tickets');
+    expectErr(as(U.gm, function () { return getDashboard({ from: '2026-12-31', to: '2026-01-01' }); }), 'VALIDATION', 'Dashboard rejects reversed date range');
+  });
+
+  wrap('NOTIFICATIONS', function () {
+    const before = as(U.salesSolar, function () { return must(getNotifications(50)); });
+    ok(before.unread > 0, 'Sales has unread notifications (' + before.unread + ')');
+    const otherBefore = as(U.mgrSolar, function () { return must(getPoll()).unread; });
+    as(U.salesSolar, function () { must(markNotificationsRead(null)); });
+    ok(as(U.salesSolar, function () { return must(getPoll()).unread; }) === 0, 'Mark all read → unread 0');
+    ok(as(U.mgrSolar, function () { return must(getPoll()).unread; }) === otherBefore, "Other users' notifications untouched");
+  });
+
+  wrap('UPLOAD', function () {
+    const http = fakeHttp_();
+    const drive = fakeDrive_();
+    TEST_HTTP_ = http;
+    TEST_DRIVE_ = drive;
+    const t = as(U.salesFood2, function () {
+      return must(createTicket({ client_key: 'upl', title: 'ทดสอบแนบไฟล์',
+        items: [{ product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้ง', qty: 1, uom: 'กก.' }] })).ticket;
+    });
+    expectErr(as(U.salesFood2, function () {
+      return beginUpload({ ticket_id: t.ticket_id, file_name: 'virus.exe', mime_type: 'application/x-msdownload', size_bytes: 10 });
+    }), 'FILE_TYPE', 'Upload: .exe rejected');
+    expectErr(as(U.salesFood2, function () {
+      return beginUpload({ ticket_id: t.ticket_id, file_name: 'big.pdf', mime_type: 'application/pdf', size_bytes: 21 * 1024 * 1024 });
+    }), 'FILE_TOO_LARGE', 'Upload: file over 20 MB rejected');
+    expectErr(as(U.salesFood1, function () {
+      return beginUpload({ ticket_id: t.ticket_id, file_name: 'a.pdf', mime_type: 'application/pdf', size_bytes: 10 });
+    }), 'NOT_FOUND', "Upload: cannot attach to another Sales' ticket");
+
+    const size = UPLOAD_CHUNK_BYTES + 10;
+    const bytes = [];
+    for (let i = 0; i < size; i++) bytes.push(65 + (i % 26));
+    const begin = as(U.salesFood2, function () {
+      return must(beginUpload({ ticket_id: t.ticket_id, file_name: 'spec กุ้ง.pdf', mime_type: 'application/pdf', size_bytes: size, category: 'request' }));
+    });
+    ok(begin.total_chunks === 2, 'Upload: 2 MB chunks (' + begin.total_chunks + ' chunks)');
+    const c0 = as(U.salesFood2, function () { return must(uploadChunk(begin.upload_id, 0, Utilities.base64Encode(bytes.slice(0, UPLOAD_CHUNK_BYTES)))); });
+    ok(c0.done === false && c0.received === UPLOAD_CHUNK_BYTES, 'Upload: first chunk accepted (308)');
+    const retry = as(U.salesFood2, function () { return must(uploadChunk(begin.upload_id, 0, Utilities.base64Encode(bytes.slice(0, UPLOAD_CHUNK_BYTES)))); });
+    ok(retry.done === false, 'Upload: retried chunk is idempotent');
+    expectErr(as(U.salesFood1, function () { return uploadChunk(begin.upload_id, 1, 'AAAA'); }), 'UPLOAD_EXPIRED', 'Upload: another user cannot hijack the session');
+    const c1 = as(U.salesFood2, function () { return must(uploadChunk(begin.upload_id, 1, Utilities.base64Encode(bytes.slice(UPLOAD_CHUNK_BYTES)))); });
+    ok(c1.done === true && c1.attachment.file_name === 'spec กุ้ง.pdf', 'Upload: last chunk → attachment saved');
+    const putCalls = http.calls.filter(function (c) { return c.url.indexOf('https://upload.fake/session/') === 0; });
+    ok(putCalls.length === 2 && putCalls[1].headers['Content-Range'] === 'bytes ' + UPLOAD_CHUNK_BYTES + '-' + (size - 1) + '/' + size,
+      'Upload: Content-Range headers sent to Drive correctly');
+    ok(findAll_(TAB.LOGS, 'ticket_id', t.ticket_id).some(function (l) { return l.action === 'attachment_added'; }), 'Upload logged in TicketLogs');
+    const detail = as(U.mgrFood, function () { return must(getTicket(t.ticket_id)); });
+    ok(detail.attachments.length === 1, 'Department manager sees the attachment');
+
+    const open = as(U.mgrFood, function () { return must(openAttachment(c1.attachment.attachment_id)); });
+    const perm = http.calls.filter(function (c) { return c.url.indexOf('/permissions') !== -1; }).pop();
+    ok(/drive\.google\.com\/file\/d\//.test(open.url) && perm.payload.emailAddress === U.mgrFood && perm.url.indexOf('sendNotificationEmail=false') !== -1,
+      'Open file grants reader access to that user only (no e-mail)');
+    expectErr(as(U.salesFood1, function () { return openAttachment(c1.attachment.attachment_id); }), 'NOT_FOUND', 'Other Sales cannot open the file');
+    expectErr(as(U.mgrFood, function () { return deleteAttachment(c1.attachment.attachment_id); }), 'FORBIDDEN', 'Only the uploader can delete the file');
+    as(U.salesFood2, function () { must(deleteAttachment(c1.attachment.attachment_id)); });
+    ok(as(U.salesFood2, function () { return must(getTicket(t.ticket_id)); }).attachments.length === 0 && drive.trashed[c1.attachment.drive_file_id],
+      'Delete → soft-deleted row + Drive file trashed');
+  });
+
+  wrap('LARK', function () {
+    const http = fakeHttp_();
+    TEST_HTTP_ = http;
+    TEST_LARK_ = { app_id: 'cli_test', app_secret: 'secret', host: 'https://open.larksuite.com', group_chat_id: 'oc_group' };
+    http.unknownEmails[U.sr2] = true;
+    http.failOpenIds['ou_sr1'] = true;
+    let guard = 0;
+    let r;
+    do { r = dispatchNotifications(); guard++; } while (r.claimed === 40 && guard < 20);
+    const n = rows_(TAB.NOTIFICATIONS);
+    const sent = n.filter(function (x) { return x.lark_status === 'sent'; }).length;
+    ok(sent > 0, 'Lark: notifications delivered (' + sent + ')');
+    ok(n.filter(function (x) { return x.user_email === U.sr2; }).every(function (x) { return x.lark_status === 'no_lark_user'; }), 'Lark: user without Lark account marked no_lark_user');
+    const sr1 = n.filter(function (x) { return x.user_email === U.sr1; });
+    ok(sr1.length > 0 && sr1.every(function (x) { return x.lark_status === 'pending' && Number(x.lark_attempts) === 1 && x.lark_error; }),
+      'Lark: failed message stays pending with error for retry');
+    const msg = http.calls.filter(function (c) { return c.url.indexOf('/im/v1/messages') !== -1; })[0];
+    ok(msg && msg.headers.Authorization === 'Bearer tok' && JSON.parse(msg.payload.content).header.title.content.length > 0, 'Lark: interactive card sent with bearer token');
+    // exhaust retries
+    for (let i = 0; i < LARK_MAX_ATTEMPTS_; i++) {
+      withLock_(function () {
+        rows_(TAB.NOTIFICATIONS).filter(function (x) { return x.user_email === U.sr1 && x.lark_status === 'pending'; }).forEach(function (x) {
+          updateRow_(TAB.NOTIFICATIONS, x.notif_id, { lark_sent_at: new Date(Date.now() - 2 * 3600000) });
+        });
+      });
+      dispatchNotifications();
+    }
+    ok(rows_(TAB.NOTIFICATIONS).filter(function (x) { return x.user_email === U.sr1; }).every(function (x) { return x.lark_status === 'failed'; }),
+      'Lark: after ' + LARK_MAX_ATTEMPTS_ + ' attempts the message is marked failed');
+    TEST_LARK_ = { app_id: '', app_secret: '', host: '', group_chat_id: '' };
+    const callsBefore = http.calls.length;
+    ok(dispatchNotifications().skipped === 'not_configured' && http.calls.length === callsBefore, 'Lark: dispatcher is a no-op when Lark is not configured');
+    TEST_LARK_ = { app_id: 'cli_test', app_secret: 'secret', host: 'https://open.larksuite.com', group_chat_id: 'oc_group' };
+  });
+
+  wrap('SLA', function () {
+    withLock_(function () {
+      const sla = setting_('sla_hours', {});
+      sla.pending_manager = 0.0001;
+      updateRow_(TAB.SETTINGS, 'sla_hours', { value: JSON.stringify(sla) });
+    });
+    const r1 = checkSlaAlerts();
+    const r2 = checkSlaAlerts();
+    ok(r1.queued > 0 && r1.breaches.length > 0, 'SLA: breaches detected and notifications queued (' + r1.queued + ')');
+    ok(r2.queued === 0, 'SLA: second run does not re-notify');
+    ok(rows_(TAB.NOTIFICATIONS).some(function (x) { return x.type === 'sla_breach' && x.user_email === U.gm; }), 'SLA: breach at Manager stage escalates to GM');
+  });
+
+  wrap('SELFTEST', function () {
+    const lines = runSelfTest();
+    ['all tabs + headers match schema', 'every ticket has a create log', 'status matches stage on every ticket', 'audit log hash chain intact']
+      .forEach(function (name) {
+        ok(lines.some(function (l) { return l.indexOf('PASS ' + name) === 0; }), 'Self-test: ' + name);
+      });
   });
 }

@@ -1,0 +1,170 @@
+<!--
+  File: PageDashboard.html
+  Dashboard: KPI tiles, status/stage counts, and plain-HTML bar charts (no chart library).
+  Charts: one hue for magnitude; 3 categorical slots only for the stacked SR workload (with legend).
+  Every chart has a hover/tap tooltip (data-tip) and a "ดูเป็นตาราง" table view.
+-->
+<script>
+Pages.dashboard = (function () {
+  let range = { from: todayYmd(-89), to: todayYmd(0) };
+
+  function barRows(rows, opts) {
+    // rows: [{ label, segs: [{ value, color, name }], total, valueText, tip, mark? }]
+    const max = Math.max(1, opts.max || 0, Math.max.apply(null, rows.map(function (r) { return Math.max(r.total, r.mark || 0); })));
+    return '<div class="bars">' + rows.map(function (r) {
+      const segs = r.segs.filter(function (s) { return s.value > 0; }).map(function (s) {
+        return '<div class="seg" style="width:' + (s.value / max * 100) + '%;background:' + s.color + '" data-tip="' +
+          esc(r.label + '\n' + s.name + ': ' + s.text) + '"></div>';
+      }).join('');
+      const mark = r.mark ? '<div class="mark" style="left:' + (r.mark / max * 100) + '%" data-tip="' + esc(r.markTip || '') + '"></div>' : '';
+      return '<div class="lbl" title="' + esc(r.label) + '">' + esc(r.label) + '</div>' +
+        '<div class="track" data-tip="' + esc(r.tip) + '"><div class="fill" style="width:' + (r.total / max * 100) + '%">' + segs + '</div>' + mark + '</div>' +
+        '<div class="val">' + esc(r.valueText) + '</div>';
+    }).join('') + '</div>';
+  }
+
+  function tableView(headers, rows) {
+    return '<details class="tview"><summary>ดูเป็นตาราง</summary><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
+      headers.map(function (h, i) { return '<th class="' + (i ? 'num' : '') + '">' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      rows.map(function (r) { return '<tr>' + r.map(function (c, i) { return '<td class="' + (i ? 'num' : '') + '">' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('') +
+      '</tbody></table></div></details>';
+  }
+
+  function single(rows, labelKey, valueKey, fmt, tipFn) {
+    return rows.map(function (r) {
+      const v = Number(r[valueKey]) || 0;
+      return { label: r[labelKey], total: v, valueText: fmt(v), tip: tipFn(r),
+        segs: [{ value: v, color: 'var(--series-1)', name: '', text: fmt(v) }] };
+    });
+  }
+
+  function emptyCard(title, text) {
+    return '<div class="card"><h3>' + esc(title) + '</h3><div class="empty small">' + esc(text || 'ยังไม่มีข้อมูลในช่วงเวลานี้') + '</div></div>';
+  }
+
+  function draw(view, d) {
+    const k = d.kpi;
+    let html = '<div class="page-head"><h1>ภาพรวม</h1>' +
+      '<div class="actions">' +
+      '<label class="small">ตั้งแต่ <input type="date" id="db-from" value="' + esc(d.range.from) + '" style="width:auto"></label>' +
+      '<label class="small">ถึง <input type="date" id="db-to" value="' + esc(d.range.to) + '" style="width:auto"></label>' +
+      '<button class="btn sm" data-days="30">30 วัน</button><button class="btn sm" data-days="90">90 วัน</button><button class="btn sm" data-days="365">1 ปี</button>' +
+      '</div></div><p class="muted small" style="margin-top:-6px">' + esc(d.scope_note) + ' · ข้อมูลสถานะเป็นปัจจุบัน ส่วนกราฟใช้ช่วงวันที่ที่เลือก</p>';
+
+    html += '<div class="kpis">' +
+      kpi(k.open, 'ใบที่ยังเปิดอยู่') + kpi(k.created_in_range, 'สร้างในช่วงนี้') + kpi(k.closed_in_range, 'ปิดงานในช่วงนี้') +
+      kpi(k.breach_now, '⛔ เกิน SLA ตอนนี้', k.breach_now ? 'var(--danger-ink)' : '') +
+      kpi(k.warning_now, '⚠ ใกล้ครบ SLA', k.warning_now ? 'var(--warn-ink)' : '') + '</div>';
+
+    // Status + stage counts
+    html += '<div class="grid-2"><div class="card"><h3>จำนวนตามสถานะหลัก</h3><div class="actions">' +
+      d.by_status.map(function (s) { return statusBadge(s.status, s.label + ' · ' + fmtInt(s.count)); }).join('') + '</div>' +
+      '<h3 style="margin-top:16px">งานที่ค้างแยกตามขั้นตอน</h3>' +
+      (d.by_stage.length ? barRows(single(d.by_stage, 'label', 'count', fmtInt, function (r) { return r.label + ': ' + r.count + ' ใบ'; }), {}) : '<div class="empty small">ไม่มีงานค้าง 🎉</div>') +
+      '</div>';
+
+    // SLA now + aging
+    html += '<div class="card"><h3>อายุใบที่ยังเปิด (นับจากวันสร้าง)</h3>' +
+      barRows(single(d.aging, 'label', 'count', fmtInt, function (r) { return 'อายุ ' + r.label + ': ' + r.count + ' ใบ'; }), {}) +
+      tableView(['ช่วงอายุ', 'จำนวนใบ'], d.aging.map(function (a) { return [a.label, a.count]; }));
+    if (d.sla_by_stage.length) {
+      html += '<h3 style="margin-top:16px">SLA ของงานที่ค้างตอนนี้</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>ขั้นตอน</th><th class="num">ค้าง</th>' +
+        '<th class="num">⚠ ใกล้ครบ</th><th class="num">⛔ เกิน</th><th class="num">SLA</th></tr></thead><tbody>' +
+        d.sla_by_stage.map(function (s) {
+          return '<tr><td>' + esc(s.stage_label) + '</td><td class="num">' + s.open + '</td><td class="num">' + (s.warning ? '<span class="sla warning">' + s.warning + '</span>' : '0') +
+            '</td><td class="num">' + (s.breach ? '<span class="sla breach">' + s.breach + '</span>' : '0') + '</td><td class="num">' + (s.sla_hours ? s.sla_hours + ' ชม.' : '–') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+    html += '</div></div>';
+
+    // Requests by sales
+    html += '<div class="grid-2">';
+    html += d.by_sales.length ? '<div class="card"><h3>จำนวนใบขอราคาแยกตาม Sales</h3>' +
+      barRows(single(d.by_sales, 'name', 'total', fmtInt, function (r) {
+        return r.name + '\nทั้งหมด ' + r.total + ' · เปิด ' + r.open + ' · ปิด ' + r.closed + ' · ไม่อนุมัติ/ยกเลิก ' + r.rejected;
+      }), {}) +
+      tableView(['Sales', 'ทั้งหมด', 'ยังเปิด', 'ปิดงาน', 'ไม่อนุมัติ/ยกเลิก'], d.by_sales.map(function (r) { return [r.name, r.total, r.open, r.closed, r.rejected]; })) +
+      '</div>' : emptyCard('จำนวนใบขอราคาแยกตาม Sales');
+
+    // SR workload (stacked, 3 categorical slots + legend)
+    const series = [
+      { key: 'in_progress', name: 'กำลังทำ (ตรวจเอกสาร/หาราคา)', color: 'var(--series-1)' },
+      { key: 'need_info', name: 'รอข้อมูลจาก Sales', color: 'var(--series-2)' },
+      { key: 'awaiting_ack', name: 'รอ Sales รับทราบ', color: 'var(--series-3)' }
+    ];
+    html += '<div class="card"><h3>ภาระงาน SR</h3><div class="legend">' +
+      series.map(function (s) { return '<span><i style="background:' + s.color + '"></i>' + esc(s.name) + '</span>'; }).join('') + '</div>' +
+      (d.sr_workload.length ? barRows(d.sr_workload.map(function (r) {
+        const total = r.in_progress + r.need_info + r.awaiting_ack;
+        return {
+          label: r.name, total: total, valueText: fmtInt(total) + ' ใบ',
+          tip: r.name + '\nกำลังทำ ' + r.in_progress + ' · รอข้อมูล ' + r.need_info + ' · รอรับทราบ ' + r.awaiting_ack +
+            '\nเสร็จในช่วงนี้ ' + r.completed + ' ใบ · เฉลี่ย ' + fmtHours(r.avg_hours) + '/ใบ',
+          segs: series.map(function (s) { return { value: r[s.key], color: s.color, name: s.name, text: r[s.key] + ' ใบ' }; })
+        };
+      }), {}) : '<div class="empty small">ยังไม่มี SR ในระบบ</div>') +
+      tableView(['SR', 'กำลังทำ', 'รอข้อมูล', 'รอรับทราบ', 'เสร็จในช่วงนี้', 'เวลาเฉลี่ย/ใบ'],
+        d.sr_workload.map(function (r) { return [r.name, r.in_progress, r.need_info, r.awaiting_ack, r.completed, fmtHours(r.avg_hours)]; })) +
+      '</div></div>';
+
+    // Cycle time per stage (bottlenecks) with SLA marker
+    html += '<div class="grid-2">';
+    html += d.cycle_time.length ? '<div class="card"><h3>เวลาเฉลี่ยในแต่ละขั้นตอน (หาคอขวด)</h3>' +
+      '<p class="muted small" style="margin-top:-6px">เส้นตั้ง = SLA ของขั้นตอนนั้น</p>' +
+      barRows(d.cycle_time.map(function (c) {
+        return {
+          label: c.stage_label + ' (' + c.owner + ')', total: c.avg_hours, valueText: fmtHours(c.avg_hours),
+          mark: c.sla_hours || 0, markTip: 'SLA ' + (c.sla_hours || '–') + ' ชม.',
+          tip: c.stage_label + '\nเฉลี่ย ' + fmtHours(c.avg_hours) + ' · มัธยฐาน ' + fmtHours(c.median_hours) + ' · P90 ' + fmtHours(c.p90_hours) +
+            '\n' + c.count + ' ครั้ง · เกิน SLA ' + c.breach_count + ' ครั้ง',
+          segs: [{ value: c.avg_hours, color: 'var(--series-1)', name: 'เฉลี่ย', text: fmtHours(c.avg_hours) }]
+        };
+      }), {}) +
+      tableView(['ขั้นตอน', 'จำนวนครั้ง', 'เฉลี่ย', 'มัธยฐาน', 'P90', 'SLA (ชม.)', 'เกิน SLA'],
+        d.cycle_time.map(function (c) { return [c.stage_label, c.count, fmtHours(c.avg_hours), fmtHours(c.median_hours), fmtHours(c.p90_hours), c.sla_hours || '–', c.breach_count]; })) +
+      '</div>' : emptyCard('เวลาเฉลี่ยในแต่ละขั้นตอน');
+
+    // Top vendors + group share
+    html += '<div class="card"><h3>Vendor ที่ชนะบ่อย</h3>' +
+      (d.top_vendors.length ? barRows(single(d.top_vendors, 'name', 'wins', function (v) { return fmtInt(v) + ' ครั้ง'; }, function (r) {
+        return r.name + '\nชนะ ' + r.wins + ' รายการ ใน ' + r.ticket_count + ' ใบ\nมูลค่ารวม (ต้นทุนสุทธิ) ฿' + fmtMoney(r.total_cost_thb);
+      }), {}) + tableView(['Vendor', 'ชนะ (รายการ)', 'จำนวนใบ', 'มูลค่ารวม (บาท)'],
+        d.top_vendors.map(function (v) { return [v.name, v.wins, v.ticket_count, fmtMoney(v.total_cost_thb)]; })) : '<div class="empty small">ยังไม่มีใบที่ส่งราคาแล้วในช่วงนี้</div>') +
+      '<h3 style="margin-top:16px">สัดส่วนกลุ่มสินค้า (จำนวนรายการ)</h3>' +
+      (d.group_share.length ? barRows(single(d.group_share, 'name', 'items', fmtInt, function (r) {
+        return r.name + '\n' + r.items + ' รายการ ใน ' + r.tickets + ' ใบ';
+      }), {}) : '<div class="empty small">ยังไม่มีข้อมูล</div>') +
+      '</div></div>';
+
+    view.innerHTML = html;
+    const reload = function () {
+      range = { from: $('#db-from').value, to: $('#db-to').value };
+      Pages.dashboard.render(view, state.route, function () { return true; });
+    };
+    $('#db-from').onchange = reload;
+    $('#db-to').onchange = reload;
+    $all('[data-days]', view).forEach(function (b) {
+      b.onclick = function () {
+        $('#db-from').value = todayYmd(-(Number(b.getAttribute('data-days')) - 1));
+        $('#db-to').value = todayYmd(0);
+        reload();
+      };
+    });
+  }
+
+  function kpi(v, label, color) {
+    return '<div class="kpi"><div class="v"' + (color ? ' style="color:' + color + '"' : '') + '>' + fmtInt(v) + '</div><div class="l">' + esc(label) + '</div></div>';
+  }
+
+  return {
+    render: function (view, route, isCurrent) {
+      view.innerHTML = loadingHtml('กำลังคำนวณภาพรวม...');
+      api('getDashboard', range).then(function (d) {
+        if (isCurrent()) draw(view, d);
+      }).catch(function (e) {
+        if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()');
+      });
+    }
+  };
+})();
+</script>

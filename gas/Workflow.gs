@@ -32,7 +32,11 @@ const ACTION_LABEL_TH = {
   manager_approve: 'Manager อนุมัติ', manager_reject: 'Manager ไม่อนุมัติ', manager_return: 'Manager ส่งกลับแก้ไข',
   gm_approve: 'GM อนุมัติ', gm_reject: 'GM ไม่อนุมัติ', claim: 'SR รับงาน', assign: 'มอบหมายงาน SR',
   request_info: 'SR ขอข้อมูลเพิ่ม', respond_info: 'Sales ส่งข้อมูลเพิ่ม', doc_complete: 'SR ตรวจเอกสารครบ',
-  submit_quote: 'SR ส่งราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา'
+  submit_quote: 'SR ส่งราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
+  // data changes (not status changes)
+  ticket_updated: 'แก้ไขข้อมูลใบขอราคา', item_added: 'เพิ่มรายการสินค้า', item_updated: 'แก้ไขรายการสินค้า', item_deleted: 'ลบรายการสินค้า',
+  checklist_updated: 'ตรวจเอกสาร', quotation_added: 'เพิ่มราคา vendor', quotation_updated: 'แก้ไขราคา vendor',
+  quotation_deleted: 'ลบราคา vendor', quotation_selected: 'เลือกผู้ชนะ', attachment_added: 'แนบไฟล์', attachment_removed: 'ลบไฟล์แนบ'
 };
 
 // =============================================================================

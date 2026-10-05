@@ -4,6 +4,15 @@
  * Every function ending with "_" is private — google.script.run cannot call it.
  */
 
+// ---------------------------------------------------------------- Service seams (tests swap these; production uses the real services)
+
+let TEST_HTTP_ = null;     // fake UrlFetchApp
+let TEST_DRIVE_ = null;    // fake DriveApp
+let TEST_LARK_ = null;     // fake Lark config { app_id, app_secret, host, group_chat_id }
+
+function http_() { return TEST_HTTP_ || UrlFetchApp; }
+function drive_() { return TEST_DRIVE_ || DriveApp; }
+
 // ---------------------------------------------------------------- Errors & results
 
 /** Business error: `message` is Thai text safe to show users, `code` is for the UI logic. */

@@ -1,0 +1,14 @@
+<!--
+  File: PagePricing.html
+  SR document check + vendor price comparison form.
+  PLACEHOLDER in Phase 2 — the full form is delivered in Phase 3 (this file will be replaced).
+-->
+<script>
+Pages.pricing = {
+  render: function (view, route) {
+    view.innerHTML = '<div class="card" style="max-width:640px;margin:24px auto;text-align:center">' +
+      '<h2>หน้าตรวจเอกสาร / กรอกราคา</h2><p>หน้านี้จะส่งมอบใน Phase 3</p>' +
+      '<button class="btn" onclick="App.go({page:\'ticket\',id:\'' + esc(route.id || '') + '\'})">กลับไปหน้าใบขอราคา</button></div>';
+  }
+};
+</script>

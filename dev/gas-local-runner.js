@@ -21,7 +21,7 @@ const crypto = require('crypto');
 
 const OWNER = 'owner@example.co.th';
 const FILE_ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify', 'Workflow', 'Editing',
-  'Setup', 'Tests'];
+  'Api', 'Files', 'Lark', 'Jobs', 'Code', 'Setup', 'Tests'];
 
 // ------------------------------------------------------------------ Sheets mock
 class MockRange {
@@ -153,8 +153,12 @@ function formatDate(date, tz, pattern) {
   return pattern.replace(/yyyy|MM|dd|HH|mm|ss/g, (t) => map[t]);
 }
 
+const toBuf = (v) => Buffer.from(Array.isArray(v) ? v.map((b) => (b < 0 ? b + 256 : b)) : String(v), Array.isArray(v) ? undefined : 'utf8');
 const Utilities = {
   getUuid: () => crypto.randomUUID(),
+  base64Encode: (v) => toBuf(v).toString('base64'),
+  base64Decode: (s) => Array.from(Buffer.from(String(s), 'base64')).map((b) => (b > 127 ? b - 256 : b)),
+  newBlob: (v) => ({ getBytes: () => Array.from(toBuf(v)).map((b) => (b > 127 ? b - 256 : b)) }),
   DigestAlgorithm: { SHA_256: 'sha256' },
   Charset: { UTF_8: 'utf8' },
   computeDigest(alg, text) {
@@ -164,28 +168,62 @@ const Utilities = {
   sleep: () => {}
 };
 
+const cacheStore = {};
+const CacheService = {
+  getScriptCache: () => ({
+    get: (k) => (k in cacheStore ? cacheStore[k] : null),
+    put: (k, v) => { if (String(v).length > 100000) throw new Error('Cache value too large'); cacheStore[k] = String(v); },
+    remove: (k) => { delete cacheStore[k]; }
+  })
+};
+
+const triggers = [];
+const triggerBuilder = (fn) => {
+  const b = { timeBased: () => b, everyMinutes: () => b, everyHours: () => b, everyDays: () => b, atHour: () => b, inTimezone: () => b,
+    onWeekDay: () => b, create: () => { const t = { getHandlerFunction: () => fn }; triggers.push(t); return t; } };
+  return b;
+};
+const ScriptApp = {
+  getOAuthToken: () => 'owner-token',
+  getService: () => ({ getUrl: () => 'https://script.google.com/a/macros/example.co.th/s/FAKE/exec' }),
+  getProjectTriggers: () => triggers.slice(),
+  deleteTrigger: (t) => { const i = triggers.indexOf(t); if (i !== -1) triggers.splice(i, 1); },
+  newTrigger: triggerBuilder,
+  WeekDay: { MONDAY: 'MONDAY' }
+};
+
+const UrlFetchApp = { fetch: () => { throw new Error('Real network call attempted in local test'); } };
+
 const DriveApp = {
   createFolder: (name) => ({ getId: () => 'folder-' + crypto.randomUUID(), getName: () => name }),
   getFileById: () => ({ setTrashed: () => {} })
 };
 
 // ------------------------------------------------------------------ Load project
-const gasDir = path.join(__dirname, '..', 'gas');
-const files = fs.readdirSync(gasDir).filter((f) => f.endsWith('.gs')).map((f) => f.replace(/\.gs$/, ''));
-const unknown = files.filter((f) => FILE_ORDER.indexOf(f) === -1);
-const ordered = FILE_ORDER.filter((f) => files.indexOf(f) !== -1).concat(unknown);
-const source = ordered.map((f) => `// ==== ${f}.gs ====\n` + fs.readFileSync(path.join(gasDir, f + '.gs'), 'utf8')).join('\n');
+function createSandbox() {
+  const gasDir = path.join(__dirname, '..', 'gas');
+  const files = fs.readdirSync(gasDir).filter((f) => f.endsWith('.gs')).map((f) => f.replace(/\.gs$/, ''));
+  const unknown = files.filter((f) => FILE_ORDER.indexOf(f) === -1);
+  const ordered = FILE_ORDER.filter((f) => files.indexOf(f) !== -1).concat(unknown);
+  const source = ordered.map((f) => `// ==== ${f}.gs ====\n` + fs.readFileSync(path.join(gasDir, f + '.gs'), 'utf8')).join('\n');
+  const sandbox = {
+    SpreadsheetApp, Session, LockService, PropertiesService, Utilities, DriveApp, CacheService, ScriptApp, UrlFetchApp, console,
+    __setActiveEmail: (e) => { activeEmail = e; }
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source + `
+;globalThis.__api = { runAcceptanceTests, setupDatabase, seedDemoData, rows_, TAB, demoUsers_ };
+globalThis.__call = function (fn, args, email) {
+  if (!/^[A-Za-z][A-Za-z0-9]*$/.test(fn) || typeof globalThis[fn] !== 'function') return { ok: false, code: 'NO_FN', error: 'unknown function ' + fn };
+  return withIdentity_(email, function () { return globalThis[fn].apply(null, args || []); });
+};`, sandbox, { filename: 'gas-bundle.js' });
+  return sandbox;
+}
 
-const sandbox = {
-  SpreadsheetApp, Session, LockService, PropertiesService, Utilities, DriveApp, console,
-  __setActiveEmail: (e) => { activeEmail = e; }
-};
-vm.createContext(sandbox);
-vm.runInContext(source + '\n;globalThis.__api = { runAcceptanceTests, setupDatabase, seedDemoData, rows_, TAB };', sandbox, {
-  filename: 'gas-bundle.js'
-});
-
+module.exports = { createSandbox };
 // ------------------------------------------------------------------ Commands
+if (require.main !== module) return;
+const sandbox = createSandbox();
 const cmd = process.argv[2] || 'tests';
 if (cmd === 'tests') {
   const res = sandbox.__api.runAcceptanceTests();

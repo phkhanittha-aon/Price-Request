@@ -97,6 +97,17 @@ function requireAdminOrOwner_() {
   throw appError_('FORBIDDEN', 'เฉพาะผู้ดูแลระบบเท่านั้น');
 }
 
+/**
+ * Scheduled-job handlers are public functions too. Allow them from a time trigger
+ * (no active user) or when the owner / an Admin runs them from the editor.
+ */
+function requireJobContext_() {
+  if (TEST_IDENTITY_) return requireAdminOrOwner_();
+  const active = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  if (!active) return;
+  requireAdminOrOwner_();
+}
+
 /** Owner only (database creation, destructive maintenance). */
 function requireOwner_() {
   const active = String(Session.getActiveUser().getEmail() || '').toLowerCase();
