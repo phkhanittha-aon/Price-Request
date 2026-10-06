@@ -416,7 +416,12 @@ function validateQuotesForSubmit_(t) {
 function getTicket(ticketId) {
   return api_('getTicket', function () {
     const u = currentUser_();
-    const t = ticketForUser_(u, ticketId);
+    return ticketDetail_(u, ticketForUser_(u, ticketId));
+  });
+}
+
+function ticketDetail_(u, t) {
+  {
     const showQuotes = canViewQuotes_(u, t);
     const items = activeItemsOf_(t.ticket_id).map(function (it) {
       const out = Object.assign({}, it);
@@ -453,7 +458,7 @@ function getTicket(ticketId) {
       vat_rate: vatRate_(),
       app_version: APP_VERSION
     };
-  });
+  }
 }
 
 /** Actions to show as buttons (UI hint only — doTransition_ re-checks everything). */

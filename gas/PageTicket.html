@@ -91,7 +91,8 @@ Pages.ticket = (function () {
               '<td class="num" data-label="ต้นทุนสุทธิ/หน่วย">' + fmtMoney(q.net_unit_cost_thb) + '</td>' +
               '<td class="num" data-label="รวมสุทธิ"><b>' + fmtMoney(q.total_cost_thb) + '</b></td>' +
               '<td class="num" data-label="รวมจ่ายจริง">' + fmtMoney(q.total_gross_thb) + '</td>' +
-              '<td data-label="เงื่อนไข" class="small">' + [q.moq != null ? 'MOQ ' + fmtNum(q.moq) : '', q.lead_time_days != null ? 'Lead ' + q.lead_time_days + ' วัน' : '',
+              '<td data-label="เงื่อนไข" class="small">' + [q.brand, q.origin_country ? 'Origin ' + q.origin_country : '', incoLabel(q.incoterm), q.packing,
+                q.shelf_life ? 'อายุ ' + q.shelf_life : '', q.moq != null ? 'MOQ ' + fmtNum(q.moq) : '', q.lead_time_days != null ? 'Lead ' + q.lead_time_days + ' วัน' : '',
                 q.payment_term, q.valid_until ? 'ยืนราคาถึง ' + fmtDate(q.valid_until) : ''].filter(Boolean).map(esc).join(' · ') + '</td></tr>';
           }).join('') + '</tbody></table></div>';
       } else if (!showQ && ['on_process'].indexOf(d.ticket.status) !== -1) {
@@ -99,6 +100,12 @@ Pages.ticket = (function () {
       }
       return html + '</div>';
     }).join('') + '</div>';
+  }
+
+  function incoLabel(k) {
+    if (!k) return '';
+    const v = (state.ref.incoterms || []).filter(function (x) { return x.key === k; })[0];
+    return v ? v.label : k;
   }
 
   function vatLabel(k) {

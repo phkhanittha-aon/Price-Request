@@ -6,7 +6,7 @@
  *                      column formats, dropdowns, sheet protection, default Settings and
  *                      the Drive folder for attachments. Safe to run again any time:
  *                      it only ADDS missing tabs/columns, never deletes or reorders.
- *   seedMasterData() — departments, product groups + checklist templates, vendors.
+ *   seedMasterData() — departments, product groups (Food + Others) + checklist templates, vendors.
  *   seedDemoData()   — demo users (all roles) + 4 demo tickets driven through the real workflow.
  *                      DEV / UAT ONLY — edit DEMO_DOMAIN first.
  */
@@ -149,8 +149,7 @@ function seedMaster_() {
 
   const depts = [
     ['SALES-FOOD', 'ฝ่ายขาย Frozen Seafood & Food'],
-    ['SALES-SOLAR', 'ฝ่ายขาย Solar & Mechanical'],
-    ['SALES-SUPP', 'ฝ่ายขาย Dietary Supplements'],
+    ['SALES-OTHERS', 'ฝ่ายขาย สินค้าอื่นๆ (Others)'],
     ['SOURCING', 'ฝ่ายจัดหา (Sourcing)'],
     ['MGMT', 'ผู้บริหาร / Admin']
   ].filter(function (d) { return !findOne_(TAB.DEPARTMENTS, 'code', d[0]); })
@@ -158,6 +157,7 @@ function seedMaster_() {
   insertRows_(TAB.DEPARTMENTS, depts);
   out.push('departments +' + depts.length);
 
+  // Scope: Food + Others only. Admin can add more groups in the ProductGroups tab later.
   const tpl = function (list) { return JSON.stringify(list.map(function (x) { return { key: x[0], label: x[1], required: x[2] !== false }; })); };
   const groups = [
     // Frozen Seafood & Food
@@ -169,22 +169,12 @@ function seedMaster_() {
     ['FOOD-FISH', 'ปลา (แซลมอน / ซาบะ / อื่นๆ)', 'Fish', 'FOOD', 102, tpl([['cut_type', 'รูปแบบการตัดแต่ง (Fillet / Steak / Whole)']])],
     ['FOOD-CEPHALOPOD', 'หมึก / ปลาหมึก', 'Squid & Octopus', 'FOOD', 103, '[]'],
     ['FOOD-PROCESSED', 'อาหารแปรรูป / Global Food', 'Processed & Global Food', 'FOOD', 104, tpl([['ingredients', 'ส่วนประกอบ / ฉลาก']])],
-    // Solar & Mechanical
-    ['SOLAR', 'Solar & Mechanical', 'Solar & Mechanical', '', 200, tpl([
-      ['datasheet', 'Datasheet / Catalogue'], ['model_rating', 'รุ่น / พิกัด (kW, V, A)'],
-      ['qty_confirmed', 'ยืนยันจำนวนและหน่วย'], ['site_info', 'ข้อมูลหน้างาน / Single line diagram', false]])],
-    ['SOLAR-INVERTER', 'Inverter', 'Inverter', 'SOLAR', 201, tpl([['grid_phase', 'ระบบไฟ 1 เฟส / 3 เฟส, On-grid / Hybrid']])],
-    ['SOLAR-PV', 'แผงโซลาร์ (PV Module)', 'PV Module', 'SOLAR', 202, '[]'],
-    ['SOLAR-MOUNTING', 'Mounting System', 'Mounting System', 'SOLAR', 203, tpl([['roof_type', 'ประเภทหลังคา / แบบติดตั้ง (Drawing)']])],
-    ['SOLAR-CABLE', 'สายไฟ / Cable', 'Cable', 'SOLAR', 204, tpl([['cable_spec', 'ขนาดสาย (sq.mm) / ความยาว / มาตรฐาน']])],
-    ['SOLAR-EV', 'EV Charger', 'EV Charger', 'SOLAR', 205, tpl([['connector', 'กำลังไฟ (kW) / หัวชาร์จ (Type 2 / CCS2)']])],
-    ['SOLAR-ESS', 'ESS / Battery', 'Energy Storage', 'SOLAR', 206, tpl([['capacity', 'ความจุ (kWh) / Compatible inverter']])],
-    // Dietary Supplements
-    ['SUPP', 'ผลิตภัณฑ์เสริมอาหาร', 'Dietary Supplements', '', 300, tpl([
-      ['formula', 'สูตร / ส่วนประกอบ'], ['fda_reg', 'เลข อย. / ทะเบียนผลิตภัณฑ์'], ['coa', 'COA / Specification'],
-      ['packaging', 'รูปแบบบรรจุภัณฑ์ (แคปซูล/ซอง/ขวด)', false]])],
-    ['SUPP-PROBIOTIC', 'โพรไบโอติก', 'Probiotics', 'SUPP', 301, tpl([['strain_cfu', 'สายพันธุ์ (Strain) / ปริมาณ CFU']])],
-    ['SUPP-VITAMIN', 'วิตามิน / แร่ธาตุ', 'Vitamins & Minerals', 'SUPP', 302, '[]']
+    // Others
+    ['OTHERS', 'สินค้าอื่นๆ (Others)', 'Others', '', 900, tpl([
+      ['spec', 'Spec / รายละเอียดสินค้า'], ['qty_confirmed', 'ยืนยันจำนวนและหน่วย'],
+      ['sample_photo', 'รูปหรือตัวอย่างสินค้า', false]])],
+    ['OTHERS-PACKAGING', 'บรรจุภัณฑ์ / วัสดุสิ้นเปลือง', 'Packaging & Consumables', 'OTHERS', 901, tpl([['dimension', 'ขนาด / วัสดุ / ความหนา']])],
+    ['OTHERS-GENERAL', 'สินค้าทั่วไป', 'General Goods', 'OTHERS', 902, '[]']
   ].filter(function (g) { return !findOne_(TAB.PRODUCT_GROUPS, 'code', g[0]); })
     .map(function (g) {
       return { code: g[0], name: g[1], name_en: g[2], parent_code: g[3], sort_order: g[4], checklist_json: g[5],
@@ -194,12 +184,12 @@ function seedMaster_() {
   out.push('product groups +' + groups.length);
 
   const vendors = [
-    ['V-0001', 'Sungrow Power Supply (Thailand)', 'TH', 'THB', 'ex_vat'],
-    ['V-0002', 'Hefei Solar Trading Co., Ltd.', 'CN', 'USD', 'no_vat'],
-    ['V-0003', 'บริษัท ไทยโซลาร์ซัพพลาย จำกัด', 'TH', 'THB', 'include_vat'],
-    ['V-0004', 'Andaman Seafood Co., Ltd.', 'TH', 'THB', 'no_vat'],
-    ['V-0005', 'Nordic Salmon AS', 'NO', 'EUR', 'no_vat'],
-    ['V-0006', 'BioCulture Ingredients Ltd.', 'CN', 'CNY', 'no_vat']
+    ['V-0001', 'Andaman Seafood Co., Ltd.', 'TH', 'THB', 'include_vat'],
+    ['V-0002', 'Nordic Salmon AS', 'NO', 'EUR', 'no_vat'],
+    ['V-0003', 'บริษัท ซีฟู้ด เทรดดิ้ง จำกัด', 'TH', 'THB', 'ex_vat'],
+    ['V-0004', 'Ocean Pride Vietnam Co., Ltd.', 'VN', 'USD', 'no_vat'],
+    ['V-0005', 'บริษัท แพ็คดี จำกัด', 'TH', 'THB', 'ex_vat'],
+    ['V-0006', 'Global Food Import Pte. Ltd.', 'SG', 'USD', 'no_vat']
   ].filter(function (v) { return !findOne_(TAB.VENDORS, 'vendor_id', v[0]); })
     .map(function (v) {
       return { vendor_id: v[0], name: v[1], country: v[2], default_currency: v[3], default_vat_term: v[4],
@@ -215,8 +205,8 @@ function demoUsers_() {
   const d = '@' + DEMO_DOMAIN;
   return {
     admin: 'admin' + d, gm: 'gm' + d,
-    mgrFood: 'mgr.food' + d, mgrSolar: 'mgr.solar' + d, mgrSupp: 'mgr.supp' + d,
-    salesFood1: 'sales.food1' + d, salesFood2: 'sales.food2' + d, salesSolar: 'sales.solar1' + d, salesSupp: 'sales.supp1' + d,
+    mgrFood: 'mgr.food' + d, mgrOthers: 'mgr.others' + d,
+    salesFood1: 'sales.food1' + d, salesFood2: 'sales.food2' + d, salesOthers: 'sales.others1' + d,
     srLead: 'sr.lead' + d, sr1: 'sr1' + d, sr2: 'sr2' + d
   };
 }
@@ -228,12 +218,10 @@ function seedUsers_() {
     [U.admin, 'ผู้ดูแลระบบ (Admin)', 'admin', 'MGMT', false],
     [U.gm, 'คุณสมชาย GM', 'gm', 'MGMT', false],
     [U.mgrFood, 'คุณวิภา Manager Food', 'manager', 'SALES-FOOD', false],
-    [U.mgrSolar, 'คุณธนา Manager Solar', 'manager', 'SALES-SOLAR', false],
-    [U.mgrSupp, 'คุณมาลี Manager Supplement', 'manager', 'SALES-SUPP', false],
+    [U.mgrOthers, 'คุณธนา Manager Others', 'manager', 'SALES-OTHERS', false],
     [U.salesFood1, 'คุณกานต์ Sales Food', 'sales', 'SALES-FOOD', false],
     [U.salesFood2, 'คุณปอ Sales Food', 'sales', 'SALES-FOOD', false],
-    [U.salesSolar, 'คุณภูมิ Sales Solar', 'sales', 'SALES-SOLAR', false],
-    [U.salesSupp, 'คุณแพร Sales Supplement', 'sales', 'SALES-SUPP', false],
+    [U.salesOthers, 'คุณภูมิ Sales Others', 'sales', 'SALES-OTHERS', false],
     [U.srLead, 'คุณอร SR Lead', 'sr', 'SOURCING', true],
     [U.sr1, 'คุณบอย SR', 'sr', 'SOURCING', false],
     [U.sr2, 'คุณนุ่น SR', 'sr', 'SOURCING', false]
@@ -244,7 +232,7 @@ function seedUsers_() {
     });
   insertRows_(TAB.USERS, list);
 
-  [['SALES-FOOD', U.mgrFood], ['SALES-SOLAR', U.mgrSolar], ['SALES-SUPP', U.mgrSupp]].forEach(function (x) {
+  [['SALES-FOOD', U.mgrFood], ['SALES-OTHERS', U.mgrOthers]].forEach(function (x) {
     const d = departmentByCode_(x[0]);
     if (d && !d.manager_email) updateRow_(TAB.DEPARTMENTS, x[0], { manager_email: x[1], updated_at: now });
   });
@@ -280,17 +268,17 @@ function seedDemoTickets_() {
   };
   const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
 
-  // (A) Solar — full cycle → Closed
-  let t = as(U.salesSolar, function () {
+  // (A) Salmon + foam boxes — full cycle → Closed
+  let t = as(U.salesFood1, function () {
     return must(createTicket({
-      client_key: 'seed-A', title: 'Inverter + Mounting โครงการหลังคาโรงงาน 500kW', customer_name: 'บจก. ไทยแพ็คเกจจิ้ง', priority: 'high',
+      client_key: 'seed-A', title: 'แซลมอนฟิเล่ + กล่องโฟม สำหรับเครือร้านซูชิ', customer_name: 'บจก. ซูชิ ดีไลท์', priority: 'high',
       items: [
-        { product_group_code: 'SOLAR-INVERTER', product_name: 'Sungrow SG110CX', spec: '110kW 3-phase On-grid', qty: 4, uom: 'เครื่อง' },
-        { product_group_code: 'SOLAR-MOUNTING', product_name: 'Mounting Metal Sheet', spec: 'สำหรับหลังคา Metal sheet', qty: 1000, uom: 'ชุด' }
+        { product_group_code: 'FOOD-FISH', product_name: 'Salmon Fillet Trim D (Skin-on)', spec: 'ไซซ์ 1.0–1.5 kg/pc, IVP', qty: 300, uom: 'กก.' },
+        { product_group_code: 'OTHERS-PACKAGING', product_name: 'กล่องโฟมเก็บความเย็น 20 ลิตร', spec: 'หนา 2.5 ซม. พร้อมฝา', qty: 200, uom: 'ใบ' }
       ]
     })).ticket;
   });
-  go(U.mgrSolar, t.ticket_id, 'manager_approve', 'อนุมัติ');
+  go(U.mgrFood, t.ticket_id, 'manager_approve', 'อนุมัติ');
   go(U.gm, t.ticket_id, 'gm_approve');
   go(U.sr1, t.ticket_id, 'claim');
   as(U.sr1, function () {
@@ -299,29 +287,31 @@ function seedDemoTickets_() {
   go(U.sr1, t.ticket_id, 'doc_complete');
   as(U.sr1, function () {
     const items = activeItemsOf_(t.ticket_id);
-    // Net THB: Sungrow 98,000 | Hefei 2,650 × 36.20 = 95,930 (cheapest) | Thai Solar 104,000 / 1.07 = 97,196
-    const q1 = must(saveQuotation({ item_id: items[0].item_id, vendor_id: 'V-0001', vendor_name: 'Sungrow Power Supply (Thailand)',
-      unit_price: 98000, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', moq: 1, lead_time_days: 14,
-      payment_term: 'Credit 30 วัน', valid_until: inDays(30) })).quote;
-    must(saveQuotation({ item_id: items[0].item_id, vendor_name: 'Hefei Solar Trading Co., Ltd.', unit_price: 2650, currency: 'USD',
-      fx_rate: 36.2, vat_term: 'no_vat', moq: 10, lead_time_days: 45, payment_term: 'T/T 30% deposit', valid_until: inDays(20) }));
-    must(saveQuotation({ item_id: items[0].item_id, vendor_name: 'บริษัท ไทยโซลาร์ซัพพลาย จำกัด', unit_price: 104000, currency: 'THB',
-      fx_rate: 1, vat_term: 'include_vat', moq: 1, lead_time_days: 7, payment_term: 'เงินสด', valid_until: inDays(15) }));
-    must(selectQuotation(q1.quote_id, 'ตัวแทนจำหน่ายอย่างเป็นทางการ รับประกันศูนย์ 10 ปี'));
-    const q4 = must(saveQuotation({ item_id: items[1].item_id, vendor_name: 'บริษัท ไทยโซลาร์ซัพพลาย จำกัด', unit_price: 850,
-      currency: 'THB', fx_rate: 1, vat_term: 'include_vat', lead_time_days: 10, payment_term: 'Credit 30 วัน', valid_until: inDays(30) })).quote;
+    // Net THB/kg: Nordic 11.50 EUR × 39.50 = 454.25 | Andaman 485 ÷ 1.07 = 453.27 | Seafood Trading 440 ex VAT = 440 (cheapest)
+    const q1 = must(saveQuotation({ item_id: items[0].item_id, vendor_id: 'V-0002', vendor_name: 'Nordic Salmon AS',
+      unit_price: 11.5, currency: 'EUR', fx_rate: 39.5, vat_term: 'no_vat', moq: 200, lead_time_days: 21, payment_term: 'T/T 30% deposit',
+      valid_until: inDays(30), brand: 'Nordic Fresh', origin_country: 'นอร์เวย์', packing: 'IVP 10 kg/ctn', incoterm: 'CIF', shelf_life: '24 เดือน (-18°C)' })).quote;
+    must(saveQuotation({ item_id: items[0].item_id, vendor_id: 'V-0001', vendor_name: 'Andaman Seafood Co., Ltd.', unit_price: 485,
+      currency: 'THB', fx_rate: 1, vat_term: 'include_vat', moq: 50, lead_time_days: 5, payment_term: 'Credit 30 วัน', valid_until: inDays(15),
+      brand: 'Andaman', origin_country: 'ชิลี', packing: '5 kg/ctn', incoterm: 'DELIVERED', shelf_life: '18 เดือน (-18°C)' }));
+    must(saveQuotation({ item_id: items[0].item_id, vendor_id: 'V-0003', vendor_name: 'บริษัท ซีฟู้ด เทรดดิ้ง จำกัด', unit_price: 440,
+      currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', moq: 100, lead_time_days: 7, payment_term: 'เงินสด', valid_until: inDays(10),
+      origin_country: 'ชิลี', packing: 'Bulk 20 kg/ctn', incoterm: 'DELIVERED', shelf_life: '12 เดือน (-18°C)' }));
+    must(selectQuotation(q1.quote_id, 'ลูกค้าระบุแบรนด์ Norway และมี Health Certificate ครบ'));
+    const q4 = must(saveQuotation({ item_id: items[1].item_id, vendor_id: 'V-0005', vendor_name: 'บริษัท แพ็คดี จำกัด', unit_price: 85,
+      currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', moq: 100, lead_time_days: 3, payment_term: 'Credit 30 วัน', valid_until: inDays(30) })).quote;
     must(selectQuotation(q4.quote_id, ''));
   });
   go(U.sr1, t.ticket_id, 'submit_quote');
-  go(U.salesSolar, t.ticket_id, 'accept', 'ตกลงตามราคานี้');
+  go(U.salesFood1, t.ticket_id, 'accept', 'ตกลงตามราคานี้');
 
-  // (B) Seafood — SR asked for more info
+  // (B) Shrimp + squid — SR asked for more info
   t = as(U.salesFood1, function () {
     return must(createTicket({
-      client_key: 'seed-B', title: 'กุ้งขาวแช่แข็ง + แซลมอนฟิเล่ สำหรับร้านอาหารญี่ปุ่น', customer_name: 'ร้านซูชิ ABC',
+      client_key: 'seed-B', title: 'กุ้งขาวแช่แข็ง + หมึกกล้วย สำหรับร้านอาหารญี่ปุ่น', customer_name: 'ร้านซูชิ ABC',
       items: [
         { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว Vannamei HLSO', spec: 'Size 31/40', qty: 500, uom: 'กก.' },
-        { product_group_code: 'FOOD-FISH', product_name: 'Salmon Fillet Trim D', qty: 300, uom: 'กก.' }
+        { product_group_code: 'FOOD-CEPHALOPOD', product_name: 'หมึกกล้วย IQF', spec: 'U/10', qty: 300, uom: 'กก.' }
       ]
     })).ticket;
   });
@@ -330,21 +320,51 @@ function seedDemoTickets_() {
   go(U.srLead, t.ticket_id, 'assign', '', { sr_email: U.sr1 });
   go(U.sr1, t.ticket_id, 'request_info', 'ขอ % glazing และรูปแบบ packing ของกุ้ง', { missing_items: ['glazing', 'packing'] });
 
-  // (C) Supplement — waiting for GM
-  t = as(U.salesSupp, function () {
+  // (C) Others — waiting for GM
+  t = as(U.salesOthers, function () {
     return must(createTicket({
-      client_key: 'seed-C', title: 'Probiotic powder สำหรับผลิตภัณฑ์ใหม่', priority: 'urgent',
-      items: [{ product_group_code: 'SUPP-PROBIOTIC', product_name: 'Lactobacillus plantarum', spec: '100B CFU/g', qty: 25, uom: 'กก.' }]
+      client_key: 'seed-C', title: 'ถุงสุญญากาศและเทปกาว สำหรับคลังสินค้า', priority: 'urgent',
+      items: [
+        { product_group_code: 'OTHERS-PACKAGING', product_name: 'ถุงสุญญากาศ PA/PE 25×35 ซม.', spec: 'หนา 90 ไมครอน', qty: 20000, uom: 'ใบ' },
+        { product_group_code: 'OTHERS-GENERAL', product_name: 'เทป OPP ใส 2 นิ้ว', qty: 300, uom: 'ม้วน' }
+      ]
     })).ticket;
   });
-  go(U.mgrSupp, t.ticket_id, 'manager_approve');
+  go(U.mgrOthers, t.ticket_id, 'manager_approve');
 
-  // (D) Seafood — waiting for Manager
-  as(U.salesFood1, function () {
+  // (D) Processed food — waiting for Manager
+  as(U.salesFood2, function () {
     return must(createTicket({
-      client_key: 'seed-D', title: 'หมึกกล้วยแช่แข็ง ล็อตเดือนหน้า', priority: 'low',
-      items: [{ product_group_code: 'FOOD-CEPHALOPOD', product_name: 'หมึกกล้วย IQF', spec: 'U/10', qty: 1000, uom: 'กก.' }]
+      client_key: 'seed-D', title: 'ซอสเทริยากิ นำเข้า ล็อตเดือนหน้า', priority: 'low',
+      items: [{ product_group_code: 'FOOD-PROCESSED', product_name: 'Teriyaki Sauce 1.8 L', spec: 'ขวด PET, ฉลากไทย', qty: 600, uom: 'ขวด' }]
     }));
   });
-  return 'demo tickets +4';
+
+  // (E) Shrimp — in sourcing, SR still entering prices (try the pricing page as sr2)
+  t = as(U.salesFood2, function () {
+    return must(createTicket({
+      client_key: 'seed-E', title: 'กุ้งขาว PD สำหรับโรงแรม', customer_name: 'โรงแรม ริเวอร์ไซด์', priority: 'normal', due_date: inDays(5),
+      items: [
+        { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว Vannamei PD', spec: 'Size 41/50, glazing 10%', qty: 400, uom: 'กก.' },
+        { product_group_code: 'FOOD-FISH', product_name: 'ปลาซาบะนอร์เวย์', spec: 'Fillet 150–200 g', qty: 150, uom: 'กก.' }
+      ]
+    })).ticket;
+  });
+  go(U.mgrFood, t.ticket_id, 'manager_approve');
+  go(U.gm, t.ticket_id, 'gm_approve');
+  go(U.sr2, t.ticket_id, 'claim');
+  as(U.sr2, function () {
+    checklistOf_(t.ticket_id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); });
+  });
+  go(U.sr2, t.ticket_id, 'doc_complete');
+  as(U.sr2, function () {
+    const items = activeItemsOf_(t.ticket_id);
+    must(saveQuotation({ item_id: items[0].item_id, vendor_id: 'V-0004', vendor_name: 'Ocean Pride Vietnam Co., Ltd.', unit_price: 7.2,
+      currency: 'USD', fx_rate: 36.5, vat_term: 'no_vat', moq: 1000, lead_time_days: 30, payment_term: 'L/C at sight', valid_until: inDays(14),
+      origin_country: 'เวียดนาม', packing: '1 kg × 10/ctn', incoterm: 'CIF', shelf_life: '24 เดือน (-18°C)' }));
+    must(saveQuotation({ item_id: items[0].item_id, vendor_id: 'V-0001', vendor_name: 'Andaman Seafood Co., Ltd.', unit_price: 289,
+      currency: 'THB', fx_rate: 1, vat_term: 'include_vat', moq: 100, lead_time_days: 4, payment_term: 'Credit 30 วัน', valid_until: inDays(10),
+      origin_country: 'ไทย', packing: '1 kg × 10/ctn', incoterm: 'DELIVERED', shelf_life: '18 เดือน (-18°C)' }));
+  });
+  return 'demo tickets +5';
 }

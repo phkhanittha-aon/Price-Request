@@ -1,14 +1,568 @@
 <!--
   File: PagePricing.html
-  SR document check + vendor price comparison form.
-  PLACEHOLDER in Phase 2 — the full form is delivered in Phase 3 (this file will be replaced).
+  SR pricing page (?page=pricing&id=...): document checklist → vendor comparison (max 3 per item)
+  → pick ONE winner per item → save draft / submit to Sales.
+  Food items show food quotation fields (brand, origin, packing, Incoterm, shelf life);
+  Others items show brand + packing.
+  All rules are re-checked on the server (saveChecklist, saveSourcingDraft, transitionTicket).
 -->
 <script>
-Pages.pricing = {
-  render: function (view, route) {
-    view.innerHTML = '<div class="card" style="max-width:640px;margin:24px auto;text-align:center">' +
-      '<h2>หน้าตรวจเอกสาร / กรอกราคา</h2><p>หน้านี้จะส่งมอบใน Phase 3</p>' +
-      '<button class="btn" onclick="App.go({page:\'ticket\',id:\'' + esc(route.id || '') + '\'})">กลับไปหน้าใบขอราคา</button></div>';
+Pages.pricing = (function () {
+  const MAX_VENDORS = 3;
+  let ctx = null;   // { d: ticket detail, model, dirty, view, roots }
+
+  /* ---------- model ---------- */
+  function rootOf(code) {
+    const g = state.ref.product_groups;
+    let c = code;
+    for (let i = 0; i < 10; i++) {
+      const x = g.filter(function (y) { return y.code === c; })[0];
+      if (!x || !x.parent_code) return c;
+      c = x.parent_code;
+    }
+    return c;
   }
-};
+  function fromDetail(d) {
+    return {
+      items: d.items.map(function (it) {
+        const win = it.quotations.filter(function (q) { return q.is_selected; })[0];
+        return {
+          item_id: it.item_id,
+          winner: win ? win.quote_id : '',
+          reason: win ? win.selection_reason : '',
+          quotes: it.quotations.slice().sort(function (a, b) { return a.created_at < b.created_at ? -1 : 1; }).map(function (q) {
+            return {
+              quote_id: q.quote_id, vendor_id: q.vendor_id, vendor_name: q.vendor_name, unit_price: q.unit_price, currency: q.currency,
+              fx_rate: q.fx_rate, vat_term: q.vat_term, vat_rate: q.vat_rate, moq: q.moq == null ? '' : q.moq,
+              lead_time_days: q.lead_time_days == null ? '' : q.lead_time_days, payment_term: q.payment_term, valid_until: q.valid_until,
+              remark: q.remark, attachment_file_id: q.attachment_file_id, brand: q.brand, origin_country: q.origin_country,
+              packing: q.packing, incoterm: q.incoterm, shelf_life: q.shelf_life
+            };
+          })
+        };
+      })
+    };
+  }
+  function blankQuote() {
+    return { quote_id: uuid(), vendor_id: '', vendor_name: '', unit_price: '', currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', vat_rate: null,
+      moq: '', lead_time_days: '', payment_term: '', valid_until: '', remark: '', attachment_file_id: '', brand: '', origin_country: '',
+      packing: '', incoterm: '', shelf_life: '' };
+  }
+  function num(v) {
+    if (v === '' || v == null) return NaN;
+    const n = Number(String(v).replace(/,/g, ''));
+    return isFinite(n) ? n : NaN;
+  }
+  /** Same formula as Pricing.gs (server recomputes and stores the official values). */
+  function costs(q) {
+    const p = num(q.unit_price);
+    const fx = q.currency === 'THB' ? 1 : num(q.fx_rate);
+    const vat = q.vat_rate != null ? Number(q.vat_rate) : state.ref.vat_rate;
+    if (isNaN(p) || isNaN(fx) || fx <= 0 || p < 0) return null;
+    const net = q.vat_term === 'include_vat' ? p / (1 + vat) : p;
+    const gross = q.vat_term === 'ex_vat' ? p * (1 + vat) : p;
+    return { net_thb: net * fx, gross_thb: gross * fx };
+  }
+  function itemCalc(mi, it) {
+    const rows = mi.quotes.map(function (q) { return { q: q, c: costs(q) }; });
+    const valid = rows.filter(function (r) { return r.c; });
+    const min = valid.length ? Math.min.apply(null, valid.map(function (r) { return r.c.net_thb; })) : null;
+    rows.forEach(function (r) { r.cheapest = r.c && min != null && Math.abs(r.c.net_thb - min) < 0.000001; });
+    const win = rows.filter(function (r) { return r.q.quote_id === mi.winner; })[0];
+    return { rows: rows, min: min, win: win, needReason: !!(win && win.c && !win.cheapest), qty: it.qty };
+  }
+  function isBlank(q) { return !String(q.vendor_name || '').trim() && String(q.unit_price == null ? '' : q.unit_price).trim() === ''; }
+
+  /* ---------- rendering ---------- */
+  function stepper(stage) {
+    const steps = [['doc_check', 'ตรวจเอกสาร'], ['sourcing', 'หาราคา / เทียบราคา'], ['awaiting_sales_ack', 'ส่งราคาให้ Sales']];
+    const idx = { doc_check: 0, need_info: 0, sourcing: 1, awaiting_sales_ack: 2, closed: 3 }[stage];
+    return '<ol class="steps">' + steps.map(function (s, i) {
+      const cls = idx > i ? 'done' : idx === i ? 'now' : '';
+      return '<li class="' + cls + '"><span class="n">' + (idx > i ? '✓' : (i + 1)) + '</span>' + esc(s[1]) + '</li>';
+    }).join('') + '</ol>';
+  }
+
+  function headerHtml(d) {
+    const t = d.ticket;
+    let banner = '';
+    const p = d.permissions;
+    if (!p.can_edit_quotes && !p.can_edit_checklist) {
+      banner = '<div class="notice">โหมดดูอย่างเดียว — ' + (t.sr_email !== state.me.email ? 'แก้ไขได้เฉพาะ SR ผู้รับงาน (' + esc(t.sr_name || '-') + ')' :
+        'ใบอยู่ในขั้นตอน "' + esc(t.stage_label) + '"') + '</div>';
+    }
+    if (t.stage === 'need_info') banner += '<div class="notice warn">รอ Sales ส่งข้อมูลเพิ่ม: ' + esc((t.info_request && t.info_request.comment) || '') + '</div>';
+    if (t.revision_count && t.stage === 'sourcing') banner += '<div class="notice warn">Sales ขอให้ปรับราคา (ครั้งที่ ' + t.revision_count + ') — ดูเหตุผลใน Timeline ของใบ</div>';
+    return '<div class="page-head"><h1>' + esc(t.ticket_no) + ' · ใบเสนอราคา</h1>' + statusBadge(t.status, t.status_label) +
+      '<button class="btn sm ghost" data-back>← รายละเอียดใบ</button></div>' +
+      '<div class="card"><div class="row" style="gap:6px 24px">' +
+      '<div><div class="muted small">เรื่อง</div><b>' + esc(t.title) + '</b></div>' +
+      '<div><div class="muted small">ผู้ขอราคา</div>' + esc(t.requestor_name) + '</div>' +
+      '<div><div class="muted small">ลูกค้า</div>' + esc(t.customer_name || '–') + '</div>' +
+      '<div><div class="muted small">ต้องการราคาภายใน</div>' + esc(fmtDate(t.due_date)) + ' ' + prioText(t.priority) + '</div>' +
+      '</div>' + (t.description ? '<p class="small" style="white-space:pre-wrap;margin:10px 0 0">' + esc(t.description) + '</p>' : '') +
+      '</div>' + stepper(t.stage) + banner;
+  }
+
+  function filesHtml(d) {
+    const quoteFiles = d.attachments.filter(function (a) { return a.category === 'quotation'; });
+    const reqFiles = d.attachments.filter(function (a) { return a.category !== 'quotation'; });
+    const list = function (arr) {
+      return arr.length ? arr.map(function (a) {
+        return '<div class="small">📎 <a href="#" data-open="' + esc(a.attachment_id) + '">' + esc(a.file_name) + '</a> <span class="muted">' + fileSize(a.size_bytes) + '</span></div>';
+      }).join('') : '<div class="small muted">ไม่มี</div>';
+    };
+    return '<div class="card"><div class="grid-2" style="gap:12px"><div><h3>เอกสารจาก Sales</h3>' + list(reqFiles) + '</div>' +
+      '<div><h3>ไฟล์ใบเสนอราคา vendor</h3>' + list(quoteFiles) +
+      (d.permissions.can_upload && state.me.role === 'sr' ? '<label class="btn sm" style="margin-top:8px"><input type="file" id="pq-file" multiple hidden accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.xls,.xlsx,.csv">➕ แนบใบเสนอราคา</label><div id="pq-prog"></div>' : '') +
+      '</div></div></div>';
+  }
+
+  function checklistHtml(d) {
+    const editable = d.permissions.can_edit_checklist;
+    const done = d.checklist.filter(function (c) { return c.is_checked; }).length;
+    const reqLeft = d.checklist.filter(function (c) { return c.is_required && !c.is_checked; }).length;
+    const open = d.ticket.stage === 'doc_check' || d.ticket.stage === 'need_info';
+    return '<details class="card" id="pc-card"' + (open ? ' open' : '') + '><summary><h3 style="display:inline">ตรวจเอกสาร (' + done + '/' + d.checklist.length + ')</h3> ' +
+      (reqLeft ? '<span class="sla warning">⚠ ยังขาดที่บังคับ ' + reqLeft + '</span>' : '<span class="sla ok">✓ ครบตามที่บังคับ</span>') + '</summary>' +
+      '<div style="margin-top:10px">' + d.checklist.map(function (c) {
+        return '<div class="chk"><label><input type="checkbox" data-chk="' + esc(c.check_id) + '"' + (c.is_checked ? ' checked' : '') + (editable ? '' : ' disabled') + '> ' +
+          esc(c.label) + (c.is_required ? ' <span class="req">*</span>' : ' <span class="muted small">(ไม่บังคับ)</span>') + '</label>' +
+          '<input type="text" class="chk-note" data-note="' + esc(c.check_id) + '" placeholder="หมายเหตุ" value="' + esc(c.note) + '"' + (editable ? '' : ' disabled') + '>' +
+          (c.checked_by ? '<div class="small muted">✓ ' + esc(c.checked_by) + ' · ' + esc(fmtDateTime(c.checked_at)) + '</div>' : '') + '</div>';
+      }).join('') + '</div>' +
+      (editable ? '<div class="actions" style="margin-top:12px"><button class="btn" id="pc-save">บันทึกการตรวจ</button>' +
+        '<button class="btn" id="pc-info">ขอข้อมูลเพิ่มจาก Sales</button><span class="sep"></span>' +
+        '<button class="btn primary" id="pc-done">ยืนยันเอกสารครบ → ไปกรอกราคา</button></div>' : '') + '</details>';
+  }
+
+  function sel(name, options, value, disabled) {
+    return '<select data-f="' + name + '"' + (disabled ? ' disabled' : '') + '>' + options.map(function (o) {
+      return '<option value="' + esc(o.key) + '"' + (String(value) === String(o.key) ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+    }).join('') + '</select>';
+  }
+  function inp(name, value, type, extra, disabled) {
+    return '<input type="' + (type || 'text') + '" data-f="' + name + '" value="' + esc(value == null ? '' : value) + '"' + (extra || '') + (disabled ? ' disabled' : '') + '>';
+  }
+
+  function vendorCol(it, mi, q, qi, editable, isFood) {
+    const ro = !editable;
+    const cur = state.ref.currencies.map(function (c) { return { key: c, label: c }; });
+    const inco = [{ key: '', label: '— ไม่ระบุ —' }].concat(state.ref.incoterms || []);
+    const files = [{ key: '', label: '— ไม่แนบ —' }].concat(ctx.d.attachments.filter(function (a) { return a.category === 'quotation'; })
+      .map(function (a) { return { key: a.attachment_id, label: a.file_name }; }));
+    const f = function (label, html, req) { return '<label class="field"><span>' + label + (req ? ' <span class="req">*</span>' : '') + '</span>' + html + '</label>'; };
+    return '<div class="vcol" data-q="' + qi + '">' +
+      '<div class="vhead"><label class="win"><input type="radio" name="win-' + esc(it.item_id) + '" value="' + esc(q.quote_id) + '"' +
+      (mi.winner === q.quote_id ? ' checked' : '') + (ro ? ' disabled' : '') + '> เลือกเจ้านี้</label>' +
+      '<span class="vtags"></span>' + (editable ? '<button type="button" class="btn sm ghost" data-delq="' + qi + '" aria-label="ลบ vendor">✕ ลบ</button>' : '') + '</div>' +
+      f('Vendor', inp('vendor_name', q.vendor_name, 'text', ' list="vendor-list" maxlength="200" placeholder="ชื่อผู้ขาย"', ro), true) +
+      '<div class="row tight">' + f('ราคา/หน่วย', inp('unit_price', q.unit_price, 'number', ' inputmode="decimal" min="0" step="any"', ro), true) +
+      f('สกุลเงิน', sel('currency', cur, q.currency, ro)) + '</div>' +
+      '<div class="row tight">' + f('อัตราแลกเปลี่ยน → THB', inp('fx_rate', q.currency === 'THB' ? 1 : q.fx_rate, 'number', ' inputmode="decimal" min="0" step="any"', ro || q.currency === 'THB'), q.currency !== 'THB') +
+      f('VAT', sel('vat_term', state.ref.vat_terms, q.vat_term, ro), true) + '</div>' +
+      '<div class="calc"></div>' +
+      '<div class="row tight">' + f('MOQ', inp('moq', q.moq, 'number', ' min="0" step="any"', ro)) + f('Lead time (วัน)', inp('lead_time_days', q.lead_time_days, 'number', ' min="0" step="1"', ro)) + '</div>' +
+      f('เงื่อนไขชำระเงิน', inp('payment_term', q.payment_term, 'text', ' list="pay-list" maxlength="200"', ro)) +
+      f('ยืนราคาถึง', inp('valid_until', q.valid_until, 'date', '', ro)) +
+      (isFood ? '<div class="food"><div class="small muted" style="margin-bottom:6px">ข้อมูลสินค้าอาหาร</div>' +
+        '<div class="row tight">' + f('แบรนด์ / ผู้ผลิต', inp('brand', q.brand, 'text', ' maxlength="100"', ro)) + f('ประเทศต้นทาง', inp('origin_country', q.origin_country, 'text', ' list="origin-list" maxlength="100"', ro)) + '</div>' +
+        '<div class="row tight">' + f('Packing', inp('packing', q.packing, 'text', ' maxlength="200" placeholder="เช่น 1 kg × 10/ctn"', ro)) + f('อายุสินค้า', inp('shelf_life', q.shelf_life, 'text', ' maxlength="100" placeholder="เช่น 24 เดือน (-18°C)"', ro)) + '</div>' +
+        f('เงื่อนไขส่งมอบ (Incoterm)', sel('incoterm', inco, q.incoterm, ro)) + '</div>'
+        : '<div class="row tight">' + f('แบรนด์ / รุ่น', inp('brand', q.brand, 'text', ' maxlength="100"', ro)) + f('Packing', inp('packing', q.packing, 'text', ' maxlength="200"', ro)) + '</div>') +
+      f('ไฟล์ใบเสนอราคา', sel('attachment_file_id', files, q.attachment_file_id, ro)) +
+      f('หมายเหตุ', '<textarea data-f="remark" maxlength="2000"' + (ro ? ' disabled' : '') + '>' + esc(q.remark) + '</textarea>') +
+      '</div>';
+  }
+
+  function itemCard(it, idx) {
+    const mi = ctx.model.items[idx];
+    const editable = ctx.d.permissions.can_edit_quotes;
+    const isFood = rootOf(it.product_group_code) === 'FOOD';
+    let cols = mi.quotes.map(function (q, qi) { return vendorCol(it, mi, q, qi, editable, isFood); }).join('');
+    if (!mi.quotes.length) cols = '<div class="empty small">' + (editable ? 'ยังไม่มีราคา vendor — กด “+ เพิ่ม Vendor”' : 'ยังไม่มีราคา vendor') + '</div>';
+    return '<details class="card item" data-item="' + idx + '"' + (idx < 2 ? ' open' : '') + '>' +
+      '<summary><div class="ihead"><div><b>#' + it.line_no + ' ' + esc(it.product_name) + '</b> <span class="badge">' + esc(it.product_group_name) + '</span>' +
+      '<div class="small">' + fmtNum(it.qty) + ' ' + esc(it.uom) + (it.spec ? ' · ' + esc(it.spec) : '') +
+      (it.target_price != null ? ' · เป้าหมาย ' + fmtMoney(it.target_price) + ' ' + esc(it.target_currency) + '/' + esc(it.uom) : '') + '</div></div>' +
+      '<span class="istatus"></span></div></summary>' +
+      (it.description ? '<p class="small muted" style="white-space:pre-wrap">' + esc(it.description) + '</p>' : '') +
+      '<div class="vgrid">' + cols + '</div>' +
+      (editable ? '<button type="button" class="btn" data-addq' + (mi.quotes.length >= MAX_VENDORS ? ' disabled' : '') + '>+ เพิ่ม Vendor (' + mi.quotes.length + '/' + MAX_VENDORS + ')</button>' : '') +
+      '<div class="reason" hidden><label class="field"><span>เหตุผลที่ไม่เลือกเจ้าที่ถูกที่สุด <span class="req">*</span></span>' +
+      '<textarea data-reason maxlength="500" placeholder="เช่น คุณภาพดีกว่า, ลูกค้ากำหนดแบรนด์, Lead time สั้นกว่า"' + (editable ? '' : ' disabled') + '>' + esc(mi.reason) + '</textarea></label></div>' +
+      '<div class="ifoot small"></div></details>';
+  }
+
+  function render() {
+    const d = ctx.d;
+    const view = ctx.view;
+    const docPhase = d.ticket.stage === 'doc_check' || d.ticket.stage === 'need_info';
+    view.innerHTML = headerHtml(d) + filesHtml(d) + (d.checklist.length ? checklistHtml(d) : '') +
+      (docPhase && d.items.every(function (it) { return !it.quotations.length; }) ?
+        '<div class="notice">ติ๊กเอกสารให้ครบแล้วกด “ยืนยันเอกสารครบ” ก่อน จึงจะกรอกราคา vendor ได้ หรือกด “ขอข้อมูลเพิ่มจาก Sales” ถ้าเอกสารไม่พอ</div>' :
+        d.items.map(itemCard).join('')) +
+      '<datalist id="vendor-list">' + state.ref.vendors.map(function (v) { return '<option value="' + esc(v.name) + '">'; }).join('') + '</datalist>' +
+      '<datalist id="pay-list"><option value="เงินสด"><option value="Credit 30 วัน"><option value="Credit 60 วัน"><option value="T/T 30% deposit"><option value="L/C at sight"></datalist>' +
+      '<datalist id="origin-list"><option value="ไทย"><option value="นอร์เวย์"><option value="ชิลี"><option value="เวียดนาม"><option value="อินเดีย"><option value="จีน"><option value="ญี่ปุ่น"><option value="ออสเตรเลีย"></datalist>' +
+      (d.permissions.can_edit_quotes ? '<div class="savebar"><div class="sum" id="pp-sum"></div><span class="sep"></span>' +
+        '<button class="btn" id="pp-info">ขอข้อมูลเพิ่ม</button><button class="btn" id="pp-save">บันทึกร่าง</button>' +
+        '<button class="btn primary" id="pp-submit">ส่งราคาให้ Sales</button></div>' : '');
+    bind();
+    $all('.card.item', view).forEach(function (card) { refreshItem(Number(card.getAttribute('data-item'))); });
+    refreshSummary();
+  }
+
+  /* ---------- live recompute (no re-render, keeps focus) ---------- */
+  function refreshItem(idx) {
+    const card = $('.card.item[data-item="' + idx + '"]', ctx.view);
+    if (!card) return;
+    const it = ctx.d.items[idx];
+    const mi = ctx.model.items[idx];
+    const calc = itemCalc(mi, it);
+    calc.rows.forEach(function (r, qi) {
+      const col = $('.vcol[data-q="' + qi + '"]', card);
+      if (!col) return;
+      $('.calc', col).innerHTML = r.c ?
+        '<div class="kvs"><span>ต้นทุนสุทธิ/หน่วย</span><b>฿' + fmtMoney(r.c.net_thb) + '</b>' +
+        '<span>ราคาจ่ายจริง/หน่วย</span><span>฿' + fmtMoney(r.c.gross_thb) + '</span>' +
+        '<span>รวมต้นทุนสุทธิ × ' + fmtNum(it.qty) + '</span><b>฿' + fmtMoney(r.c.net_thb * it.qty) + '</b></div>' :
+        '<div class="small muted">กรอกราคาและอัตราแลกเปลี่ยนเพื่อคำนวณ</div>';
+      $('.vtags', col).innerHTML = (r.cheapest ? '<span class="badge tag-cheap">★ ถูกที่สุด</span>' : '') +
+        (mi.winner === r.q.quote_id ? ' <span class="badge tag-win">✔ ผู้ชนะ</span>' : '');
+      col.classList.toggle('is-win', mi.winner === r.q.quote_id);
+      const fx = $('[data-f="fx_rate"]', col);
+      if (fx) {
+        if (r.q.currency === 'THB') { fx.value = 1; fx.disabled = true; }
+        else if (ctx.d.permissions.can_edit_quotes) fx.disabled = false;
+      }
+    });
+    const reason = $('.reason', card);
+    reason.hidden = !calc.needReason;
+    const add = $('[data-addq]', card);
+    if (add) { add.disabled = mi.quotes.length >= MAX_VENDORS; add.textContent = '+ เพิ่ม Vendor (' + mi.quotes.length + '/' + MAX_VENDORS + ')'; }
+    const filled = mi.quotes.filter(function (q) { return !isBlank(q); }).length;
+    let status;
+    if (!filled) status = '<span class="sla breach">⛔ ยังไม่มีราคา</span>';
+    else if (!calc.win) status = '<span class="sla warning">⚠ ' + filled + ' เจ้า · ยังไม่เลือก</span>';
+    else if (calc.needReason && !String(mi.reason || '').trim()) status = '<span class="sla warning">⚠ ต้องใส่เหตุผล</span>';
+    else status = '<span class="sla ok">✓ ' + esc(calc.win.q.vendor_name || 'เลือกแล้ว') + '</span>';
+    $('.istatus', card).innerHTML = status;
+    let foot = '';
+    if (calc.win && calc.win.c) {
+      foot = 'ผู้ชนะ: <b>' + esc(calc.win.q.vendor_name) + '</b> · ต้นทุนสุทธิรวม <b>฿' + fmtMoney(calc.win.c.net_thb * it.qty) + '</b>';
+      if (it.target_price != null && it.target_currency === 'THB' && it.target_price > 0) {
+        const diff = (calc.win.c.net_thb - it.target_price) / it.target_price * 100;
+        foot += ' · เทียบเป้าหมาย <span class="' + (diff > 0 ? 'sla breach' : 'sla ok') + '">' + (diff > 0 ? '▲ +' : '▼ ') + diff.toFixed(1) + '%</span>';
+      }
+    }
+    $('.ifoot', card).innerHTML = foot;
+  }
+
+  function refreshSummary() {
+    const box = $('#pp-sum', ctx.view);
+    if (!box) return;
+    let ready = 0;
+    let net = 0;
+    let gross = 0;
+    ctx.d.items.forEach(function (it, i) {
+      const calc = itemCalc(ctx.model.items[i], it);
+      if (calc.win && calc.win.c) {
+        net += calc.win.c.net_thb * it.qty;
+        gross += calc.win.c.gross_thb * it.qty;
+        if (!calc.needReason || String(ctx.model.items[i].reason || '').trim()) ready++;
+      }
+    });
+    box.innerHTML = '<b>' + ready + '/' + ctx.d.items.length + '</b> รายการพร้อมส่ง · สุทธิ <b>฿' + fmtMoney(net) + '</b> · จ่ายจริง ฿' + fmtMoney(gross) +
+      (ctx.dirty ? ' · <span class="sla warning">● ยังไม่ได้บันทึก</span>' : ' · <span class="muted">บันทึกแล้ว</span>');
+  }
+
+  /* ---------- events ---------- */
+  function markDirty() { ctx.dirty = true; refreshSummary(); }
+
+  function bind() {
+    const view = ctx.view;
+    const d = ctx.d;
+    $all('[data-back]', view).forEach(function (b) { b.onclick = function () { leave({ page: 'ticket', id: d.ticket.ticket_id }); }; });
+    $all('[data-open]', view).forEach(function (a) {
+      a.onclick = function (e) {
+        e.preventDefault();
+        api('openAttachment', a.getAttribute('data-open')).then(function (r) { window.open(r.url, '_blank'); }).catch(function (err) { toast(err.error, 'err'); });
+      };
+    });
+    const fileIn = $('#pq-file', view);
+    if (fileIn) fileIn.onchange = function () {
+      const files = Array.prototype.slice.call(fileIn.files || []);
+      fileIn.value = '';
+      let chain = Promise.resolve();
+      files.forEach(function (f) {
+        chain = chain.then(function () {
+          const row = document.createElement('div');
+          row.innerHTML = '<div class="small">' + esc(f.name) + '</div><div class="progress"><div></div></div>';
+          $('#pq-prog', view).appendChild(row);
+          return uploadFile(f, { ticket_id: d.ticket.ticket_id, category: 'quotation' }, function (p) { row.querySelector('.progress > div').style.width = Math.round(p * 100) + '%'; })
+            .then(function () { toast('แนบ ' + f.name + ' แล้ว', 'ok'); }).catch(function (e) { toast(f.name + ': ' + e.error, 'err'); row.remove(); });
+        });
+      });
+      chain.then(function () { reload(true); });
+    };
+
+    // checklist
+    if ($('#pc-save', view)) {
+      const rows = function () {
+        return d.checklist.map(function (c) {
+          return { check_id: c.check_id, is_checked: $('[data-chk="' + c.check_id + '"]', view).checked, note: $('[data-note="' + c.check_id + '"]', view).value };
+        });
+      };
+      $('#pc-save', view).onclick = function () {
+        api('saveChecklist', d.ticket.ticket_id, rows()).then(function (r) { toast('บันทึกการตรวจเอกสารแล้ว (' + r.changes + ' รายการ)', 'ok'); reload(); })
+          .catch(function (e) { toast(e.error, 'err'); });
+      };
+      $('#pc-done', view).onclick = function () {
+        const r = rows();
+        const missing = d.checklist.filter(function (c, i) { return c.is_required && !r[i].is_checked; });
+        if (missing.length) { toast('ยังไม่ได้ติ๊ก: ' + missing.map(function (c) { return c.label; }).join(', '), 'err'); return; }
+        api('saveChecklist', d.ticket.ticket_id, r).then(function () {
+          return api('getTicket', d.ticket.ticket_id);
+        }).then(function (fresh) {
+          return api('transitionTicket', d.ticket.ticket_id, 'doc_complete', '', { expected_version: fresh.ticket.version });
+        }).then(function () { toast('เอกสารครบ — กรอกราคา vendor ได้แล้ว', 'ok'); refreshPoll(); reload(); })
+          .catch(function (e) { toast(e.error, 'err'); });
+      };
+      $('#pc-info', view).onclick = requestInfo;
+    }
+    if ($('#pp-info', view)) $('#pp-info', view).onclick = requestInfo;
+
+    // vendors
+    $all('.card.item', view).forEach(bindItem);
+
+    if ($('#pp-save', view)) {
+      $('#pp-save', view).onclick = function () { save().then(function () { toast('บันทึกร่างแล้ว', 'ok'); }).catch(function () {}); };
+      $('#pp-submit', view).onclick = submit;
+    }
+  }
+
+  function bindItem(card) {
+    const idx = Number(card.getAttribute('data-item'));
+    const mi = ctx.model.items[idx];
+    card.addEventListener('input', function (e) {
+      const el = e.target;
+      if (el.hasAttribute('data-reason')) { mi.reason = el.value; markDirty(); refreshItem(idx); return; }
+      const col = el.closest('.vcol');
+      if (!col || !el.getAttribute('data-f')) return;
+      const q = mi.quotes[Number(col.getAttribute('data-q'))];
+      const f = el.getAttribute('data-f');
+      q[f] = el.value;
+      if (f === 'vendor_name') {
+        const v = state.ref.vendors.filter(function (x) { return x.name.toLowerCase() === el.value.trim().toLowerCase(); })[0];
+        q.vendor_id = v ? v.vendor_id : '';
+        if (v && !q._defaulted) {   // fill vendor defaults once
+          q._defaulted = true;
+          q.currency = v.default_currency || q.currency;
+          if (v.default_vat_term) q.vat_term = v.default_vat_term;
+          $('[data-f="currency"]', col).value = q.currency;
+          $('[data-f="vat_term"]', col).value = q.vat_term;
+        }
+      }
+      if (f === 'currency' && q.currency === 'THB') q.fx_rate = 1;
+      markDirty();
+      refreshItem(idx);
+    });
+    card.addEventListener('change', function (e) {
+      if (e.target.type === 'radio') { mi.winner = e.target.value; markDirty(); refreshItem(idx); }
+    });
+    const add = $('[data-addq]', card);
+    if (add) add.onclick = function () {
+      if (mi.quotes.length >= MAX_VENDORS) return;
+      mi.quotes.push(blankQuote());
+      markDirty();
+      rerenderItem(idx, true);
+    };
+    $all('[data-delq]', card).forEach(function (b) {
+      b.onclick = function () {
+        const qi = Number(b.getAttribute('data-delq'));
+        const q = mi.quotes[qi];
+        const go = function () {
+          mi.quotes.splice(qi, 1);
+          if (mi.winner === q.quote_id) { mi.winner = ''; mi.reason = ''; }
+          markDirty();
+          rerenderItem(idx);
+        };
+        if (isBlank(q)) { go(); return; }
+        dialog({ title: 'ลบ vendor', message: 'ลบราคาของ "' + (q.vendor_name || 'vendor นี้') + '"? (มีผลเมื่อกดบันทึก)', danger: true, confirmText: 'ลบ' })
+          .then(function (r) { if (r) go(); });
+      };
+    });
+  }
+
+  function rerenderItem(idx, focusLast) {
+    const old = $('.card.item[data-item="' + idx + '"]', ctx.view);
+    const tmp = document.createElement('div');
+    tmp.innerHTML = itemCard(ctx.d.items[idx], idx);
+    const fresh = tmp.firstChild;
+    fresh.open = true;
+    old.parentNode.replaceChild(fresh, old);
+    bindItem(fresh);
+    refreshItem(idx);
+    refreshSummary();
+    if (focusLast) {
+      const cols = $all('.vcol', fresh);
+      const inpEl = cols.length && $('[data-f="vendor_name"]', cols[cols.length - 1]);
+      if (inpEl) inpEl.focus();
+    }
+  }
+
+  function requestInfo() {
+    const d = ctx.d;
+    const html = d.checklist.length ? '<p class="small">เลือกเอกสารที่ยังขาด (ถ้ามี)</p>' + d.checklist.map(function (c) {
+      return '<label style="display:flex;gap:8px;align-items:center;min-height:36px"><input type="checkbox" class="dlg-miss" value="' + esc(c.item_key) + '"' +
+        (c.is_checked ? '' : ' checked') + '> ' + esc(c.label) + '</label>';
+    }).join('') : '';
+    dialog({ title: 'ขอข้อมูลเพิ่มจาก Sales', html: html, comment: 'required', commentLabel: 'ข้อมูล/เอกสารที่ต้องการ', confirmText: 'ส่งคำขอ' }).then(function (res) {
+      if (!res) return;
+      const missing = $all('.dlg-miss', res.root).filter(function (x) { return x.checked; }).map(function (x) { return x.value; });
+      const run = function () {
+        return api('getTicket', d.ticket.ticket_id).then(function (fresh) {
+          return api('transitionTicket', d.ticket.ticket_id, 'request_info', res.comment, { expected_version: fresh.ticket.version, missing_items: missing });
+        });
+      };
+      (ctx.dirty && d.permissions.can_edit_quotes ? save().then(run) : run()).then(function () {
+        toast('ส่งคำขอข้อมูลให้ Sales แล้ว', 'ok'); refreshPoll(); go({ page: 'ticket', id: d.ticket.ticket_id }, true);
+      }).catch(function (e) { if (e && e.error) toast(e.error, 'err'); });
+    });
+  }
+
+  function payload() {
+    return ctx.model.items.map(function (mi) {
+      return {
+        item_id: mi.item_id,
+        winner_quote_id: mi.winner || '',
+        selection_reason: mi.reason || '',
+        quotes: mi.quotes.filter(function (q) { return !isBlank(q); }).map(function (q) {
+          const o = {};
+          ['quote_id', 'vendor_id', 'vendor_name', 'unit_price', 'currency', 'fx_rate', 'vat_term', 'moq', 'lead_time_days', 'payment_term',
+            'valid_until', 'remark', 'attachment_file_id', 'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life']
+            .forEach(function (k) { o[k] = q[k] == null ? '' : q[k]; });
+          if (o.currency === 'THB') o.fx_rate = 1;
+          return o;
+        })
+      };
+    }).map(function (row) {
+      if (row.winner_quote_id && !row.quotes.some(function (q) { return q.quote_id === row.winner_quote_id; })) row.winner_quote_id = '';
+      return row;
+    });
+  }
+
+  function setBusy(busy) { $all('.savebar button', ctx.view).forEach(function (b) { b.disabled = busy; }); }
+
+  function save() {
+    setBusy(true);
+    return api('saveSourcingDraft', ctx.d.ticket.ticket_id, payload()).then(function (r) {
+      ctx.dirty = false;
+      ctx.d = r.detail;
+      ctx.model = fromDetail(r.detail);
+      setBusy(false);
+      render();
+      return r;
+    }).catch(function (e) {
+      setBusy(false);
+      toast(e.error, 'err', 9000);
+      if (e.details && e.details.line_no != null) highlight(e.details.line_no, e.details.vendor_index);
+      throw e;
+    });
+  }
+
+  function highlight(lineNo, vendorIndex) {
+    const idx = ctx.d.items.map(function (it) { return it.line_no; }).indexOf(lineNo);
+    const card = $('.card.item[data-item="' + idx + '"]', ctx.view);
+    if (!card) return;
+    card.open = true;
+    const col = vendorIndex != null ? $all('.vcol', card).filter(function (c) {
+      const q = ctx.model.items[idx].quotes[Number(c.getAttribute('data-q'))];
+      return !isBlank(q);
+    })[vendorIndex] : null;
+    (col || card).classList.add('flash');
+    (col || card).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(function () { (col || card).classList.remove('flash'); }, 2500);
+  }
+
+  /** Client-side mirror of the submit rules → list of problems (server re-checks). */
+  function problems() {
+    const out = [];
+    const today = todayYmd(0);
+    ctx.d.items.forEach(function (it, i) {
+      const mi = ctx.model.items[i];
+      const filled = mi.quotes.filter(function (q) { return !isBlank(q); });
+      const calc = itemCalc(mi, it);
+      if (!filled.length) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ยังไม่มีราคา vendor' });
+      filled.forEach(function (q, k) {
+        if (!String(q.vendor_name).trim()) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ' vendor ที่ ' + (k + 1) + ': ใส่ชื่อ vendor' });
+        if (!costs(q)) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ' vendor ที่ ' + (k + 1) + ': ราคา/อัตราแลกเปลี่ยนไม่ถูกต้อง' });
+      });
+      if (filled.length && !calc.win) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ยังไม่ได้เลือกผู้ชนะ' });
+      if (calc.needReason && !String(mi.reason || '').trim()) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ต้องใส่เหตุผลที่ไม่เลือกเจ้าที่ถูกที่สุด' });
+      if (calc.win && calc.win.q.valid_until && calc.win.q.valid_until < today) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ราคาผู้ชนะหมดอายุแล้ว' });
+    });
+    return out;
+  }
+
+  function submit() {
+    const errs = problems();
+    if (errs.length) {
+      const first = $('.card.item[data-item="' + errs[0].i + '"]', ctx.view);
+      if (first) { first.open = true; first.scrollIntoView({ behavior: 'smooth', block: 'start' }); first.classList.add('flash'); setTimeout(function () { first.classList.remove('flash'); }, 2500); }
+      dialog({ title: 'ยังส่งราคาไม่ได้', html: '<ul>' + errs.map(function (e) { return '<li>' + esc(e.text) + '</li>'; }).join('') + '</ul>', confirmText: 'กลับไปแก้ไข' });
+      return;
+    }
+    let net = 0;
+    const lines = ctx.d.items.map(function (it, i) {
+      const calc = itemCalc(ctx.model.items[i], it);
+      net += calc.win.c.net_thb * it.qty;
+      return '<tr><td>#' + it.line_no + ' ' + esc(it.product_name) + '</td><td>' + esc(calc.win.q.vendor_name) + (calc.win.cheapest ? '' : ' <span class="small muted">(ไม่ใช่ถูกสุด)</span>') +
+        '</td><td class="num">' + fmtMoney(calc.win.c.net_thb * it.qty) + '</td></tr>';
+    }).join('');
+    dialog({
+      title: 'ส่งราคาให้ ' + ctx.d.ticket.requestor_name + '?',
+      html: '<p class="small">หลังส่งแล้วจะแก้ไขราคาไม่ได้ จนกว่า Sales จะขอให้ปรับราคา</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>รายการ</th><th>ผู้ชนะ</th><th class="num">ต้นทุนสุทธิ (฿)</th></tr></thead><tbody>' +
+        lines + '<tr><td colspan="2"><b>รวม</b></td><td class="num"><b>' + fmtMoney(net) + '</b></td></tr></tbody></table></div>',
+      confirmText: 'ยืนยันส่งราคา'
+    }).then(function (res) {
+      if (!res) return;
+      toast('กำลังส่งราคา...');
+      save().then(function (r) {
+        return api('transitionTicket', ctx.d.ticket.ticket_id, 'submit_quote', '', { expected_version: r.detail.ticket.version });
+      }).then(function (r) {
+        toast('ส่งราคา ' + r.ticket.ticket_no + ' ให้ Sales แล้ว', 'ok');
+        refreshPoll();
+        go({ page: 'ticket', id: r.ticket.ticket_id }, true);
+      }).catch(function (e) { if (e && e.error && e.code !== 'VALIDATION') toast(e.error, 'err', 9000); });
+    });
+  }
+
+  function leave(route) {
+    if (!ctx.dirty) { go(route); return; }
+    dialog({ title: 'ยังไม่ได้บันทึก', message: 'มีราคาที่แก้ไขแต่ยังไม่ได้บันทึก ต้องการออกจากหน้านี้หรือไม่?', danger: true, confirmText: 'ออกโดยไม่บันทึก' })
+      .then(function (r) { if (r) { ctx.dirty = false; go(route); } });
+  }
+
+  function reload(keepModel) {
+    return api('getTicket', ctx.d.ticket.ticket_id).then(function (d) {
+      ctx.d = d;
+      if (!keepModel || !ctx.dirty) ctx.model = fromDetail(d);
+      render();
+    }).catch(function (e) { toast(e.error, 'err'); });
+  }
+
+  return {
+    render: function (view, route, isCurrent) {
+      if (!route.id) { go({ page: 'tickets', scope: 'mine' }, true); return; }
+      view.innerHTML = loadingHtml('กำลังโหลดใบเสนอราคา...');
+      api('getTicket', route.id).then(function (d) {
+        if (!isCurrent()) return;
+        ctx = { d: d, model: fromDetail(d), dirty: false, view: view };
+        render();
+      }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+    }
+  };
+})();
 </script>

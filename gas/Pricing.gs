@@ -45,6 +45,11 @@ function normQuote_(r) {
     net_unit_cost: Number(r.net_unit_cost),
     net_unit_cost_thb: Number(r.net_unit_cost_thb),
     gross_unit_price_thb: Number(r.gross_unit_price_thb),
+    brand: String(r.brand || ''),
+    origin_country: String(r.origin_country || ''),
+    packing: String(r.packing || ''),
+    incoterm: String(r.incoterm || ''),
+    shelf_life: String(r.shelf_life || ''),
     created_by: String(r.created_by || ''),
     created_at: isoOrBlank_(r.created_at),
     updated_at: isoOrBlank_(r.updated_at)

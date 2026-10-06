@@ -88,6 +88,7 @@ function referenceData_() {
     currencies: setting_('currencies', ['THB']),
     vat_rate: vatRate_(),
     vat_terms: VAT_TERMS.map(function (k) { return { key: k, label: VAT_TERM_LABEL[k] }; }),
+    incoterms: INCOTERMS.map(function (k) { return { key: k, label: INCOTERM_LABEL[k] }; }),
     priorities: PRIORITIES,
     stage_labels: STAGE_LABEL_TH,
     status_labels: STATUS_LABEL_TH,

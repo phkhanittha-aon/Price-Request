@@ -18,6 +18,7 @@ function runAcceptanceTests() {
     withLock_(function () { seedMaster_(); seedUsers_(); });
     runCases_(results);
     runPhase2Cases_(results);
+    runPhase3Cases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -88,7 +89,7 @@ function runCases_(results) {
 
     ok(as(U.salesFood1, function () { return getTicket(food1Ticket.ticket_id).ok; }), 'AC-1 Owner sees own ticket');
     expectErr(as(U.salesFood2, function () { return getTicket(food1Ticket.ticket_id); }), 'NOT_FOUND', 'AC-1 Other Sales cannot open the ticket (direct API call)');
-    expectErr(as(U.mgrSolar, function () { return getTicket(food1Ticket.ticket_id); }), 'NOT_FOUND', 'Manager of another department cannot open it');
+    expectErr(as(U.mgrOthers, function () { return getTicket(food1Ticket.ticket_id); }), 'NOT_FOUND', 'Manager of another department cannot open it');
     expectErr(as(U.sr1, function () { return getTicket(food1Ticket.ticket_id); }), 'NOT_FOUND', 'SR cannot open a ticket before GM approval');
     ok(as(U.mgrFood, function () { return getTicket(food1Ticket.ticket_id).ok; }), 'Department manager sees it');
     ok(as(U.gm, function () { return getTicket(food1Ticket.ticket_id).ok; }), 'GM sees it');
@@ -128,33 +129,33 @@ function runCases_(results) {
 
   // ===================================================================== Full workflow + AC-3 + AC-4
   wrap('FLOW', function () {
-    const t0 = as(U.salesSolar, function () {
-      return must(createTicket({ client_key: 'flow', title: 'ทดสอบ Inverter 50kW + สายไฟ', items: [
-        { product_group_code: 'SOLAR-INVERTER', product_name: 'Inverter 50kW', qty: 2, uom: 'เครื่อง' },
-        { product_group_code: 'SOLAR-CABLE', product_name: 'PV1-F 6 sq.mm', qty: 500, uom: 'เมตร' }] })).ticket;
+    const t0 = as(U.salesOthers, function () {
+      return must(createTicket({ client_key: 'flow', title: 'ทดสอบเครื่องซีลสุญญากาศ + กุ้งขาว', items: [
+        { product_group_code: 'OTHERS-PACKAGING', product_name: 'เครื่องซีลสุญญากาศ', qty: 2, uom: 'เครื่อง' },
+        { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว HLSO 31/40', qty: 500, uom: 'กก.' }] })).ticket;
     });
     const id = t0.ticket_id;
 
-    ok(must(go(U.mgrSolar, id, 'manager_return', 'กรุณาระบุรุ่น')).ticket.stage === 'returned', 'Manager return → returned');
+    ok(must(go(U.mgrOthers, id, 'manager_return', 'กรุณาระบุรุ่น')).ticket.stage === 'returned', 'Manager return → returned');
     const item1 = activeItemsOf_(id)[0];
-    as(U.salesSolar, function () {
-      must(saveItem(id, Object.assign({}, item1, { spec: 'Sungrow SG50CX' }), ver(id)), 'saveItem');
+    as(U.salesOthers, function () {
+      must(saveItem(id, Object.assign({}, item1, { spec: 'รุ่น DZ-400 ห้องซีล 40 ซม.' }), ver(id)), 'saveItem');
     });
-    ok(activeItemsOf_(id)[0].spec === 'Sungrow SG50CX', 'Sales edits item while returned');
-    ok(must(go(U.salesSolar, id, 'resubmit')).ticket.stage === 'pending_manager', 'Resubmit → pending_manager');
-    ok(must(go(U.mgrSolar, id, 'manager_approve')).ticket.stage === 'pending_gm', 'Manager approve → pending_gm');
-    expectErr(as(U.salesSolar, function () {
+    ok(activeItemsOf_(id)[0].spec === 'รุ่น DZ-400 ห้องซีล 40 ซม.', 'Sales edits item while returned');
+    ok(must(go(U.salesOthers, id, 'resubmit')).ticket.stage === 'pending_manager', 'Resubmit → pending_manager');
+    ok(must(go(U.mgrOthers, id, 'manager_approve')).ticket.stage === 'pending_gm', 'Manager approve → pending_gm');
+    expectErr(as(U.salesOthers, function () {
       return saveItem(id, Object.assign({}, item1, { qty: 99 }), ver(id));
     }), 'FORBIDDEN', 'Sales cannot edit items after Manager approval');
 
     const g = must(go(U.gm, id, 'gm_approve')).ticket;
     ok(g.status === 'on_process' && g.stage === 'pending_assign', 'GM approve → On Process / pending_assign');
-    expectErr(go(U.salesSolar, id, 'cancel'), 'INVALID_STATE', 'Sales cannot cancel after GM approval');
+    expectErr(go(U.salesOthers, id, 'cancel'), 'INVALID_STATE', 'Sales cannot cancel after GM approval');
     expectErr(go(U.sr2, id, 'assign', '', { sr_email: U.sr1 }), 'FORBIDDEN', 'Normal SR cannot assign');
 
     const c = must(go(U.sr1, id, 'claim')).ticket;
     ok(c.stage === 'doc_check' && c.sr_email === U.sr1 && !!c.assigned_at, 'SR claim → doc_check, sr + time recorded');
-    ok(checklistOf_(id).length === 6, 'Checklist built from Solar + Inverter + Cable templates (6 rows)');
+    ok(checklistOf_(id).length === 10, 'Checklist built from Food + Shrimp + Others + Packaging templates (10 rows)');
     expectErr(go(U.sr2, id, 'claim'), 'ALREADY_CLAIMED', 'Second SR cannot claim the same job');
     expectErr(go(U.sr1, id, 'doc_complete'), 'CHECKLIST_INCOMPLETE', 'Cannot finish doc check with unticked items');
 
@@ -163,9 +164,9 @@ function runCases_(results) {
       return saveQuotation({ item_id: items[0].item_id, vendor_name: 'X', unit_price: 1, vat_term: 'ex_vat' });
     }), 'FORBIDDEN', 'Cannot enter prices before documents are checked');
 
-    const ri = must(go(U.sr1, id, 'request_info', 'ขอ datasheet', { missing_items: ['datasheet'] })).ticket;
+    const ri = must(go(U.sr1, id, 'request_info', 'ขอรูปตัวอย่างสินค้า', { missing_items: ['sample_photo'] })).ticket;
     ok(ri.stage === 'need_info' && ri.info_request.return_stage === 'doc_check', 'SR request_info → need_info');
-    const rs = must(go(U.salesSolar, id, 'respond_info', 'แนบ datasheet แล้ว')).ticket;
+    const rs = must(go(U.salesOthers, id, 'respond_info', 'แนบรูปแล้ว')).ticket;
     ok(rs.stage === 'doc_check' && rs.sr_email === U.sr1 && !rs.info_request, 'Sales respond → back to the same SR (doc_check)');
 
     expectErr(as(U.sr2, function () { return updateChecklist(checklistOf_(id)[0].check_id, true, ''); }),
@@ -220,18 +221,18 @@ function runCases_(results) {
     expectErr(go(U.sr1, id, 'submit_quote'), 'QUOTATION_EXPIRED', 'Submit blocked: winning price already expired');
     must(saveQ({ quote_id: qCable.quote_id, item_id: items[1].item_id, vendor_name: 'Cable Co', unit_price: 28, vat_term: 'ex_vat', valid_until: inDays(10) }));
 
-    const salesView = as(U.salesSolar, function () { return must(getTicket(id)); });
+    const salesView = as(U.salesOthers, function () { return must(getTicket(id)); });
     ok(salesView.items.every(function (it) { return it.quotations.length === 0; }), 'Sales cannot see draft quotations');
 
     const sub = must(go(U.sr1, id, 'submit_quote')).ticket;
     ok(sub.status === 'completed' && sub.stage === 'awaiting_sales_ack', 'submit_quote → Completed / awaiting_sales_ack');
     expectErr(saveQ({ quote_id: qA.quote_id, item_id: items[0].item_id, vendor_name: 'Vendor A', unit_price: 1, vat_term: 'ex_vat' }),
       'FORBIDDEN', 'SR cannot edit prices after submission');
-    const salesView2 = as(U.salesSolar, function () { return must(getTicket(id)); });
+    const salesView2 = as(U.salesOthers, function () { return must(getTicket(id)); });
     ok(salesView2.items[0].quotations.length === 3 && salesView2.items[1].quotations.length === 1, 'Sales sees quotations after submission');
 
-    expectErr(go(U.salesSolar, id, 'request_revision'), 'COMMENT_REQUIRED', 'Revision needs a comment');
-    const rev = must(go(U.salesSolar, id, 'request_revision', 'ลูกค้าต่อราคา')).ticket;
+    expectErr(go(U.salesOthers, id, 'request_revision'), 'COMMENT_REQUIRED', 'Revision needs a comment');
+    const rev = must(go(U.salesOthers, id, 'request_revision', 'ลูกค้าต่อราคา')).ticket;
     ok(rev.stage === 'sourcing' && rev.revision_count === 1, 'request_revision → sourcing, revision_count = 1');
     must(saveQ({ quote_id: qA.quote_id, item_id: items[0].item_id, vendor_name: 'Vendor A', unit_price: 48500, currency: 'THB', vat_term: 'ex_vat', valid_until: inDays(30) }));
     ok(findAll_(TAB.LOGS, 'ticket_id', id).some(function (l) {
@@ -241,7 +242,7 @@ function runCases_(results) {
     }), 'Price change logged with old → new diff');
     as(U.sr1, function () { must(selectQuotation(qA.quote_id, '')); });
     must(go(U.sr1, id, 'submit_quote'));
-    const closed = must(go(U.salesSolar, id, 'accept', 'ตกลง')).ticket;
+    const closed = must(go(U.salesOthers, id, 'accept', 'ตกลง')).ticket;
     ok(closed.status === 'closed' && !!closed.closed_at, 'accept → Closed');
 
     // ---- AC-4 logs
@@ -299,8 +300,8 @@ function runCases_(results) {
     ok(!n.some(function (r) {
       return findAll_(TAB.LOGS, 'ticket_id', r.ticket_id).length === 0;
     }), 'Every notification belongs to a logged ticket');
-    ok(n.some(function (r) { return r.user_email === U.mgrSolar && r.type === 'approval_required'; }), 'Manager notified of new ticket');
-    ok(n.some(function (r) { return r.user_email === U.salesSolar && r.type === 'quote_ready'; }), 'Sales notified when prices are ready');
+    ok(n.some(function (r) { return r.user_email === U.mgrOthers && r.type === 'approval_required'; }), 'Manager notified of new ticket');
+    ok(n.some(function (r) { return r.user_email === U.salesOthers && r.type === 'quote_ready'; }), 'Sales notified when prices are ready');
   });
 }
 
@@ -390,7 +391,7 @@ function runPhase2Cases_(results) {
     ok(b.me.role === 'sales' && b.menu.some(function (m) { return m.key === 'new'; }), 'Bootstrap: Sales menu has "สร้างใบขอราคา"');
     const g = as(U.gm, function () { return must(getBootstrap()); });
     ok(!g.menu.some(function (m) { return m.key === 'new'; }) && g.menu.some(function (m) { return m.key === 'all'; }), 'Bootstrap: GM menu has no create, has all tickets');
-    ok(b.ref.product_groups.length === 15 && b.ref.vat_rate === 0.07, 'Bootstrap: reference data (product groups, VAT rate)');
+    ok(b.ref.product_groups.length === 8 && b.ref.vat_rate === 0.07, 'Bootstrap: reference data (product groups, VAT rate)');
     expectErr(as('nobody@' + DEMO_DOMAIN, function () { return getBootstrap(); }), 'NOT_REGISTERED', 'Bootstrap: unregistered user gets NOT_REGISTERED');
   });
 
@@ -400,8 +401,8 @@ function runPhase2Cases_(results) {
     ok(gm.total === total, 'GM list shows every ticket (' + total + ')');
     const s2 = as(U.salesFood2, function () { return must(listTickets({ scope: 'all', page_size: 200 })); });
     ok(s2.total > 0 && s2.rows.every(function (r) { return r.requestor_email === U.salesFood2; }), 'AC-1 Sales list contains only own tickets (even with scope=all)');
-    const solarMgr = as(U.mgrSolar, function () { return must(listTickets({ scope: 'all', page_size: 200 })); });
-    ok(solarMgr.rows.every(function (r) { return r.department_code === 'SALES-SOLAR'; }), 'Manager list limited to own department');
+    const solarMgr = as(U.mgrOthers, function () { return must(listTickets({ scope: 'all', page_size: 200 })); });
+    ok(solarMgr.rows.every(function (r) { return r.department_code === 'SALES-OTHERS'; }), 'Manager list limited to own department');
     const sr = as(U.sr2, function () { return must(listTickets({ scope: 'all', page_size: 200 })); });
     ok(sr.rows.every(function (r) { return ['pending_manager', 'pending_gm', 'returned', 'cancelled'].indexOf(r.stage) === -1; }), 'SR list hides tickets not yet approved by GM');
     const inbox = as(U.mgrFood, function () { return must(listTickets({ scope: 'inbox', page_size: 200 })); });
@@ -410,8 +411,8 @@ function runPhase2Cases_(results) {
     const first = gm.rows[gm.rows.length - 1];
     const byNo = as(U.gm, function () { return must(listTickets({ q: first.ticket_no })); });
     ok(byNo.total === 1 && byNo.rows[0].ticket_no === first.ticket_no, 'Search by ticket number');
-    const solar = as(U.gm, function () { return must(listTickets({ group_code: 'SOLAR', page_size: 200 })); });
-    ok(solar.total >= 1 && solar.rows.every(function (r) { return r.root_codes.indexOf('SOLAR') !== -1; }), 'Filter by parent product group (Solar)');
+    const solar = as(U.gm, function () { return must(listTickets({ group_code: 'OTHERS', page_size: 200 })); });
+    ok(solar.total >= 1 && solar.rows.every(function (r) { return r.root_codes.indexOf('OTHERS') !== -1; }), 'Filter by parent product group (Others)');
     const closed = as(U.gm, function () { return must(listTickets({ status: ['closed'] })); });
     ok(closed.rows.every(function (r) { return r.status === 'closed'; }), 'Filter by status');
     ok(gm.rows.every(function (r) { return ['ok', 'warning', 'breach', 'none', 'done'].indexOf(r.sla_status) !== -1 && r.age_days >= 0; }), 'Every row has aging + SLA status');
@@ -426,7 +427,7 @@ function runPhase2Cases_(results) {
     ok(d.aging.length === 4 && d.aging.reduce(function (a, b) { return a + b.count; }, 0) === openCount, 'Aging buckets add up to open tickets');
     ok(d.cycle_time.length > 0 && d.cycle_time.every(function (c) { return c.avg_hours >= 0 && c.count > 0; }), 'Cycle time per stage computed from logs');
     ok(d.top_vendors.length > 0 && d.top_vendors[0].wins >= 1, 'Top winning vendors');
-    ok(d.group_share.some(function (g) { return g.code === 'SOLAR'; }), 'Product group share by parent group');
+    ok(d.group_share.some(function (g) { return g.code === 'OTHERS'; }), 'Product group share by parent group');
     ok(d.sr_workload.length === 3, 'SR workload lists 3 SRs');
     const s = as(U.salesFood2, function () { return must(getDashboard({})); });
     ok(s.by_sales.length === 1 && s.by_sales[0].email === U.salesFood2, 'Sales dashboard counts only own tickets');
@@ -434,12 +435,12 @@ function runPhase2Cases_(results) {
   });
 
   wrap('NOTIFICATIONS', function () {
-    const before = as(U.salesSolar, function () { return must(getNotifications(50)); });
+    const before = as(U.salesOthers, function () { return must(getNotifications(50)); });
     ok(before.unread > 0, 'Sales has unread notifications (' + before.unread + ')');
-    const otherBefore = as(U.mgrSolar, function () { return must(getPoll()).unread; });
-    as(U.salesSolar, function () { must(markNotificationsRead(null)); });
-    ok(as(U.salesSolar, function () { return must(getPoll()).unread; }) === 0, 'Mark all read → unread 0');
-    ok(as(U.mgrSolar, function () { return must(getPoll()).unread; }) === otherBefore, "Other users' notifications untouched");
+    const otherBefore = as(U.mgrOthers, function () { return must(getPoll()).unread; });
+    as(U.salesOthers, function () { must(markNotificationsRead(null)); });
+    ok(as(U.salesOthers, function () { return must(getPoll()).unread; }) === 0, 'Mark all read → unread 0');
+    ok(as(U.mgrOthers, function () { return must(getPoll()).unread; }) === otherBefore, "Other users' notifications untouched");
   });
 
   wrap('UPLOAD', function () {
@@ -547,5 +548,109 @@ function runPhase2Cases_(results) {
       .forEach(function (name) {
         ok(lines.some(function (l) { return l.indexOf('PASS ' + name) === 0; }), 'Self-test: ' + name);
       });
+  });
+}
+
+// =============================================================================
+// Phase 3 — SR pricing page: batch checklist, sourcing draft, food quotation fields
+// =============================================================================
+function runPhase3Cases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () {
+      return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {}));
+    });
+  };
+  const wrap = function (name, fn) {
+    try { fn(); } catch (e) {
+      results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: ' + name + ' — ' + e.message + '\n' + e.stack);
+    }
+  };
+
+  wrap('PRICING', function () {
+    const t = as(U.salesFood2, function () {
+      return must(createTicket({ client_key: 'p3', title: 'ทดสอบหน้าเสนอราคา', items: [
+        { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว PD 41/50', qty: 400, uom: 'กก.' },
+        { product_group_code: 'OTHERS-GENERAL', product_name: 'ถุงมือไนไตร', qty: 50, uom: 'กล่อง' }] })).ticket;
+    });
+    const id = t.ticket_id;
+    must(go(U.mgrFood, id, 'manager_approve'));
+    must(go(U.gm, id, 'gm_approve'));
+    must(go(U.sr1, id, 'claim'));
+    const items = activeItemsOf_(id);
+    const q = function (o) { return Object.assign({ quote_id: Utilities.getUuid(), currency: 'THB', fx_rate: 1, vat_term: 'ex_vat' }, o); };
+    const draft = function (rows) { return as(U.sr1, function () { return saveSourcingDraft(id, rows); }); };
+
+    expectErr(draft([{ item_id: items[0].item_id, quotes: [q({ vendor_name: 'A', unit_price: 1 })] }]), 'FORBIDDEN', 'Draft blocked before documents are checked');
+
+    const cl = checklistOf_(id);
+    expectErr(as(U.sr2, function () { return saveChecklist(id, [{ check_id: cl[0].check_id, is_checked: true }]); }), 'FORBIDDEN', 'Other SR cannot save the checklist');
+    const saved = as(U.sr1, function () {
+      return must(saveChecklist(id, cl.filter(function (c) { return c.is_required; }).map(function (c) { return { check_id: c.check_id, is_checked: true, note: 'ตรวจแล้ว' }; })));
+    });
+    ok(saved.changes === cl.filter(function (c) { return c.is_required; }).length && saved.checklist.filter(function (c) { return c.is_checked; }).length === saved.changes,
+      'Batch checklist save (' + saved.changes + ' rows, one call)');
+    must(go(U.sr1, id, 'doc_complete'));
+    expectErr(as(U.sr1, function () { return saveChecklist(id, [{ check_id: cl[0].check_id, is_checked: false }]); }), 'FORBIDDEN', 'Checklist locked after documents are confirmed');
+
+    const a = q({ vendor_name: 'Ocean Pride Vietnam Co., Ltd.', vendor_id: 'V-0004', unit_price: '7.20', currency: 'USD', fx_rate: 36.5, vat_term: 'no_vat',
+      brand: 'Ocean Pride', origin_country: 'เวียดนาม', packing: '1 kg × 10/ctn', incoterm: 'cif', shelf_life: '24 เดือน', lead_time_days: 30 });
+    const b = q({ vendor_name: 'Andaman Seafood Co., Ltd.', unit_price: 289, vat_term: 'include_vat', incoterm: 'DELIVERED' });
+    const r1 = must(draft([
+      { item_id: items[0].item_id, quotes: [a, b] },
+      { item_id: items[1].item_id, quotes: [q({ vendor_name: '', unit_price: '' })] }
+    ]));
+    const q0 = activeQuotesOfItem_(items[0].item_id);
+    ok(r1.changes === 2 && q0.length === 2 && activeQuotesOfItem_(items[1].item_id).length === 0, 'Draft saves filled vendors, ignores blank columns');
+    const qa = q0.filter(function (x) { return x.quote_id === a.quote_id; })[0];
+    ok(qa && qa.incoterm === 'CIF' && qa.origin_country === 'เวียดนาม' && qa.brand === 'Ocean Pride' && qa.net_unit_cost_thb === 262.8,
+      'Food fields saved (CIF, origin, brand) and 7.20 USD × 36.5 = 262.80 THB');
+    ok(must(draft([{ item_id: items[0].item_id, quotes: [a, b] }])).changes === 0, 'Re-saving the same draft is idempotent (0 changes)');
+
+    const bad = expectErr(draft([{ item_id: items[0].item_id, quotes: [a, q({ vendor_name: 'X', unit_price: 'abc' })] }]), 'VALIDATION', 'Bad price rejected');
+    ok(bad.error.indexOf('รายการที่ 1 vendor ที่ 2') === 0 && activeQuotesOfItem_(items[0].item_id).length === 2 &&
+      activeQuotesOfItem_(items[0].item_id).some(function (x) { return x.quote_id === b.quote_id; }), 'Error names the exact column and nothing was written');
+    expectErr(draft([{ item_id: items[0].item_id, quotes: [a, b, q({ vendor_name: 'C', unit_price: 1 }), q({ vendor_name: 'D', unit_price: 1 })] }]),
+      'MAX_VENDORS', 'AC-3 4 vendors in a draft rejected');
+    expectErr(draft([{ item_id: items[0].item_id, quotes: [a, q({ vendor_name: 'E', unit_price: 1, incoterm: 'FREE' })] }]), 'VALIDATION', 'Unknown Incoterm rejected');
+    expectErr(draft([{ item_id: items[0].item_id, quotes: [a, b], winner_quote_id: Utilities.getUuid() }]), 'VALIDATION', 'Winner must be one of the vendors');
+
+    const c = q({ vendor_name: 'บริษัท ซีฟู้ด เทรดดิ้ง จำกัด', unit_price: 255, vat_term: 'ex_vat' });
+    must(draft([{ item_id: items[0].item_id, quotes: [a, c], winner_quote_id: c.quote_id }]));
+    const q1 = activeQuotesOfItem_(items[0].item_id);
+    ok(q1.length === 2 && !q1.some(function (x) { return x.quote_id === b.quote_id; }) &&
+      q1.filter(function (x) { return x.is_selected; }).map(function (x) { return x.quote_id; }).join() === c.quote_id,
+      'Removed vendor soft-deleted; new vendor chosen as winner in the same save');
+    ok(findAll_(TAB.LOGS, 'ticket_id', id).some(function (l) { return l.action === 'quotation_deleted'; }), 'Vendor removal logged');
+    must(draft([{ item_id: items[0].item_id, quotes: [a, c] }]));
+    ok(!activeQuotesOfItem_(items[0].item_id).some(function (x) { return x.is_selected; }), 'Clearing the radio removes the winner');
+
+    // winner = Ocean Pride (262.80) is not the cheapest (Seafood Trading 255) → reason required at submit
+    const g = q({ vendor_name: 'Global Food Import Pte. Ltd.', unit_price: 1.9, currency: 'USD', fx_rate: 36.5, vat_term: 'no_vat' });
+    must(draft([
+      { item_id: items[0].item_id, quotes: [a, c], winner_quote_id: a.quote_id },
+      { item_id: items[1].item_id, quotes: [g], winner_quote_id: g.quote_id }
+    ]));
+    expectErr(go(U.sr1, id, 'submit_quote'), 'REASON_REQUIRED', 'Submit blocked: non-cheapest winner without reason');
+    must(draft([
+      { item_id: items[0].item_id, quotes: [a, c], winner_quote_id: a.quote_id, selection_reason: 'ลูกค้ากำหนด Origin เวียดนาม' },
+      { item_id: items[1].item_id, quotes: [g], winner_quote_id: g.quote_id }
+    ]));
+    ok(must(go(U.sr1, id, 'submit_quote')).ticket.stage === 'awaiting_sales_ack', 'Submit after draft → awaiting_sales_ack');
+    expectErr(draft([{ item_id: items[0].item_id, quotes: [a] }]), 'FORBIDDEN', 'Draft locked after submission');
+    const sales = as(U.salesFood2, function () { return must(getTicket(id)); });
+    const win = sales.items[0].quotations.filter(function (x) { return x.is_selected; })[0];
+    ok(win.incoterm === 'CIF' && win.selection_reason === 'ลูกค้ากำหนด Origin เวียดนาม' && sales.items[0].quotations.length === 2,
+      'Sales sees food fields + reason after submission');
   });
 }

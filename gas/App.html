@@ -245,7 +245,10 @@ function applyPoll(p) {
   renderNav();
 }
 function refreshPoll() { return api('getPoll').then(applyPoll).catch(function () { /* silent: next tick retries */ }); }
+let pollingStarted = false;
 function startPolling() {
+  if (pollingStarted) return;
+  pollingStarted = true;
   setInterval(function () { if (document.visibilityState === 'visible') refreshPoll(); }, 60000);
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') refreshPoll(); });
 }

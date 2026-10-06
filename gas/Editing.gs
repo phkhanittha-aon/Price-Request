@@ -10,7 +10,8 @@
 const HEADER_FIELDS_ = ['title', 'description', 'customer_name', 'priority', 'due_date'];
 const ITEM_FIELDS_ = ['product_group_code', 'product_name', 'spec', 'description', 'qty', 'uom', 'target_price', 'target_currency'];
 const QUOTE_FIELDS_ = ['vendor_id', 'vendor_name', 'unit_price', 'currency', 'fx_rate', 'vat_term', 'moq', 'lead_time_days',
-  'payment_term', 'valid_until', 'remark', 'attachment_file_id', 'is_selected', 'selection_reason'];
+  'payment_term', 'valid_until', 'remark', 'attachment_file_id', 'is_selected', 'selection_reason',
+  'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life'];
 
 // =============================================================================
 // Sales — header & items
@@ -260,7 +261,12 @@ function validateQuoteFields_(p, t) {
     payment_term: cleanText_(p.payment_term, 200),
     valid_until: parseYmd_(p.valid_until, 'ราคายืนถึงวันที่', true),
     remark: cleanText_(p.remark, CFG.MAX_TEXT),
-    attachment_file_id: attachmentId
+    attachment_file_id: attachmentId,
+    brand: cleanText_(p.brand, 100),
+    origin_country: cleanText_(p.origin_country, 100),
+    packing: cleanText_(p.packing, 200),
+    incoterm: p.incoterm ? oneOf_(String(p.incoterm).toUpperCase(), INCOTERMS, 'เงื่อนไขการส่งมอบ (Incoterm)') : '',
+    shelf_life: cleanText_(p.shelf_life, 100)
   };
 }
 
@@ -321,4 +327,110 @@ function selectQuotationCore_(u, quoteId, reason) {
     metadata: { item_id: String(q.item_id), quote_id: String(q.quote_id), vendor_name: String(q.vendor_name),
       previous_winner: before, reason: why, is_cheapest: winner ? winner.is_cheapest : null } });
   return { changed: true, is_cheapest: winner ? winner.is_cheapest : null };
+}
+
+// =============================================================================
+// Pricing page (Phase 3) — batch saves in ONE lock and ONE round trip
+// =============================================================================
+
+/**
+ * Save the whole sourcing draft of a ticket.
+ * items: [{ item_id, quotes: [{ quote_id (client UUID), vendor_name, unit_price, ... }], winner_quote_id?, selection_reason? }]
+ * - quotes missing from the list are soft-deleted
+ * - completely blank vendor columns are ignored (draft may be incomplete)
+ * - every row is validated BEFORE anything is written, so a bad row never leaves a half-saved draft
+ */
+function saveSourcingDraft(ticketId, items) {
+  return api_('saveSourcingDraft', function () {
+    return withLock_(function () {
+      const u = currentUser_();
+      const t = ticketForUser_(u, ticketId);
+      if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน ในขั้นตอนหาราคา');
+      const byId = {};
+      activeItemsOf_(t.ticket_id).forEach(function (it) { byId[it.item_id] = it; });
+      const list = Array.isArray(items) ? items : [];
+
+      // 1) validate everything
+      const plan = list.map(function (row) {
+        const it = byId[String(row && row.item_id)];
+        if (!it) throw appError_('NOT_FOUND', 'ไม่พบรายการสินค้าในใบนี้');
+        const quotes = (Array.isArray(row.quotes) ? row.quotes : []).filter(function (q) {
+          return cleanText_(q.vendor_name) || String(q.unit_price === undefined || q.unit_price === null ? '' : q.unit_price).trim() !== '';
+        });
+        if (quotes.length > CFG.MAX_VENDORS_PER_ITEM) {
+          throw appError_('MAX_VENDORS', 'รายการที่ ' + it.line_no + ': ใส่ราคา vendor ได้ไม่เกิน ' + CFG.MAX_VENDORS_PER_ITEM + ' เจ้า');
+        }
+        quotes.forEach(function (q, i) {
+          try {
+            validateQuoteFields_(q, t);
+          } catch (e) {
+            if (e.isApp) throw appError_(e.code, 'รายการที่ ' + it.line_no + ' vendor ที่ ' + (i + 1) + ': ' + e.message, { line_no: it.line_no, vendor_index: i });
+            throw e;
+          }
+        });
+        const keepIds = quotes.map(function (q) { return cleanText_(q.quote_id, 64); }).filter(String);
+        const winner = cleanText_(row.winner_quote_id, 64);
+        if (winner && keepIds.indexOf(winner) === -1) throw appError_('VALIDATION', 'รายการที่ ' + it.line_no + ': ผู้ชนะต้องเป็น vendor ที่กรอกไว้');
+        return { item: it, quotes: quotes, keepIds: keepIds, winner: winner, reason: cleanText_(row.selection_reason, 500) };
+      });
+
+      // 2) write
+      let changes = 0;
+      plan.forEach(function (p) {
+        activeQuotesOfItem_(p.item.item_id).forEach(function (q) {
+          if (p.keepIds.indexOf(q.quote_id) === -1) { deleteQuotationCore_(u, q.quote_id); changes++; }
+        });
+        p.quotes.forEach(function (q) {
+          const payload = Object.assign({}, q, { item_id: p.item.item_id });
+          if (!isUuid_(payload.quote_id)) payload.quote_id = '';
+          const r = saveQuotationCore_(u, payload);
+          if (!payload.quote_id) p.keepIds.push(r.quote.quote_id);
+          if (r.changed) changes++;
+        });
+        if (p.winner) {
+          if (selectQuotationCore_(u, p.winner, p.reason).changed) changes++;
+        } else {
+          activeQuotesOfItem_(p.item.item_id).filter(function (q) { return q.is_selected; }).forEach(function (q) {
+            updateRow_(TAB.QUOTATIONS, q.quote_id, { is_selected: false, selection_reason: '', updated_at: new Date() });
+            appendLog_({ ticket_id: t.ticket_id, action: 'quotation_updated', actor_email: u.email, actor_role: u.role,
+              metadata: { item_id: p.item.item_id, quote_id: q.quote_id, vendor_name: q.vendor_name, diff: { is_selected: { old: true, 'new': false } } } });
+            changes++;
+          });
+        }
+      });
+      return { changes: changes, detail: ticketDetail_(u, ticketById_(t.ticket_id)) };
+    });
+  });
+}
+
+/** rows: [{ check_id, is_checked, note }] — SR ticks several documents in one call. */
+function saveChecklist(ticketId, rows) {
+  return api_('saveChecklist', function () {
+    return withLock_(function () {
+      const u = currentUser_();
+      const t = ticketForUser_(u, ticketId);
+      if (!canEditChecklist_(u, t)) throw appError_('FORBIDDEN', 'ติ๊กเอกสารได้เฉพาะ SR ผู้รับงาน ในขั้นตอนตรวจเอกสาร');
+      const mine = {};
+      findAll_(TAB.CHECKLIST, 'ticket_id', t.ticket_id).forEach(function (c) { mine[String(c.check_id)] = c; });
+      let changes = 0;
+      (Array.isArray(rows) ? rows : []).forEach(function (r) {
+        const row = mine[String(r && r.check_id)];
+        if (!row) throw appError_('NOT_FOUND', 'ไม่พบรายการตรวจเอกสาร');
+        const checked = toBool_(r.is_checked);
+        const note = r.note === undefined ? String(row.note || '') : cleanText_(r.note, 500);
+        const d = diff_({ is_checked: toBool_(row.is_checked), note: String(row.note || '') }, { is_checked: checked, note: note }, ['is_checked', 'note']);
+        if (!Object.keys(d).length) return;
+        const patch = { is_checked: checked, note: note, updated_at: new Date() };
+        if (checked !== toBool_(row.is_checked)) {
+          patch.checked_by = checked ? u.email : '';
+          patch.checked_at = checked ? new Date() : '';
+        }
+        updateRow_(TAB.CHECKLIST, row.check_id, patch);
+        appendLog_({ ticket_id: t.ticket_id, action: 'checklist_updated', actor_email: u.email, actor_role: u.role,
+          metadata: { check_id: String(row.check_id), label: String(row.label), diff: d } });
+        changes++;
+      });
+      return { changes: changes, checklist: checklistOf_(t.ticket_id) };
+    });
+  });
 }

@@ -7,7 +7,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.06-1';
+const APP_VERSION = '2026.10.06-2';
 
 const CFG = {
   APP_NAME: 'MGS Price Request',
@@ -101,7 +101,9 @@ const SCHEMA = {
            'vat_term', 'vat_rate', 'moq', 'lead_time_days', 'payment_term', 'valid_until', 'remark',
            'attachment_file_id', 'is_selected', 'selection_reason',
            'net_unit_cost', 'net_unit_cost_thb', 'gross_unit_price_thb',
-           'is_deleted', 'created_by', 'created_at', 'updated_at']
+           'is_deleted', 'created_by', 'created_at', 'updated_at',
+           // Food-specific (optional) — appended later, keep at the end
+           'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life']
   },
   Checklist: {
     key: 'check_id',
@@ -176,6 +178,9 @@ const OPEN_STATUSES = ['requested', 'on_process', 'completed'];
 const VAT_TERMS = ['ex_vat', 'no_vat', 'include_vat'];
 const VAT_TERM_LABEL = { ex_vat: 'Ex VAT', no_vat: 'No VAT', include_vat: 'Include VAT' };
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
+/** Delivery terms on a vendor quotation (food imports are usually CIF / CFR; local suppliers deliver). */
+const INCOTERMS = ['EXW', 'FCA', 'FOB', 'CFR', 'CIF', 'DAP', 'DDP', 'DELIVERED'];
+const INCOTERM_LABEL = { EXW: 'EXW', FCA: 'FCA', FOB: 'FOB', CFR: 'CFR (C&F)', CIF: 'CIF', DAP: 'DAP', DDP: 'DDP', DELIVERED: 'ส่งถึงคลัง MGS' };
 const ATTACHMENT_CATEGORIES = ['request', 'info_response', 'quotation', 'other'];
 
 /** Default rows for the Settings tab (value column stores JSON text). */
