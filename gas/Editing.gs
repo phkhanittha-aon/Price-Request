@@ -7,8 +7,9 @@
  * and writes a before→after diff to TicketLogs.
  */
 
-const HEADER_FIELDS_ = ['title', 'description', 'customer_name', 'priority', 'due_date'];
-const ITEM_FIELDS_ = ['product_group_code', 'product_name', 'spec', 'description', 'qty', 'uom', 'target_price', 'target_currency'];
+const HEADER_FIELDS_ = ['title', 'description', 'customer_name', 'priority', 'due_date', 'documents_needed'];
+const ITEM_FIELDS_ = ['product_group_code', 'product_name', 'net_weight', 'size', 'packing_size', 'spec', 'description', 'qty', 'uom',
+  'target_price', 'target_currency'];
 const QUOTE_FIELDS_ = ['vendor_id', 'vendor_name', 'unit_price', 'currency', 'fx_rate', 'vat_term', 'moq', 'lead_time_days',
   'payment_term', 'valid_until', 'remark', 'attachment_file_id', 'is_selected', 'selection_reason',
   'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life'];
@@ -17,7 +18,7 @@ const QUOTE_FIELDS_ = ['vendor_id', 'vendor_name', 'unit_price', 'currency', 'fx
 // Sales — header & items
 // =============================================================================
 
-/** patch: subset of {title, description, customer_name, priority, due_date} */
+/** patch: subset of {title, description, customer_name, priority, due_date, documents_needed} */
 function updateTicketRequest(ticketId, patch, expectedVersion) {
   return api_('updateTicketRequest', function () {
     return withLock_(function () {
@@ -32,9 +33,10 @@ function updateTicketRequest(ticketId, patch, expectedVersion) {
         if (clean.title.length < 3) throw appError_('VALIDATION', 'ชื่อใบขอราคาต้องมีอย่างน้อย 3 ตัวอักษร');
       }
       if (p.description !== undefined) clean.description = cleanText_(p.description, CFG.MAX_TEXT);
-      if (p.customer_name !== undefined) clean.customer_name = cleanText_(p.customer_name, 200);
+      if (p.customer_name !== undefined) clean.customer_name = requireText_(p.customer_name, 'ชื่อลูกค้า (Customer)', 200);
+      if (p.documents_needed !== undefined) clean.documents_needed = cleanText_(p.documents_needed, CFG.MAX_TEXT);
       if (p.priority !== undefined) clean.priority = oneOf_(p.priority, PRIORITIES, 'ความเร่งด่วน');
-      if (p.due_date !== undefined) clean.due_date = parseYmd_(p.due_date, 'วันที่ต้องการราคา', true);
+      if (p.due_date !== undefined) clean.due_date = parseYmd_(p.due_date, 'วันที่ต้องการให้ตอบกลับราคา (Expected Date)');
 
       const d = diff_(t, clean, Object.keys(clean));
       if (!Object.keys(d).length) return { ticket: publicTicket_(t), changed: false };

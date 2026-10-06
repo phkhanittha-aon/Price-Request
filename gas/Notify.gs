@@ -23,6 +23,10 @@ function stageAssignees_(t) {
     case 'doc_check':
     case 'sourcing':
       return [t.sr_email];
+    case 'pending_sr_manager':
+      return activeUsersByRole_('sr_manager').map(function (u) { return u.email; });
+    case 'pending_gm_price':
+      return activeUsersByRole_('gm').map(function (u) { return u.email; });
     default:
       return [];
   }
@@ -30,11 +34,11 @@ function stageAssignees_(t) {
 
 /** Supervisors to escalate to when an SLA is breached. */
 function stageEscalation_(t) {
-  if (t.stage === 'pending_manager') {
+  if (t.stage === 'pending_manager' || t.stage === 'pending_sr_manager') {
     return activeUsersByRole_('gm').map(function (u) { return u.email; });
   }
   if (['pending_assign', 'doc_check', 'sourcing'].indexOf(t.stage) !== -1) {
-    return activeUsersByRole_('sr').filter(function (u) { return u.is_sr_lead; }).map(function (u) { return u.email; });
+    return activeUsersByRole_('sr_manager').map(function (u) { return u.email; });
   }
   if (['returned', 'need_info', 'awaiting_sales_ack'].indexOf(t.stage) !== -1) {
     const d = departmentByCode_(t.department_code);

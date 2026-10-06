@@ -44,6 +44,7 @@ function listTickets(query) {
     }
     if (statuses.length) list = list.filter(function (t) { return statuses.indexOf(t.status) !== -1; });
     if (stages.length) list = list.filter(function (t) { return stages.indexOf(t.stage) !== -1; });
+    if (['done', 'open', 'rejected'].indexOf(q.outcome) !== -1) list = list.filter(function (t) { return outcome_(t) === q.outcome; });
     if (q.priority) list = list.filter(function (t) { return t.priority === q.priority; });
     if (q.requestor) list = list.filter(function (t) { return t.requestor_email === String(q.requestor).toLowerCase(); });
     if (q.sr) list = list.filter(function (t) { return t.sr_email === String(q.sr).toLowerCase(); });
@@ -126,6 +127,8 @@ function isAssignee_(u, t, ctx) {
     case 'pending_assign': return u.role === 'sr';
     case 'doc_check':
     case 'sourcing': return t.sr_email === u.email;
+    case 'pending_sr_manager': return u.role === 'sr_manager' && t.sr_email !== u.email;
+    case 'pending_gm_price': return u.role === 'gm';
     default: return false;
   }
 }
@@ -244,156 +247,84 @@ function markNotificationsRead(ids) {
 }
 
 // =============================================================================
-// Dashboard (aggregated on the server, scoped to what the user can see)
+// Dashboard — simple summary: quoted (done) / not done / rejected, status list, per person
+// Scope: Sales → own requests · SR → own jobs · Sales Manager, SR Manager, GM, Admin → everyone (they can see)
 // =============================================================================
 
-/** range: { from?: 'yyyy-MM-dd', to?: 'yyyy-MM-dd' } — default last 90 days. */
+const DONE_STATUSES_ = ['completed', 'closed'];
+const STAGE_ORDER_ = ['pending_manager', 'returned', 'pending_gm', 'pending_assign', 'doc_check', 'need_info', 'sourcing',
+  'pending_sr_manager', 'pending_gm_price', 'awaiting_sales_ack', 'closed', 'rejected', 'cancelled'];
+
+function outcome_(t) {
+  if (DONE_STATUSES_.indexOf(t.status) !== -1) return 'done';
+  if (t.status === 'rejected') return 'rejected';
+  return 'open';
+}
+
+/** range: { from?: 'yyyy-MM-dd', to?: 'yyyy-MM-dd' } on created date — default: everything. */
 function getDashboard(range) {
   return api_('getDashboard', function () {
     const u = currentUser_();
     const r = range || {};
+    const from = r.from ? parseYmd_(r.from, 'วันที่เริ่ม') : null;
+    const to = r.to ? parseYmd_(r.to, 'วันที่สิ้นสุด') : null;
+    if (from && to && to < from) throw appError_('VALIDATION', 'วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่ม');
+    const toEnd = to ? new Date(to.getTime() + 86400000) : null;
     const now = new Date();
-    const from = r.from ? parseYmd_(r.from, 'วันที่เริ่ม') : parseYmd_(fmtDate_(new Date(now.getTime() - 89 * 86400000)), 'from');
-    const to = r.to ? parseYmd_(r.to, 'วันที่สิ้นสุด') : parseYmd_(todayBkk_(), 'to');
-    if (to < from) throw appError_('VALIDATION', 'วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่ม');
-    const toEnd = new Date(to.getTime() + 86400000);
-    const inRange = function (d) { if (!d) return false; const x = new Date(d); return x >= from && x < toEnd; };
-
     const ctx = listContext_();
-    const tickets = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return canSeeTicket_(u, t); });
-    const visible = {};
-    tickets.forEach(function (t) { visible[t.ticket_id] = t; });
-    const open = tickets.filter(function (t) { return OPEN_STATUSES.indexOf(t.status) !== -1; });
 
-    // 1. Status / stage cards (current state, all time)
-    const byStatus = {};
-    STATUS.forEach(function (s) { byStatus[s] = 0; });
+    let tickets = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return canSeeTicket_(u, t); });
+    let scope = 'ทุกคน';
+    if (u.role === 'sales') { tickets = tickets.filter(function (t) { return t.requestor_email === u.email; }); scope = 'ใบขอราคาของคุณ'; }
+    if (u.role === 'sr') { tickets = tickets.filter(function (t) { return t.sr_email === u.email; }); scope = 'งานที่คุณรับผิดชอบ'; }
+    if (from) tickets = tickets.filter(function (t) { return new Date(t.created_at) >= from; });
+    if (toEnd) tickets = tickets.filter(function (t) { return new Date(t.created_at) < toEnd; });
+
+    const kpi = { total: tickets.length, done: 0, open: 0, rejected: 0, breach: 0 };
     const byStage = {};
-    tickets.forEach(function (t) { byStatus[t.status]++; byStage[t.stage] = (byStage[t.stage] || 0) + 1; });
-
-    // 2. Requests per Sales (created in range)
-    const bySales = {};
-    tickets.filter(function (t) { return inRange(t.created_at); }).forEach(function (t) {
+    const sales = {};
+    const srs = {};
+    tickets.forEach(function (t) {
+      const o = outcome_(t);
+      kpi[o]++;
+      if (o === 'open' && slaInfo_(t, ctx, now).sla_status === 'breach') kpi.breach++;
+      byStage[t.stage] = (byStage[t.stage] || 0) + 1;
       const k = t.requestor_email;
-      bySales[k] = bySales[k] || { email: k, name: ctx.names[k] || k, total: 0, open: 0, closed: 0, rejected: 0 };
-      bySales[k].total++;
-      if (OPEN_STATUSES.indexOf(t.status) !== -1) bySales[k].open++;
-      else if (t.status === 'closed') bySales[k].closed++;
-      else bySales[k].rejected++;
+      sales[k] = sales[k] || { email: k, name: ctx.names[k] || k, total: 0, done: 0, open: 0, rejected: 0 };
+      sales[k].total++;
+      sales[k][o]++;
+      if (t.sr_email) {
+        const s = t.sr_email;
+        srs[s] = srs[s] || { email: s, name: ctx.names[s] || s, total: 0, done: 0, open: 0, rejected: 0 };
+        srs[s].total++;
+        srs[s][o]++;
+      }
     });
+    const pct = function (n) { return kpi.total ? Math.round(n / kpi.total * 100) : 0; };
+    const sortPeople = function (obj) {
+      return Object.keys(obj).map(function (k) { return obj[k]; }).sort(function (a, b) { return b.total - a.total || a.name.localeCompare(b.name, 'th'); });
+    };
 
-    // 3. SR workload
-    const srRows = activeUsersByRole_('sr').map(function (s) {
-      const mine = tickets.filter(function (t) { return t.sr_email === s.email; });
-      const done = mine.filter(function (t) {
-        return (t.status === 'completed' || t.status === 'closed') && inRange(t.completed_at) && t.assigned_at;
-      });
-      const hours = done.map(function (t) { return hoursBetween_(new Date(t.assigned_at), new Date(t.completed_at)); });
-      return {
-        email: s.email, name: s.full_name,
-        in_progress: mine.filter(function (t) { return t.stage === 'doc_check' || t.stage === 'sourcing'; }).length,
-        need_info: mine.filter(function (t) { return t.stage === 'need_info'; }).length,
-        awaiting_ack: mine.filter(function (t) { return t.stage === 'awaiting_sales_ack'; }).length,
-        completed: done.length,
-        avg_hours: hours.length ? round_(hours.reduce(function (a, b) { return a + b; }, 0) / hours.length, 1) : null
-      };
-    });
-
-    // 4. Cycle time per stage (transition logs in range) → bottlenecks
-    const durations = {};
-    rows_(TAB.LOGS).forEach(function (l) {
-      if (l.log_type !== 'transition' || !l.from_stage || l.stage_duration_sec === '' || !visible[String(l.ticket_id)]) return;
-      if (!inRange(l.ts)) return;
-      (durations[l.from_stage] = durations[l.from_stage] || []).push(Number(l.stage_duration_sec) / 3600);
-    });
-    const ownerOf = { pending_manager: 'Manager', pending_gm: 'GM', returned: 'Sales', need_info: 'Sales', awaiting_sales_ack: 'Sales' };
-    const cycle = Object.keys(STAGE_LABEL_TH).filter(function (s) { return durations[s]; }).map(function (s) {
-      const arr = durations[s].slice().sort(function (a, b) { return a - b; });
-      const sla = Number(ctx.sla[s] || 0);
-      return {
-        stage: s, stage_label: STAGE_LABEL_TH[s], owner: ownerOf[s] || 'SR', count: arr.length,
-        avg_hours: round_(arr.reduce(function (a, b) { return a + b; }, 0) / arr.length, 1),
-        median_hours: round_(percentile_(arr, 0.5), 1),
-        p90_hours: round_(percentile_(arr, 0.9), 1),
-        sla_hours: sla || null,
-        breach_count: sla ? arr.filter(function (h) { return h > sla; }).length : 0
-      };
-    });
-
-    // 5. SLA now + aging buckets (open tickets)
-    const slaByStage = {};
-    let breachNow = 0;
-    let warnNow = 0;
-    open.forEach(function (t) {
-      const s = slaInfo_(t, ctx, now);
-      slaByStage[t.stage] = slaByStage[t.stage] || { stage: t.stage, stage_label: STAGE_LABEL_TH[t.stage], open: 0, warning: 0, breach: 0, sla_hours: s.sla_hours };
-      slaByStage[t.stage].open++;
-      if (s.sla_status === 'warning') { slaByStage[t.stage].warning++; warnNow++; }
-      if (s.sla_status === 'breach') { slaByStage[t.stage].breach++; breachNow++; }
-    });
-    const aging = AGING_BUCKETS_.map(function (b) {
-      return {
-        key: b.key, label: b.label,
-        count: open.filter(function (t) {
-          const d = Math.floor(hoursBetween_(new Date(t.created_at), now) / 24);
-          return d >= b.min && d <= b.max;
-        }).length
-      };
-    });
-
-    // 6. Top winning vendors + product group share (tickets in range)
-    const vendors = {};
-    const qtyOf = {};
-    rows_(TAB.ITEMS).forEach(function (i) { qtyOf[String(i.item_id)] = Number(i.qty) || 0; });
-    rows_(TAB.QUOTATIONS).forEach(function (q) {
-      const t = visible[String(q.ticket_id)];
-      if (!t || !toBool_(q.is_selected) || toBool_(q.is_deleted)) return;
-      if (!(t.status === 'completed' || t.status === 'closed') || !inRange(t.completed_at)) return;
-      if (u.role === 'sales' || u.role === 'manager') { if (!canViewQuotes_(u, t)) return; }
-      const key = String(q.vendor_id || String(q.vendor_name).trim().toLowerCase());
-      vendors[key] = vendors[key] || { name: String(q.vendor_name), wins: 0, tickets: {}, total_cost_thb: 0 };
-      vendors[key].wins++;
-      vendors[key].tickets[t.ticket_id] = true;
-      vendors[key].total_cost_thb += Number(q.net_unit_cost_thb) * (qtyOf[String(q.item_id)] || 0);
-    });
-    const topVendors = Object.keys(vendors).map(function (k) {
-      const v = vendors[k];
-      return { name: v.name, wins: v.wins, ticket_count: Object.keys(v.tickets).length, total_cost_thb: round_(v.total_cost_thb, 2) };
-    }).sort(function (a, b) { return b.wins - a.wins || b.total_cost_thb - a.total_cost_thb; }).slice(0, 10);
-
-    const share = {};
-    tickets.filter(function (t) { return inRange(t.created_at); }).forEach(function (t) {
-      (ctx.itemsByTicket[t.ticket_id] || []).forEach(function (i) {
-        const root = rootGroup_(String(i.product_group_code), ctx.groups);
-        share[root] = share[root] || { code: root, name: ctx.groups[root] ? String(ctx.groups[root].name) : root, items: 0, tickets: {} };
-        share[root].items++;
-        share[root].tickets[t.ticket_id] = true;
-      });
-    });
-    const groupShare = Object.keys(share).map(function (k) {
-      return { code: share[k].code, name: share[k].name, items: share[k].items, tickets: Object.keys(share[k].tickets).length };
-    }).sort(function (a, b) { return b.items - a.items; });
+    const recent = tickets.slice().sort(function (a, b) { return new Date(b.updated_at) - new Date(a.updated_at); }).slice(0, 10)
+      .map(function (t) { return summaryRow_(t, ctx, now); });
 
     return {
-      range: { from: fmtDate_(from), to: fmtDate_(to) },
-      scope_note: u.role === 'sales' ? 'แสดงเฉพาะใบของคุณ' : u.role === 'manager' ? 'แสดงเฉพาะใบในแผนกของคุณ' : u.role === 'sr' ? 'แสดงใบที่ GM อนุมัติแล้ว' : 'แสดงทุกใบ',
+      scope_note: scope,
+      range: { from: from ? fmtDate_(from) : '', to: to ? fmtDate_(to) : '' },
       kpi: {
-        open: open.length,
-        created_in_range: tickets.filter(function (t) { return inRange(t.created_at); }).length,
-        closed_in_range: tickets.filter(function (t) { return t.status === 'closed' && inRange(t.closed_at); }).length,
-        breach_now: breachNow,
-        warning_now: warnNow
+        total: kpi.total,
+        done: kpi.done, done_pct: pct(kpi.done),
+        open: kpi.open, open_pct: pct(kpi.open),
+        rejected: kpi.rejected, rejected_pct: pct(kpi.rejected),
+        breach: kpi.breach
       },
-      by_status: STATUS.map(function (s) { return { status: s, label: STATUS_LABEL_TH[s], count: byStatus[s] }; }),
-      by_stage: Object.keys(STAGE_LABEL_TH).filter(function (s) { return byStage[s] && OPEN_STATUSES.indexOf(STAGE_STATUS[s]) !== -1; })
-        .map(function (s) { return { stage: s, label: STAGE_LABEL_TH[s], count: byStage[s] }; }),
-      by_sales: Object.keys(bySales).map(function (k) { return bySales[k]; }).sort(function (a, b) { return b.total - a.total; }),
-      sr_workload: srRows,
-      cycle_time: cycle,
-      sla_by_stage: Object.keys(slaByStage).map(function (k) { return slaByStage[k]; }),
-      aging: aging,
-      top_vendors: topVendors,
-      group_share: groupShare
+      by_stage: STAGE_ORDER_.filter(function (s) { return byStage[s]; }).map(function (s) {
+        return { stage: s, label: STAGE_LABEL_TH[s], status: STAGE_STATUS[s], outcome: outcome_({ status: STAGE_STATUS[s] }), count: byStage[s] };
+      }),
+      by_sales: sortPeople(sales),
+      by_sr: sortPeople(srs),
+      recent: recent,
+      can_see_everyone: ['manager', 'gm', 'admin', 'sr_manager'].indexOf(u.role) !== -1
     };
   });
 }

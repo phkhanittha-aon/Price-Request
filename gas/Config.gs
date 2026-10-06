@@ -7,7 +7,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.06-2';
+const APP_VERSION = '2026.10.06-3';
 
 const CFG = {
   APP_NAME: 'MGS Price Request',
@@ -56,7 +56,7 @@ const TAB = {
 const SCHEMA = {
   Users: {
     key: 'email',
-    cols: ['email', 'full_name', 'role', 'department_code', 'is_sr_lead', 'is_active',
+    cols: ['email', 'full_name', 'role', 'department_code', 'is_active',
            'lark_open_id', 'phone', 'created_at', 'updated_at', 'updated_by']
   },
   Departments: {
@@ -88,12 +88,16 @@ const SCHEMA = {
            'due_date', 'revision_count', 'version', 'info_request_json', 'rejection_reason',
            'stage_entered_at', 'submitted_at', 'manager_approved_at', 'gm_approved_at', 'assigned_at',
            'doc_checked_at', 'completed_at', 'closed_at', 'rejected_at', 'cancelled_at',
-           'client_key', 'created_at', 'updated_at']
+           'client_key', 'created_at', 'updated_at',
+           // appended in v2026.10.06-3 (Food form + SR Manager / GM price approval)
+           'documents_needed', 'quote_submitted_at', 'sr_manager_email', 'sr_manager_approved_at', 'gm_price_approved_at']
   },
   TicketItems: {
     key: 'item_id',
     cols: ['item_id', 'ticket_id', 'line_no', 'product_group_code', 'product_name', 'spec', 'description',
-           'qty', 'uom', 'target_price', 'target_currency', 'is_deleted', 'created_at', 'updated_at']
+           'qty', 'uom', 'target_price', 'target_currency', 'is_deleted', 'created_at', 'updated_at',
+           // Food request form fields (appended): % net weight (excl. ice glaze), size, retail pack size
+           'net_weight', 'size', 'packing_size']
   },
   Quotations: {
     key: 'quote_id',
@@ -137,8 +141,13 @@ const SCHEMA = {
 };
 
 // ---------------------------------------------------------------- Enumerations
-const ROLES = ['sales', 'manager', 'gm', 'sr', 'admin'];
-const ROLE_LABEL_TH = { sales: 'Sales', manager: 'Manager', gm: 'GM', sr: 'SR (Sourcing)', admin: 'Admin' };
+/**
+ * Organisation
+ *   Sales → Sales Manager (manager) → GM          (Sales Manager step is skipped when the department has none)
+ *   SR    → SR Manager (sr_manager) → GM          (price approval — never skipped)
+ */
+const ROLES = ['sales', 'manager', 'gm', 'sr', 'sr_manager', 'admin'];
+const ROLE_LABEL_TH = { sales: 'Sales', manager: 'Sales Manager', gm: 'GM', sr: 'SR (Sourcing)', sr_manager: 'SR Manager', admin: 'Admin' };
 
 const STATUS = ['requested', 'on_process', 'completed', 'closed', 'rejected'];
 const STATUS_LABEL_TH = {
@@ -154,6 +163,8 @@ const STAGE_STATUS = {
   doc_check: 'on_process',
   need_info: 'on_process',
   sourcing: 'on_process',
+  pending_sr_manager: 'on_process',
+  pending_gm_price: 'on_process',
   awaiting_sales_ack: 'completed',
   closed: 'closed',
   rejected: 'rejected',
@@ -161,13 +172,15 @@ const STAGE_STATUS = {
 };
 
 const STAGE_LABEL_TH = {
-  pending_manager: 'รอ Manager อนุมัติ',
+  pending_manager: 'รอ Sales Manager อนุมัติ',
   returned: 'ส่งกลับให้ Sales แก้ไข',
   pending_gm: 'รอ GM อนุมัติ',
   pending_assign: 'รอ SR รับงาน',
   doc_check: 'SR ตรวจเอกสาร',
   need_info: 'รอ Sales ส่งข้อมูลเพิ่ม',
   sourcing: 'SR กำลังหาราคา',
+  pending_sr_manager: 'รอ SR Manager ตรวจราคา',
+  pending_gm_price: 'รอ GM อนุมัติราคา',
   awaiting_sales_ack: 'รอ Sales รับทราบราคา',
   closed: 'ปิดงาน',
   rejected: 'ไม่อนุมัติ',
@@ -178,6 +191,8 @@ const OPEN_STATUSES = ['requested', 'on_process', 'completed'];
 const VAT_TERMS = ['ex_vat', 'no_vat', 'include_vat'];
 const VAT_TERM_LABEL = { ex_vat: 'Ex VAT', no_vat: 'No VAT', include_vat: 'Include VAT' };
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
+/** Units on the Food request form. */
+const UNITS = ['กก.', 'ตัน', 'กล่อง', 'แพ็ค', 'ถุง', 'ชิ้น', 'ตัว', 'ขวด', 'ลิตร'];
 /** Delivery terms on a vendor quotation (food imports are usually CIF / CFR; local suppliers deliver). */
 const INCOTERMS = ['EXW', 'FCA', 'FOB', 'CFR', 'CIF', 'DAP', 'DDP', 'DELIVERED'];
 const INCOTERM_LABEL = { EXW: 'EXW', FCA: 'FCA', FOB: 'FOB', CFR: 'CFR (C&F)', CIF: 'CIF', DAP: 'DAP', DDP: 'DDP', DELIVERED: 'ส่งถึงคลัง MGS' };
@@ -188,7 +203,7 @@ const DEFAULT_SETTINGS = [
   ['vat_rate', '0.07', 'อัตรา VAT (0.07 = 7%) — snapshot ลงแต่ละใบเสนอราคาตอนบันทึก'],
   ['sla_hours', JSON.stringify({
     pending_manager: 24, returned: 48, pending_gm: 24, pending_assign: 8,
-    doc_check: 16, need_info: 48, sourcing: 72, awaiting_sales_ack: 48
+    doc_check: 16, need_info: 48, sourcing: 72, pending_sr_manager: 8, pending_gm_price: 8, awaiting_sales_ack: 48
   }), 'SLA เป็นชั่วโมงปฏิทินของแต่ละ stage'],
   ['sla_warning_ratio', '0.8', 'เตือนเมื่อใช้เวลาเกินสัดส่วนนี้ของ SLA'],
   ['currencies', JSON.stringify(['THB', 'USD', 'CNY', 'EUR', 'JPY', 'SGD']), 'สกุลเงินใน dropdown'],

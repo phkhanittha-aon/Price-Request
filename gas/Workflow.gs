@@ -6,7 +6,9 @@
  * No other code path writes those columns, and staff have no access to the sheet.
  *
  * Actions (role → from stage → to stage):
- *   resubmit          sales (owner)    returned                              → pending_manager
+ *   create            sales            —                                     → pending_manager, or pending_gm when the
+ *                                                                               department has no Sales Manager (step skipped)
+ *   resubmit          sales (owner)    returned                              → pending_manager | pending_gm (same rule)
  *   cancel            sales (owner)    pending_manager | returned | pending_gm → cancelled
  *   manager_approve   manager (dept)   pending_manager                       → pending_gm
  *   manager_reject    manager (dept)   pending_manager                       → rejected     (comment required)
@@ -14,25 +16,31 @@
  *   gm_approve        gm               pending_gm                            → pending_assign
  *   gm_reject         gm               pending_gm                            → rejected     (comment required)
  *   claim             sr               pending_assign                        → doc_check
- *   assign            sr lead | admin  pending_assign | doc_check | need_info | sourcing → doc_check | same
+ *   assign            sr_manager|admin pending_assign | doc_check | need_info | sourcing → doc_check | same
  *   request_info      sr (assigned)    doc_check | sourcing                  → need_info    (comment required)
  *   respond_info      sales (owner)    need_info                             → stage SR asked from (comment required)
  *   doc_complete      sr (assigned)    doc_check                             → sourcing (required checklist ticked)
- *   submit_quote      sr (assigned)    sourcing                              → awaiting_sales_ack
+ *   submit_quote      sr (assigned)    sourcing                              → pending_sr_manager
+ *   srm_approve       sr_manager       pending_sr_manager                    → pending_gm_price
+ *   srm_return        sr_manager       pending_sr_manager                    → sourcing     (comment required)
+ *   gm_price_approve  gm               pending_gm_price                      → awaiting_sales_ack
+ *   gm_price_return   gm               pending_gm_price                      → sourcing     (comment required)
+ *   (price approval SR → SR Manager → GM is never skipped)
  *   accept            sales (owner)    awaiting_sales_ack                    → closed
  *   request_revision  sales (owner)    awaiting_sales_ack                    → sourcing     (comment required)
  */
 
 const TRANSITION_ACTIONS = ['resubmit', 'cancel', 'manager_approve', 'manager_reject', 'manager_return',
   'gm_approve', 'gm_reject', 'claim', 'assign', 'request_info', 'respond_info', 'doc_complete',
-  'submit_quote', 'accept', 'request_revision'];
+  'submit_quote', 'srm_approve', 'srm_return', 'gm_price_approve', 'gm_price_return', 'accept', 'request_revision'];
 
 const ACTION_LABEL_TH = {
   create: 'สร้างใบขอราคา', resubmit: 'ส่งใบขอราคาอีกครั้ง', cancel: 'ยกเลิกใบขอราคา',
-  manager_approve: 'Manager อนุมัติ', manager_reject: 'Manager ไม่อนุมัติ', manager_return: 'Manager ส่งกลับแก้ไข',
+  manager_approve: 'Sales Manager อนุมัติ', manager_reject: 'Sales Manager ไม่อนุมัติ', manager_return: 'Sales Manager ส่งกลับแก้ไข',
   gm_approve: 'GM อนุมัติ', gm_reject: 'GM ไม่อนุมัติ', claim: 'SR รับงาน', assign: 'มอบหมายงาน SR',
   request_info: 'SR ขอข้อมูลเพิ่ม', respond_info: 'Sales ส่งข้อมูลเพิ่ม', doc_complete: 'SR ตรวจเอกสารครบ',
-  submit_quote: 'SR ส่งราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
+  submit_quote: 'SR ส่งราคาให้ SR Manager ตรวจ', srm_approve: 'SR Manager อนุมัติราคา', srm_return: 'SR Manager ส่งกลับให้แก้ราคา',
+  gm_price_approve: 'GM อนุมัติราคา (ส่งถึง Sales)', gm_price_return: 'GM ส่งกลับให้แก้ราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
   // data changes (not status changes)
   ticket_updated: 'แก้ไขข้อมูลใบขอราคา', item_added: 'เพิ่มรายการสินค้า', item_updated: 'แก้ไขรายการสินค้า', item_deleted: 'ลบรายการสินค้า',
   checklist_updated: 'ตรวจเอกสาร', quotation_added: 'เพิ่มราคา vendor', quotation_updated: 'แก้ไขราคา vendor',
@@ -41,9 +49,10 @@ const ACTION_LABEL_TH = {
 
 // =============================================================================
 // createTicket — public API
-// payload: { client_key, title, description?, customer_name?, priority?, due_date? (yyyy-MM-dd),
-//            items: [{ item_id?, product_group_code, product_name, spec?, description?, qty, uom,
-//                      target_price?, target_currency? }] }
+// Food request form.
+// payload: { client_key, customer_name, due_date (yyyy-MM-dd), documents_needed?, description? (= remark), priority?, title? (auto),
+//            items: [{ item_id?, product_name, net_weight, size, packing_size, qty (per month), uom,
+//                      target_price (THB/kg, 0 = none), product_group_code? (default FOOD), spec? }] }
 // =============================================================================
 function createTicket(payload) {
   return api_('createTicket', function () {
@@ -64,14 +73,15 @@ function createTicket(payload) {
         throw appError_('NO_DEPARTMENT', 'บัญชีของคุณยังไม่ได้ผูกกับแผนก กรุณาติดต่อผู้ดูแลระบบ');
       }
       const dept = departmentByCode_(u.department_code);
-      if (!dept || !dept.is_active || !dept.manager_email) {
-        throw appError_('NO_MANAGER', 'แผนกของคุณยังไม่ได้กำหนด Manager ผู้อนุมัติ กรุณาติดต่อผู้ดูแลระบบ');
+      if (!dept || !dept.is_active) {
+        throw appError_('NO_DEPARTMENT', 'แผนกของคุณไม่ถูกต้องหรือถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
       }
+      const firstStage = firstApprovalStage_(dept);
 
-      const title = requireText_(p.title, 'ชื่อใบขอราคา', 200);
-      if (title.length < 3) throw appError_('VALIDATION', 'ชื่อใบขอราคาต้องมีอย่างน้อย 3 ตัวอักษร');
+      const customer = requireText_(p.customer_name, 'ชื่อลูกค้า (Customer)', 200);
       const priority = p.priority ? oneOf_(p.priority, PRIORITIES, 'ความเร่งด่วน') : 'normal';
-      const dueDate = parseYmd_(p.due_date, 'วันที่ต้องการราคา', true);
+      const dueDate = parseYmd_(p.due_date, 'วันที่ต้องการให้ตอบกลับราคา (Expected Date)');
+      if (fmtDate_(dueDate) < todayBkk_()) throw appError_('VALIDATION', 'วันที่ต้องการให้ตอบกลับราคา ต้องไม่เป็นวันที่ผ่านมาแล้ว');
 
       const items = Array.isArray(p.items) ? p.items : [];
       if (!items.length) throw appError_('NO_ITEMS', 'ต้องมีรายการสินค้าอย่างน้อย 1 รายการ');
@@ -92,6 +102,7 @@ function createTicket(payload) {
         return it;
       });
 
+      const title = cleanText_(p.title, 200) || autoTitle_(customer, cleanItems);
       const year = fmtDate_(now, 'yyyy');
       const no = nextCounter_('ticket_no_' + year);
       const ticket = {
@@ -99,10 +110,11 @@ function createTicket(payload) {
         ticket_no: 'PR-' + year + '-' + ('000' + no).slice(-Math.max(4, String(no).length)),
         title: title,
         description: cleanText_(p.description, CFG.MAX_TEXT),
-        customer_name: cleanText_(p.customer_name, 200),
+        customer_name: customer,
+        documents_needed: cleanText_(p.documents_needed, CFG.MAX_TEXT),
         priority: priority,
         status: 'requested',
-        stage: 'pending_manager',
+        stage: firstStage,
         requestor_email: u.email,
         department_code: dept.code,
         manager_email: dept.manager_email,
@@ -126,8 +138,9 @@ function createTicket(payload) {
       appendLog_({
         ticket_id: ticketId, log_type: 'transition', action: 'create',
         actor_email: u.email, actor_role: u.role,
-        to_status: 'requested', to_stage: 'pending_manager',
-        metadata: { ticket_no: ticket.ticket_no, item_count: cleanItems.length }
+        to_status: 'requested', to_stage: firstStage,
+        metadata: { ticket_no: ticket.ticket_no, item_count: cleanItems.length,
+          sales_manager_skipped: firstStage === 'pending_gm' }
       });
 
       const t = normTicket_(ticket);
@@ -180,9 +193,9 @@ function doTransition_(ticketId, action, comment, payload) {
       if (t.stage !== 'returned') badState();
       if (!activeItemsOf_(t.ticket_id).length) throw appError_('NO_ITEMS', 'ต้องมีรายการสินค้าอย่างน้อย 1 รายการ');
       const d = departmentByCode_(t.department_code);
-      if (!d || !d.manager_email) throw appError_('NO_MANAGER', 'แผนกของคุณยังไม่ได้กำหนด Manager ผู้อนุมัติ');
-      patch.manager_email = d.manager_email;
-      patch.stage = 'pending_manager';
+      patch.manager_email = d ? d.manager_email : '';
+      patch.stage = firstApprovalStage_(d);
+      meta = { sales_manager_skipped: patch.stage === 'pending_gm' };
       patch.submitted_at = now;
       notifyType = 'approval_required';
       break;
@@ -202,9 +215,9 @@ function doTransition_(ticketId, action, comment, payload) {
     case 'manager_approve':
     case 'manager_reject':
     case 'manager_return': {
-      if (u.role !== 'manager') forbid('เฉพาะ Manager เท่านั้นที่ทำรายการนี้ได้');
+      if (u.role !== 'manager') forbid('เฉพาะ Sales Manager เท่านั้นที่ทำรายการนี้ได้');
       const d = departmentByCode_(t.department_code);
-      if (!d || d.manager_email !== u.email) forbid('คุณไม่ใช่ Manager ของแผนกผู้ขอราคา');
+      if (!d || d.manager_email !== u.email) forbid('คุณไม่ใช่ Sales Manager ของแผนกผู้ขอราคา');
       if (t.requestor_email === u.email) throw appError_('SELF_APPROVAL', 'ไม่สามารถอนุมัติใบขอราคาของตัวเองได้');
       if (t.stage !== 'pending_manager') badState();
       patch.manager_email = u.email;
@@ -254,8 +267,8 @@ function doTransition_(ticketId, action, comment, payload) {
       break;
     }
     case 'assign': {
-      if (!(u.role === 'admin' || (u.role === 'sr' && u.is_sr_lead))) {
-        forbid('เฉพาะ SR Lead หรือ Admin เท่านั้นที่มอบหมายงานได้');
+      if (!(u.role === 'admin' || u.role === 'sr_manager')) {
+        forbid('เฉพาะ SR Manager หรือ Admin เท่านั้นที่มอบหมายงานได้');
       }
       if (['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) === -1) badState();
       const target = userByEmail_(payload.sr_email);
@@ -314,9 +327,46 @@ function doTransition_(ticketId, action, comment, payload) {
       if (!isAssignedSr()) forbid('เฉพาะ SR ผู้รับงานเท่านั้นที่ส่งราคาได้');
       if (t.stage !== 'sourcing') badState();
       meta = validateQuotesForSubmit_(t);
-      patch.stage = 'awaiting_sales_ack';
-      patch.completed_at = now;
-      notifyType = 'quote_ready';
+      patch.stage = 'pending_sr_manager';
+      patch.quote_submitted_at = now;
+      notifyType = 'approval_required';
+      break;
+    }
+    // ------------------------------------------------------------ Price approval: SR Manager → GM (no skipping)
+    case 'srm_approve':
+    case 'srm_return': {
+      if (u.role !== 'sr_manager') forbid('เฉพาะ SR Manager เท่านั้นที่ตรวจราคาได้');
+      if (t.sr_email === u.email) throw appError_('SELF_APPROVAL', 'ไม่สามารถอนุมัติราคาที่ตัวเองเป็นผู้หาได้');
+      if (t.stage !== 'pending_sr_manager') badState();
+      if (action === 'srm_approve') {
+        meta = validateQuotesForSubmit_(t);
+        patch.stage = 'pending_gm_price';
+        patch.sr_manager_email = u.email;
+        patch.sr_manager_approved_at = now;
+        notifyType = 'approval_required';
+      } else {
+        needComment('กรุณาระบุสิ่งที่ต้องการให้ SR แก้ไขราคา');
+        patch.stage = 'sourcing';
+        notifyType = 'price_returned';
+      }
+      break;
+    }
+    case 'gm_price_approve':
+    case 'gm_price_return': {
+      if (u.role !== 'gm') forbid('เฉพาะ GM เท่านั้นที่อนุมัติราคาได้');
+      if (t.stage !== 'pending_gm_price') badState();
+      if (action === 'gm_price_approve') {
+        meta = validateQuotesForSubmit_(t);
+        patch.stage = 'awaiting_sales_ack';
+        patch.gm_price_approved_at = now;
+        patch.completed_at = now;
+        notifyType = 'quote_ready';
+        extraRecipients = [t.sr_email];
+      } else {
+        needComment('กรุณาระบุสิ่งที่ต้องการให้ SR แก้ไขราคา');
+        patch.stage = 'sourcing';
+        notifyType = 'price_returned';
+      }
       break;
     }
     // ------------------------------------------------------------ Sales acknowledgement
@@ -364,7 +414,8 @@ function doTransition_(ticketId, action, comment, payload) {
 
   let recipients = stageAssignees_(saved).concat(extraRecipients);
   if (saved.stage === 'rejected' || saved.stage === 'closed') recipients.push(saved.requestor_email);
-  const page = saved.status === 'on_process' && saved.stage !== 'need_info' ? 'pricing' : 'ticket';
+  const page = ['doc_check', 'sourcing'].indexOf(saved.stage) !== -1 ? 'pricing' : 'ticket';
+  if (saved.stage === 'sourcing' && (action === 'srm_return' || action === 'gm_price_return')) recipients.push(saved.sr_email);
   enqueueNotifications_(recipients, saved, notifyType,
     '[' + saved.ticket_no + '] ' + STAGE_LABEL_TH[saved.stage],
     ACTION_LABEL_TH[action] + ' โดย ' + u.full_name + ' — ' + saved.title + (note ? '\n' + note : ''),
@@ -454,7 +505,7 @@ function ticketDetail_(u, t) {
         can_view_quotes: showQuotes,
         actions: allowedActions_(u, t)
       },
-      me: { email: u.email, full_name: u.full_name, role: u.role, is_sr_lead: u.is_sr_lead },
+      me: { email: u.email, full_name: u.full_name, role: u.role },
       vat_rate: vatRate_(),
       app_version: APP_VERSION
     };
@@ -474,7 +525,9 @@ function allowedActions_(u, t) {
   }
   if (u.role === 'gm' && t.stage === 'pending_gm' && t.manager_email !== u.email) a.push('gm_approve', 'gm_reject');
   if (u.role === 'sr' && t.stage === 'pending_assign') a.push('claim');
-  if ((u.role === 'admin' || (u.role === 'sr' && u.is_sr_lead)) &&
+  if (u.role === 'sr_manager' && t.stage === 'pending_sr_manager' && t.sr_email !== u.email) a.push('srm_approve', 'srm_return');
+  if (u.role === 'gm' && t.stage === 'pending_gm_price') a.push('gm_price_approve', 'gm_price_return');
+  if ((u.role === 'admin' || u.role === 'sr_manager') &&
       ['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1) a.push('assign');
   if (assigned && (t.stage === 'doc_check' || t.stage === 'sourcing')) a.push('request_info');
   if (assigned && t.stage === 'doc_check') a.push('doc_complete');
@@ -523,22 +576,36 @@ function groupName_(code) {
   return g ? String(g.name) : String(code);
 }
 
-/** Validate one item from the browser. Returns clean fields (no ids). */
+/** First approval stage: Sales Manager, or straight to GM when the department has no Sales Manager. */
+function firstApprovalStage_(dept) {
+  const mgr = dept && dept.manager_email ? userByEmail_(dept.manager_email) : null;
+  return mgr && mgr.is_active && mgr.role === 'manager' ? 'pending_manager' : 'pending_gm';
+}
+
+function autoTitle_(customer, items) {
+  const first = items[0] ? items[0].product_name : '';
+  return (customer + ' — ' + first + (items.length > 1 ? ' และอีก ' + (items.length - 1) + ' รายการ' : '')).slice(0, 200);
+}
+
+/** Validate one item of the Food request form. Returns clean fields (no ids). */
 function validateItem_(raw, groups, lineNo) {
   const r = raw || {};
-  const prefix = 'รายการที่ ' + lineNo + ': ';
-  const code = cleanText_(r.product_group_code, 50);
-  if (!groups[code]) throw appError_('INVALID_PRODUCT_GROUP', prefix + 'กลุ่มสินค้าไม่ถูกต้องหรือถูกปิดใช้งาน');
+  const prefix = 'สินค้ารายการที่ ' + lineNo + ': ';
+  const code = cleanText_(r.product_group_code, 50) || 'FOOD';
+  if (!groups[code]) throw appError_('INVALID_PRODUCT_GROUP', prefix + 'ประเภทสินค้าไม่ถูกต้องหรือถูกปิดใช้งาน');
   try {
     return {
       product_group_code: code,
-      product_name: requireText_(r.product_name, 'ชื่อสินค้า', 300),
+      product_name: requireText_(r.product_name, 'ชื่อสินค้า (Product)', 300),
+      net_weight: requireText_(r.net_weight, 'น้ำหนักสุทธิ (% Net Weight)', 100),
+      size: requireText_(r.size, 'ขนาด (Size)', 100),
+      packing_size: requireText_(r.packing_size, 'ขนาดของแพคย่อย (Packing Size)', 100),
+      qty: toNumber_(r.qty, 'ปริมาณที่ลูกค้าต้องการต่อเดือน (Qty)', { gt: 0 }),
+      uom: oneOf_(r.uom, UNITS, 'หน่วย (Unit)'),
+      target_price: toNumber_(r.target_price, 'ราคาเป้าหมาย (THB/Kg) — ถ้าไม่มีให้ใส่ 0', { min: 0 }),
+      target_currency: 'THB',
       spec: cleanText_(r.spec, CFG.MAX_TEXT),
-      description: cleanText_(r.description, CFG.MAX_TEXT),
-      qty: toNumber_(r.qty, 'จำนวน', { gt: 0 }),
-      uom: requireText_(r.uom, 'หน่วย', 30),
-      target_price: toNumber_(r.target_price, 'ราคาเป้าหมาย', { allowBlank: true, min: 0 }),
-      target_currency: r.target_currency ? oneOf_(r.target_currency, setting_('currencies', ['THB']), 'สกุลเงิน') : 'THB'
+      description: cleanText_(r.description, CFG.MAX_TEXT)
     };
   } catch (e) {
     if (e.isApp) throw appError_(e.code, prefix + e.message);
@@ -555,6 +622,7 @@ function activeItemsOf_(ticketId) {
         product_group_code: String(r.product_group_code), product_name: String(r.product_name),
         spec: String(r.spec || ''), description: String(r.description || ''),
         qty: Number(r.qty), uom: String(r.uom),
+        net_weight: String(r.net_weight || ''), size: String(r.size || ''), packing_size: String(r.packing_size || ''),
         target_price: r.target_price === '' ? null : Number(r.target_price),
         target_currency: String(r.target_currency || 'THB')
       };

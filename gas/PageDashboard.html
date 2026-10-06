@@ -1,169 +1,135 @@
 <!--
   File: PageDashboard.html
-  Dashboard: KPI tiles, status/stage counts, and plain-HTML bar charts (no chart library).
-  Charts: one hue for magnitude; 3 categorical slots only for the stacked SR workload (with legend).
-  Every chart has a hover/tap tooltip (data-tip) and a "ดูเป็นตาราง" table view.
+  Simple dashboard: how many requests were quoted (done), are still open, or were rejected;
+  list of statuses; per-person table. Every number is clickable → the matching ticket list.
+  Scope (server-side): Sales = own requests · SR = own jobs · Sales Manager, SR Manager, GM, Admin = everyone.
 -->
 <script>
 Pages.dashboard = (function () {
-  let range = { from: todayYmd(-89), to: todayYmd(0) };
+  let range = { key: 'all', from: '', to: '' };
+  const PRESETS = [['all', 'ทั้งหมด'], ['30', '30 วัน'], ['90', '90 วัน'], ['year', 'ปีนี้']];
+  const OUT = {
+    done: { icon: '✓', label: 'เสนอราคาจบแล้ว', cls: 'out-done' },
+    open: { icon: '⏳', label: 'ยังไม่จบ', cls: 'out-open' },
+    rejected: { icon: '✕', label: 'ไม่อนุมัติ / ยกเลิก', cls: 'out-rej' }
+  };
 
-  function barRows(rows, opts) {
-    // rows: [{ label, segs: [{ value, color, name }], total, valueText, tip, mark? }]
-    const max = Math.max(1, opts.max || 0, Math.max.apply(null, rows.map(function (r) { return Math.max(r.total, r.mark || 0); })));
-    return '<div class="bars">' + rows.map(function (r) {
-      const segs = r.segs.filter(function (s) { return s.value > 0; }).map(function (s) {
-        return '<div class="seg" style="width:' + (s.value / max * 100) + '%;background:' + s.color + '" data-tip="' +
-          esc(r.label + '\n' + s.name + ': ' + s.text) + '"></div>';
-      }).join('');
-      const mark = r.mark ? '<div class="mark" style="left:' + (r.mark / max * 100) + '%" data-tip="' + esc(r.markTip || '') + '"></div>' : '';
-      return '<div class="lbl" title="' + esc(r.label) + '">' + esc(r.label) + '</div>' +
-        '<div class="track" data-tip="' + esc(r.tip) + '"><div class="fill" style="width:' + (r.total / max * 100) + '%">' + segs + '</div>' + mark + '</div>' +
-        '<div class="val">' + esc(r.valueText) + '</div>';
-    }).join('') + '</div>';
+  function presetRange(key) {
+    if (key === 'all') return { key: key, from: '', to: '' };
+    if (key === 'year') return { key: key, from: todayYmd(0).slice(0, 4) + '-01-01', to: todayYmd(0) };
+    return { key: key, from: todayYmd(-(Number(key) - 1)), to: todayYmd(0) };
   }
 
-  function tableView(headers, rows) {
-    return '<details class="tview"><summary>ดูเป็นตาราง</summary><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
-      headers.map(function (h, i) { return '<th class="' + (i ? 'num' : '') + '">' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-      rows.map(function (r) { return '<tr>' + r.map(function (c, i) { return '<td class="' + (i ? 'num' : '') + '">' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('') +
-      '</tbody></table></div></details>';
+  function tile(kind, n, pct, extra) {
+    const o = OUT[kind];
+    return '<button class="tile ' + o.cls + '" data-outcome="' + kind + '"><span class="ic" aria-hidden="true">' + o.icon + '</span>' +
+      '<span class="v">' + fmtInt(n) + '</span><span class="l">' + esc(o.label) + '</span>' +
+      '<span class="p">' + pct + '% ของทั้งหมด' + (extra || '') + '</span></button>';
   }
 
-  function single(rows, labelKey, valueKey, fmt, tipFn) {
-    return rows.map(function (r) {
-      const v = Number(r[valueKey]) || 0;
-      return { label: r[labelKey], total: v, valueText: fmt(v), tip: tipFn(r),
-        segs: [{ value: v, color: 'var(--series-1)', name: '', text: fmt(v) }] };
-    });
+  function splitBar(done, open, rej, total) {
+    if (!total) return '<div class="split empty-bar"></div>';
+    const seg = function (n, cls, label) {
+      return n ? '<div class="' + cls + '" style="width:' + (n / total * 100) + '%" data-tip="' + esc(label + ': ' + n + ' ใบ') + '"></div>' : '';
+    };
+    return '<div class="split">' + seg(done, 'out-done', OUT.done.label) + seg(open, 'out-open', OUT.open.label) + seg(rej, 'out-rej', OUT.rejected.label) + '</div>';
   }
 
-  function emptyCard(title, text) {
-    return '<div class="card"><h3>' + esc(title) + '</h3><div class="empty small">' + esc(text || 'ยังไม่มีข้อมูลในช่วงเวลานี้') + '</div></div>';
+  function peopleTable(title, rows, key, isSr) {
+    if (!rows.length) return '';
+    return '<div class="card"><h3>' + esc(title) + '</h3><div class="tbl-wrap"><table class="tbl stack people"><thead><tr>' +
+      '<th>' + (isSr ? 'SR' : 'Sales') + '</th><th class="num">ทั้งหมด</th><th class="num">✓ จบแล้ว</th><th class="num">⏳ ยังไม่จบ</th><th class="num">✕ ไม่อนุมัติ</th><th style="min-width:140px">สัดส่วน</th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        const q = function (outcome) { return ' data-' + key + '="' + esc(r.email) + '"' + (outcome ? ' data-o="' + outcome + '"' : ''); };
+        return '<tr><td class="main"><a href="#"' + q('') + '>' + esc(r.name) + '</a></td>' +
+          '<td class="num" data-label="ทั้งหมด"><a href="#"' + q('') + '>' + r.total + '</a></td>' +
+          '<td class="num" data-label="✓ จบแล้ว"><a href="#"' + q('done') + '>' + r.done + '</a></td>' +
+          '<td class="num" data-label="⏳ ยังไม่จบ"><a href="#"' + q('open') + '>' + r.open + '</a></td>' +
+          '<td class="num" data-label="✕ ไม่อนุมัติ"><a href="#"' + q('rejected') + '>' + r.rejected + '</a></td>' +
+          '<td data-label="สัดส่วน">' + splitBar(r.done, r.open, r.rejected, r.total) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
   }
 
   function draw(view, d) {
     const k = d.kpi;
-    let html = '<div class="page-head"><h1>ภาพรวม</h1>' +
-      '<div class="actions">' +
-      '<label class="small">ตั้งแต่ <input type="date" id="db-from" value="' + esc(d.range.from) + '" style="width:auto"></label>' +
-      '<label class="small">ถึง <input type="date" id="db-to" value="' + esc(d.range.to) + '" style="width:auto"></label>' +
-      '<button class="btn sm" data-days="30">30 วัน</button><button class="btn sm" data-days="90">90 วัน</button><button class="btn sm" data-days="365">1 ปี</button>' +
-      '</div></div><p class="muted small" style="margin-top:-6px">' + esc(d.scope_note) + ' · ข้อมูลสถานะเป็นปัจจุบัน ส่วนกราฟใช้ช่วงวันที่ที่เลือก</p>';
+    const listScope = state.me.role === 'sales' || state.me.role === 'sr' ? 'mine' : 'all';
+    let html = '<div class="page-head"><h1>ภาพรวม</h1><div class="actions">' +
+      PRESETS.map(function (p) { return '<button class="btn sm' + (range.key === p[0] ? ' primary' : '') + '" data-range="' + p[0] + '">' + p[1] + '</button>'; }).join('') +
+      '</div></div><p class="muted small" style="margin-top:-6px">แสดง: <b>' + esc(d.scope_note) + '</b>' +
+      (d.range.from ? ' · สร้างระหว่าง ' + esc(fmtDate(d.range.from)) + ' – ' + esc(fmtDate(d.range.to)) : ' · ทุกช่วงเวลา') + ' · แตะตัวเลขเพื่อดูรายการ</p>';
 
-    html += '<div class="kpis">' +
-      kpi(k.open, 'ใบที่ยังเปิดอยู่') + kpi(k.created_in_range, 'สร้างในช่วงนี้') + kpi(k.closed_in_range, 'ปิดงานในช่วงนี้') +
-      kpi(k.breach_now, '⛔ เกิน SLA ตอนนี้', k.breach_now ? 'var(--danger-ink)' : '') +
-      kpi(k.warning_now, '⚠ ใกล้ครบ SLA', k.warning_now ? 'var(--warn-ink)' : '') + '</div>';
+    html += '<div class="tiles"><button class="tile out-all" data-outcome=""><span class="ic" aria-hidden="true">Σ</span><span class="v">' + fmtInt(k.total) +
+      '</span><span class="l">ใบขอราคาทั้งหมด</span><span class="p">&nbsp;</span></button>' +
+      tile('done', k.done, k.done_pct) +
+      tile('open', k.open, k.open_pct, k.breach ? ' · <b class="sla breach">⛔ เกิน SLA ' + k.breach + '</b>' : '') +
+      tile('rejected', k.rejected, k.rejected_pct) + '</div>';
+    html += '<div class="card">' + splitBar(k.done, k.open, k.rejected, k.total) +
+      '<div class="legend" style="margin-top:8px">' + ['done', 'open', 'rejected'].map(function (o) {
+        return '<span><i class="' + OUT[o].cls + '"></i>' + OUT[o].icon + ' ' + esc(OUT[o].label) + '</span>';
+      }).join('') + '</div></div>';
 
-    // Status + stage counts
-    html += '<div class="grid-2"><div class="card"><h3>จำนวนตามสถานะหลัก</h3><div class="actions">' +
-      d.by_status.map(function (s) { return statusBadge(s.status, s.label + ' · ' + fmtInt(s.count)); }).join('') + '</div>' +
-      '<h3 style="margin-top:16px">งานที่ค้างแยกตามขั้นตอน</h3>' +
-      (d.by_stage.length ? barRows(single(d.by_stage, 'label', 'count', fmtInt, function (r) { return r.label + ': ' + r.count + ' ใบ'; }), {}) : '<div class="empty small">ไม่มีงานค้าง 🎉</div>') +
-      '</div>';
-
-    // SLA now + aging
-    html += '<div class="card"><h3>อายุใบที่ยังเปิด (นับจากวันสร้าง)</h3>' +
-      barRows(single(d.aging, 'label', 'count', fmtInt, function (r) { return 'อายุ ' + r.label + ': ' + r.count + ' ใบ'; }), {}) +
-      tableView(['ช่วงอายุ', 'จำนวนใบ'], d.aging.map(function (a) { return [a.label, a.count]; }));
-    if (d.sla_by_stage.length) {
-      html += '<h3 style="margin-top:16px">SLA ของงานที่ค้างตอนนี้</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>ขั้นตอน</th><th class="num">ค้าง</th>' +
-        '<th class="num">⚠ ใกล้ครบ</th><th class="num">⛔ เกิน</th><th class="num">SLA</th></tr></thead><tbody>' +
-        d.sla_by_stage.map(function (s) {
-          return '<tr><td>' + esc(s.stage_label) + '</td><td class="num">' + s.open + '</td><td class="num">' + (s.warning ? '<span class="sla warning">' + s.warning + '</span>' : '0') +
-            '</td><td class="num">' + (s.breach ? '<span class="sla breach">' + s.breach + '</span>' : '0') + '</td><td class="num">' + (s.sla_hours ? s.sla_hours + ' ชม.' : '–') + '</td></tr>';
-        }).join('') + '</tbody></table></div>';
+    if (!k.total) {
+      html += '<div class="card empty">ยังไม่มีใบขอราคาในช่วงนี้' +
+        (state.me.role === 'sales' ? '<p><button class="btn primary" onclick="App.go({page:\'new\'})">＋ สร้างใบขอราคา</button></p>' : '') + '</div>';
+      view.innerHTML = html;
+      bind(view, listScope);
+      return;
     }
-    html += '</div></div>';
 
-    // Requests by sales
-    html += '<div class="grid-2">';
-    html += d.by_sales.length ? '<div class="card"><h3>จำนวนใบขอราคาแยกตาม Sales</h3>' +
-      barRows(single(d.by_sales, 'name', 'total', fmtInt, function (r) {
-        return r.name + '\nทั้งหมด ' + r.total + ' · เปิด ' + r.open + ' · ปิด ' + r.closed + ' · ไม่อนุมัติ/ยกเลิก ' + r.rejected;
-      }), {}) +
-      tableView(['Sales', 'ทั้งหมด', 'ยังเปิด', 'ปิดงาน', 'ไม่อนุมัติ/ยกเลิก'], d.by_sales.map(function (r) { return [r.name, r.total, r.open, r.closed, r.rejected]; })) +
-      '</div>' : emptyCard('จำนวนใบขอราคาแยกตาม Sales');
+    html += '<div class="grid-2"><div class="card"><h3>สถานะงาน</h3><ul class="status-list">' + d.by_stage.map(function (s) {
+      const o = OUT[s.outcome];
+      return '<li><a href="#" data-stage="' + esc(s.stage) + '"><span class="dotc ' + o.cls + '" aria-hidden="true"></span>' +
+        '<span class="sl">' + esc(s.label) + '</span><span class="badge st-' + esc(s.status) + '">' + esc(state.ref.status_labels[s.status]) + '</span>' +
+        '<b class="sc">' + s.count + '</b></a></li>';
+    }).join('') + '</ul></div>';
 
-    // SR workload (stacked, 3 categorical slots + legend)
-    const series = [
-      { key: 'in_progress', name: 'กำลังทำ (ตรวจเอกสาร/หาราคา)', color: 'var(--series-1)' },
-      { key: 'need_info', name: 'รอข้อมูลจาก Sales', color: 'var(--series-2)' },
-      { key: 'awaiting_ack', name: 'รอ Sales รับทราบ', color: 'var(--series-3)' }
-    ];
-    html += '<div class="card"><h3>ภาระงาน SR</h3><div class="legend">' +
-      series.map(function (s) { return '<span><i style="background:' + s.color + '"></i>' + esc(s.name) + '</span>'; }).join('') + '</div>' +
-      (d.sr_workload.length ? barRows(d.sr_workload.map(function (r) {
-        const total = r.in_progress + r.need_info + r.awaiting_ack;
-        return {
-          label: r.name, total: total, valueText: fmtInt(total) + ' ใบ',
-          tip: r.name + '\nกำลังทำ ' + r.in_progress + ' · รอข้อมูล ' + r.need_info + ' · รอรับทราบ ' + r.awaiting_ack +
-            '\nเสร็จในช่วงนี้ ' + r.completed + ' ใบ · เฉลี่ย ' + fmtHours(r.avg_hours) + '/ใบ',
-          segs: series.map(function (s) { return { value: r[s.key], color: s.color, name: s.name, text: r[s.key] + ' ใบ' }; })
-        };
-      }), {}) : '<div class="empty small">ยังไม่มี SR ในระบบ</div>') +
-      tableView(['SR', 'กำลังทำ', 'รอข้อมูล', 'รอรับทราบ', 'เสร็จในช่วงนี้', 'เวลาเฉลี่ย/ใบ'],
-        d.sr_workload.map(function (r) { return [r.name, r.in_progress, r.need_info, r.awaiting_ack, r.completed, fmtHours(r.avg_hours)]; })) +
-      '</div></div>';
+    html += '<div class="card"><h3>อัปเดตล่าสุด</h3><ul class="recent">' + d.recent.map(function (r) {
+      return '<li><a href="#" data-ticket="' + esc(r.ticket_id) + '"><div><b>' + esc(r.ticket_no) + '</b> ' + statusBadge(r.status, r.status_label) +
+        '<div class="small">' + esc(r.title) + '</div><div class="small muted">' + esc(r.stage_label) + ' · ' + esc(r.requestor_name) +
+        (r.sr_name ? ' · SR ' + esc(r.sr_name) : '') + '</div></div><span class="small muted">' + esc(fmtDateTime(r.updated_at)) + '</span></a></li>';
+    }).join('') + '</ul></div></div>';
 
-    // Cycle time per stage (bottlenecks) with SLA marker
-    html += '<div class="grid-2">';
-    html += d.cycle_time.length ? '<div class="card"><h3>เวลาเฉลี่ยในแต่ละขั้นตอน (หาคอขวด)</h3>' +
-      '<p class="muted small" style="margin-top:-6px">เส้นตั้ง = SLA ของขั้นตอนนั้น</p>' +
-      barRows(d.cycle_time.map(function (c) {
-        return {
-          label: c.stage_label + ' (' + c.owner + ')', total: c.avg_hours, valueText: fmtHours(c.avg_hours),
-          mark: c.sla_hours || 0, markTip: 'SLA ' + (c.sla_hours || '–') + ' ชม.',
-          tip: c.stage_label + '\nเฉลี่ย ' + fmtHours(c.avg_hours) + ' · มัธยฐาน ' + fmtHours(c.median_hours) + ' · P90 ' + fmtHours(c.p90_hours) +
-            '\n' + c.count + ' ครั้ง · เกิน SLA ' + c.breach_count + ' ครั้ง',
-          segs: [{ value: c.avg_hours, color: 'var(--series-1)', name: 'เฉลี่ย', text: fmtHours(c.avg_hours) }]
-        };
-      }), {}) +
-      tableView(['ขั้นตอน', 'จำนวนครั้ง', 'เฉลี่ย', 'มัธยฐาน', 'P90', 'SLA (ชม.)', 'เกิน SLA'],
-        d.cycle_time.map(function (c) { return [c.stage_label, c.count, fmtHours(c.avg_hours), fmtHours(c.median_hours), fmtHours(c.p90_hours), c.sla_hours || '–', c.breach_count]; })) +
-      '</div>' : emptyCard('เวลาเฉลี่ยในแต่ละขั้นตอน');
-
-    // Top vendors + group share
-    html += '<div class="card"><h3>Vendor ที่ชนะบ่อย</h3>' +
-      (d.top_vendors.length ? barRows(single(d.top_vendors, 'name', 'wins', function (v) { return fmtInt(v) + ' ครั้ง'; }, function (r) {
-        return r.name + '\nชนะ ' + r.wins + ' รายการ ใน ' + r.ticket_count + ' ใบ\nมูลค่ารวม (ต้นทุนสุทธิ) ฿' + fmtMoney(r.total_cost_thb);
-      }), {}) + tableView(['Vendor', 'ชนะ (รายการ)', 'จำนวนใบ', 'มูลค่ารวม (บาท)'],
-        d.top_vendors.map(function (v) { return [v.name, v.wins, v.ticket_count, fmtMoney(v.total_cost_thb)]; })) : '<div class="empty small">ยังไม่มีใบที่ส่งราคาแล้วในช่วงนี้</div>') +
-      '<h3 style="margin-top:16px">สัดส่วนกลุ่มสินค้า (จำนวนรายการ)</h3>' +
-      (d.group_share.length ? barRows(single(d.group_share, 'name', 'items', fmtInt, function (r) {
-        return r.name + '\n' + r.items + ' รายการ ใน ' + r.tickets + ' ใบ';
-      }), {}) : '<div class="empty small">ยังไม่มีข้อมูล</div>') +
-      '</div></div>';
+    html += peopleTable(d.can_see_everyone ? 'แยกตาม Sales (ทุกคน)' : 'ของฉัน', d.by_sales, 'requestor', false);
+    if (d.by_sr.length && state.me.role !== 'sales') html += peopleTable(d.can_see_everyone ? 'แยกตาม SR ผู้หาราคา' : 'งาน SR ของฉัน', d.by_sr, 'sr', true);
 
     view.innerHTML = html;
-    const reload = function () {
-      range = { from: $('#db-from').value, to: $('#db-to').value };
-      Pages.dashboard.render(view, state.route, function () { return true; });
-    };
-    $('#db-from').onchange = reload;
-    $('#db-to').onchange = reload;
-    $all('[data-days]', view).forEach(function (b) {
-      b.onclick = function () {
-        $('#db-from').value = todayYmd(-(Number(b.getAttribute('data-days')) - 1));
-        $('#db-to').value = todayYmd(0);
-        reload();
+    bind(view, listScope);
+  }
+
+  function bind(view, listScope) {
+    const open = function (extra) { go(Object.assign({ page: 'tickets', scope: listScope }, extra)); };
+    $all('[data-range]', view).forEach(function (b) {
+      b.onclick = function () { range = presetRange(b.getAttribute('data-range')); Pages.dashboard.render(view, state.route, function () { return true; }); };
+    });
+    $all('[data-outcome]', view).forEach(function (b) {
+      b.onclick = function () { open(b.getAttribute('data-outcome') ? { outcome: b.getAttribute('data-outcome') } : {}); };
+    });
+    $all('[data-stage]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); open({ stage: a.getAttribute('data-stage') }); }; });
+    $all('[data-ticket]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-ticket') }); }; });
+    $all('[data-requestor]', view).forEach(function (a) {
+      a.onclick = function (e) {
+        e.preventDefault();
+        const x = { requestor: a.getAttribute('data-requestor') };
+        if (a.getAttribute('data-o')) x.outcome = a.getAttribute('data-o');
+        open(x);
+      };
+    });
+    $all('[data-sr]', view).forEach(function (a) {
+      a.onclick = function (e) {
+        e.preventDefault();
+        const x = { sr: a.getAttribute('data-sr') };
+        if (a.getAttribute('data-o')) x.outcome = a.getAttribute('data-o');
+        open(x);
       };
     });
   }
 
-  function kpi(v, label, color) {
-    return '<div class="kpi"><div class="v"' + (color ? ' style="color:' + color + '"' : '') + '>' + fmtInt(v) + '</div><div class="l">' + esc(label) + '</div></div>';
-  }
-
   return {
     render: function (view, route, isCurrent) {
-      view.innerHTML = loadingHtml('กำลังคำนวณภาพรวม...');
-      api('getDashboard', range).then(function (d) {
+      view.innerHTML = loadingHtml('กำลังสรุปภาพรวม...');
+      api('getDashboard', { from: range.from, to: range.to }).then(function (d) {
         if (isCurrent()) draw(view, d);
-      }).catch(function (e) {
-        if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()');
-      });
+      }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
     }
   };
 })();

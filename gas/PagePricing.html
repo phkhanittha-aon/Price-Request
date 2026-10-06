@@ -75,8 +75,9 @@ Pages.pricing = (function () {
 
   /* ---------- rendering ---------- */
   function stepper(stage) {
-    const steps = [['doc_check', 'ตรวจเอกสาร'], ['sourcing', 'หาราคา / เทียบราคา'], ['awaiting_sales_ack', 'ส่งราคาให้ Sales']];
-    const idx = { doc_check: 0, need_info: 0, sourcing: 1, awaiting_sales_ack: 2, closed: 3 }[stage];
+    const steps = [['doc_check', 'ตรวจเอกสาร'], ['sourcing', 'หาราคา / เทียบราคา'], ['pending_sr_manager', 'SR Manager ตรวจ'],
+      ['pending_gm_price', 'GM อนุมัติราคา'], ['awaiting_sales_ack', 'ส่งถึง Sales']];
+    const idx = { doc_check: 0, need_info: 0, sourcing: 1, pending_sr_manager: 2, pending_gm_price: 3, awaiting_sales_ack: 4, closed: 5 }[stage];
     return '<ol class="steps">' + steps.map(function (s, i) {
       const cls = idx > i ? 'done' : idx === i ? 'now' : '';
       return '<li class="' + cls + '"><span class="n">' + (idx > i ? '✓' : (i + 1)) + '</span>' + esc(s[1]) + '</li>';
@@ -92,7 +93,13 @@ Pages.pricing = (function () {
         'ใบอยู่ในขั้นตอน "' + esc(t.stage_label) + '"') + '</div>';
     }
     if (t.stage === 'need_info') banner += '<div class="notice warn">รอ Sales ส่งข้อมูลเพิ่ม: ' + esc((t.info_request && t.info_request.comment) || '') + '</div>';
-    if (t.revision_count && t.stage === 'sourcing') banner += '<div class="notice warn">Sales ขอให้ปรับราคา (ครั้งที่ ' + t.revision_count + ') — ดูเหตุผลใน Timeline ของใบ</div>';
+    const lastTr = d.timeline.filter(function (l) { return l.log_type === 'transition'; }).pop();
+    if (t.stage === 'sourcing' && lastTr && (lastTr.action === 'srm_return' || lastTr.action === 'gm_price_return')) {
+      banner += '<div class="notice warn"><b>' + esc(lastTr.action_label) + '</b> โดย ' + esc(lastTr.actor_name) + (lastTr.comment ? ': ' + esc(lastTr.comment) : '') + '</div>';
+    } else if (t.revision_count && t.stage === 'sourcing') {
+      banner += '<div class="notice warn">Sales ขอให้ปรับราคา (ครั้งที่ ' + t.revision_count + ') — ดูเหตุผลใน Timeline ของใบ</div>';
+    }
+    if (t.stage === 'pending_sr_manager' || t.stage === 'pending_gm_price') banner += '<div class="notice">ส่งราคาแล้ว — ' + esc(t.stage_label) + '</div>';
     return '<div class="page-head"><h1>' + esc(t.ticket_no) + ' · ใบเสนอราคา</h1>' + statusBadge(t.status, t.status_label) +
       '<button class="btn sm ghost" data-back>← รายละเอียดใบ</button></div>' +
       '<div class="card"><div class="row" style="gap:6px 24px">' +
@@ -100,6 +107,7 @@ Pages.pricing = (function () {
       '<div><div class="muted small">ผู้ขอราคา</div>' + esc(t.requestor_name) + '</div>' +
       '<div><div class="muted small">ลูกค้า</div>' + esc(t.customer_name || '–') + '</div>' +
       '<div><div class="muted small">ต้องการราคาภายใน</div>' + esc(fmtDate(t.due_date)) + ' ' + prioText(t.priority) + '</div>' +
+      '<div><div class="muted small">เอกสารที่ต้องการ</div>' + esc(t.documents_needed || '–') + '</div>' +
       '</div>' + (t.description ? '<p class="small" style="white-space:pre-wrap;margin:10px 0 0">' + esc(t.description) + '</p>' : '') +
       '</div>' + stepper(t.stage) + banner;
   }
@@ -183,8 +191,8 @@ Pages.pricing = (function () {
     if (!mi.quotes.length) cols = '<div class="empty small">' + (editable ? 'ยังไม่มีราคา vendor — กด “+ เพิ่ม Vendor”' : 'ยังไม่มีราคา vendor') + '</div>';
     return '<details class="card item" data-item="' + idx + '"' + (idx < 2 ? ' open' : '') + '>' +
       '<summary><div class="ihead"><div><b>#' + it.line_no + ' ' + esc(it.product_name) + '</b> <span class="badge">' + esc(it.product_group_name) + '</span>' +
-      '<div class="small">' + fmtNum(it.qty) + ' ' + esc(it.uom) + (it.spec ? ' · ' + esc(it.spec) : '') +
-      (it.target_price != null ? ' · เป้าหมาย ' + fmtMoney(it.target_price) + ' ' + esc(it.target_currency) + '/' + esc(it.uom) : '') + '</div></div>' +
+      '<div class="small">' + fmtNum(it.qty) + ' ' + esc(it.uom) + '/เดือน · NW ' + esc(it.net_weight || '–') + ' · Size ' + esc(it.size || '–') +
+      ' · Pack ' + esc(it.packing_size || '–') + (it.target_price ? ' · เป้าหมาย ' + fmtMoney(it.target_price) + ' บาท/กก.' : ' · ไม่มีราคาเป้าหมาย') + '</div></div>' +
       '<span class="istatus"></span></div></summary>' +
       (it.description ? '<p class="small muted" style="white-space:pre-wrap">' + esc(it.description) + '</p>' : '') +
       '<div class="vgrid">' + cols + '</div>' +
@@ -207,7 +215,7 @@ Pages.pricing = (function () {
       '<datalist id="origin-list"><option value="ไทย"><option value="นอร์เวย์"><option value="ชิลี"><option value="เวียดนาม"><option value="อินเดีย"><option value="จีน"><option value="ญี่ปุ่น"><option value="ออสเตรเลีย"></datalist>' +
       (d.permissions.can_edit_quotes ? '<div class="savebar"><div class="sum" id="pp-sum"></div><span class="sep"></span>' +
         '<button class="btn" id="pp-info">ขอข้อมูลเพิ่ม</button><button class="btn" id="pp-save">บันทึกร่าง</button>' +
-        '<button class="btn primary" id="pp-submit">ส่งราคาให้ Sales</button></div>' : '');
+        '<button class="btn primary" id="pp-submit">ส่งราคาให้ SR Manager ตรวจ</button></div>' : '');
     bind();
     $all('.card.item', view).forEach(function (card) { refreshItem(Number(card.getAttribute('data-item'))); });
     refreshSummary();
@@ -522,8 +530,8 @@ Pages.pricing = (function () {
         '</td><td class="num">' + fmtMoney(calc.win.c.net_thb * it.qty) + '</td></tr>';
     }).join('');
     dialog({
-      title: 'ส่งราคาให้ ' + ctx.d.ticket.requestor_name + '?',
-      html: '<p class="small">หลังส่งแล้วจะแก้ไขราคาไม่ได้ จนกว่า Sales จะขอให้ปรับราคา</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>รายการ</th><th>ผู้ชนะ</th><th class="num">ต้นทุนสุทธิ (฿)</th></tr></thead><tbody>' +
+      title: 'ส่งราคาให้ SR Manager ตรวจ?',
+      html: '<p class="small">ลำดับ: SR Manager ตรวจ → GM อนุมัติ → ส่งถึง ' + esc(ctx.d.ticket.requestor_name) + ' · ระหว่างนี้แก้ราคาไม่ได้ จนกว่าจะถูกส่งกลับ</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>รายการ</th><th>ผู้ชนะ</th><th class="num">ต้นทุนสุทธิ (฿)</th></tr></thead><tbody>' +
         lines + '<tr><td colspan="2"><b>รวม</b></td><td class="num"><b>' + fmtMoney(net) + '</b></td></tr></tbody></table></div>',
       confirmText: 'ยืนยันส่งราคา'
     }).then(function (res) {
@@ -532,7 +540,7 @@ Pages.pricing = (function () {
       save().then(function (r) {
         return api('transitionTicket', ctx.d.ticket.ticket_id, 'submit_quote', '', { expected_version: r.detail.ticket.version });
       }).then(function (r) {
-        toast('ส่งราคา ' + r.ticket.ticket_no + ' ให้ Sales แล้ว', 'ok');
+        toast('ส่งราคา ' + r.ticket.ticket_no + ' แล้ว → ' + r.ticket.stage_label, 'ok');
         refreshPoll();
         go({ page: 'ticket', id: r.ticket.ticket_id }, true);
       }).catch(function (e) { if (e && e.error && e.code !== 'VALIDATION') toast(e.error, 'err', 9000); });

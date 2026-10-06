@@ -41,11 +41,11 @@ function getBootstrap() {
   return api_('getBootstrap', function () {
     const u = currentUser_();
     return {
-      me: { email: u.email, full_name: u.full_name, role: u.role, role_label: ROLE_LABEL_TH[u.role], is_sr_lead: u.is_sr_lead,
-        department_code: u.department_code },
+      me: { email: u.email, full_name: u.full_name, role: u.role, role_label: ROLE_LABEL_TH[u.role], department_code: u.department_code },
       menu: menuFor_(u),
       ref: referenceData_(),
       poll: pollData_(u),
+      approval_route: approvalRouteNote_(u),
       app_version: APP_VERSION,
       pages: PAGES_
     };
@@ -59,10 +59,10 @@ function menuFor_(u) {
     m.push({ key: 'mine', label: 'ใบขอราคาของฉัน', route: { page: 'tickets', scope: 'mine' } });
     m.push({ key: 'new', label: '+ สร้างใบขอราคา', route: { page: 'new' }, primary: true });
   }
-  if (u.role === 'sr') {
+  if (u.role === 'sr' || u.role === 'sr_manager') {
     m.push({ key: 'queue', label: 'คิวรอรับงาน', route: { page: 'tickets', scope: 'queue' } });
-    m.push({ key: 'mine', label: 'งานของฉัน', route: { page: 'tickets', scope: 'mine' } });
   }
+  if (u.role === 'sr') m.push({ key: 'mine', label: 'งานของฉัน', route: { page: 'tickets', scope: 'mine' } });
   if (u.role !== 'sales') m.push({ key: 'all', label: 'ใบขอราคาทั้งหมด', route: { page: 'tickets', scope: 'all' } });
   return m;
 }
@@ -74,7 +74,8 @@ function referenceData_() {
       return { code: String(g.code), name: String(g.name), parent_code: String(g.parent_code || ''), sort_order: Number(g.sort_order || 0) };
     })
     .sort(function (a, b) { return a.sort_order - b.sort_order; });
-  const srs = activeUsersByRole_('sr').map(function (u) { return { email: u.email, full_name: u.full_name, is_sr_lead: u.is_sr_lead }; });
+  const srs = activeUsersByRole_('sr').map(function (u) { return { email: u.email, full_name: u.full_name }; });
+  const salesUsers = activeUsersByRole_('sales').map(function (u) { return { email: u.email, full_name: u.full_name }; });
   const vendors = rows_(TAB.VENDORS)
     .filter(function (v) { return toBool_(v.is_active); })
     .map(function (v) {
@@ -84,12 +85,14 @@ function referenceData_() {
   return {
     product_groups: groups,
     sr_users: srs,
+    sales_users: salesUsers,
     vendors: vendors,
     currencies: setting_('currencies', ['THB']),
     vat_rate: vatRate_(),
     vat_terms: VAT_TERMS.map(function (k) { return { key: k, label: VAT_TERM_LABEL[k] }; }),
     incoterms: INCOTERMS.map(function (k) { return { key: k, label: INCOTERM_LABEL[k] }; }),
     priorities: PRIORITIES,
+    units: UNITS,
     stage_labels: STAGE_LABEL_TH,
     status_labels: STATUS_LABEL_TH,
     action_labels: ACTION_LABEL_TH,
@@ -98,4 +101,15 @@ function referenceData_() {
     allowed_mime_types: setting_('allowed_mime_types', []),
     upload_chunk_bytes: UPLOAD_CHUNK_BYTES
   };
+}
+
+/** Plain-language approval route for the request form (Sales Manager step is skipped when none is set). */
+function approvalRouteNote_(u) {
+  if (u.role !== 'sales') return '';
+  const d = departmentByCode_(u.department_code);
+  const first = firstApprovalStage_(d);
+  const mgr = first === 'pending_manager' ? userByEmail_(d.manager_email) : null;
+  return first === 'pending_manager'
+    ? 'ส่งถึง Sales Manager (' + mgr.full_name + ') → GM → SR หาราคา → SR Manager → GM อนุมัติราคา → กลับถึงคุณ'
+    : 'ส่งตรงถึง GM (ยังไม่มี Sales Manager) → SR หาราคา → SR Manager → GM อนุมัติราคา → กลับถึงคุณ';
 }

@@ -195,7 +195,7 @@ function dialog(opts) {
 })();
 
 /* ===== 5. Router (google.script.history keeps the browser back button working) ===== */
-const ROUTE_KEYS = ['page', 'id', 'scope'];
+const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome'];
 function cleanRoute(p) {
   const r = {};
   ROUTE_KEYS.forEach(function (k) { if (p && p[k]) r[k] = String(p[k]); });
@@ -223,7 +223,7 @@ function render(route) {
     console.error(e);
   }
 }
-function routeKey(r) { return r.page + '|' + (r.scope || ''); }
+function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || ''); }
 function renderNav() {
   const cur = state.route;
   $('#nav').innerHTML = state.menu.map(function (m, i) {
@@ -323,8 +323,9 @@ const App = {
     $('#bell').onclick = openNotifications;
     api('getBootstrap').then(function (b) {
       state.me = b.me; state.ref = b.ref; state.menu = b.menu;
+      state.approvalRoute = b.approval_route || '';
       $('#who').innerHTML = '<div>' + esc(b.me.full_name) + '</div><small>' + esc(b.me.role_label) +
-        (b.me.is_sr_lead ? ' · Lead' : '') + ' <span class="email">· ' + esc(b.me.email) + '</span></small>';
+        ' <span class="email">· ' + esc(b.me.email) + '</span></small>';
       applyPoll(b.poll);
       google.script.history.setChangeHandler(function (e) { render(e.state || (e.location && e.location.parameter) || {}); });
       google.script.url.getLocation(function (loc) { render(loc.parameter || {}); });

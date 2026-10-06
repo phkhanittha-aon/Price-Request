@@ -5,7 +5,8 @@
  *   gas/*.html (UI)  +  gas/*.gs (server rules, run in the browser)  +  dev/gas-browser-mocks.js
  * Demo data is seeded on load and lives in memory (refresh = start over).
  *
- *   node dev/build-prototype.js <output.html>
+ *   node dev/build-prototype.js <output.html>               # body-only (for an artifact host)
+ *   node dev/build-prototype.js <output.html> --standalone  # full HTML file, open directly in a browser
  */
 'use strict';
 
@@ -19,7 +20,11 @@ const FILE_ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify'
   'Api', 'Files', 'Lark', 'Jobs', 'Code', 'Setup', 'Tests'];
 
 const read = (f) => fs.readFileSync(path.join(gasDir, f), 'utf8');
-const gs = FILE_ORDER.map((f) => `// ==== ${f}.gs ====\n` + read(f + '.gs')).join('\n');
+// Tests.gs: only the fake Drive / HTTP helpers are needed (uploads in the prototype); the test cases are left out.
+const testsSrc = read('Tests.gs');
+const fakes = testsSrc.slice(testsSrc.indexOf('function fakeHttp_()'), testsSrc.indexOf('function runPhase2Cases_('));
+const gs = FILE_ORDER.filter((f) => f !== 'Tests').map((f) => `// ==== ${f}.gs ====\n` + read(f + '.gs')).join('\n') +
+  '\n// ==== Tests.gs (fakes only) ====\n' + fakes;
 const publicFns = Array.from(gs.matchAll(/^function ([A-Za-z][A-Za-z0-9]*)\(/gm)).map((m) => m[1]).filter((n) => !n.endsWith('_'));
 const version = /APP_VERSION = '([^']+)'/.exec(read('Config.gs'))[1];
 const mocks = fs.readFileSync(path.join(__dirname, 'gas-browser-mocks.js'), 'utf8');
@@ -42,12 +47,14 @@ ${gs}
   seedDemoData();
   TEST_HTTP_ = fakeHttp_();     // uploads go to a fake Drive
   TEST_DRIVE_ = fakeDrive_();
-  const users = rows_(TAB.USERS).map(function (u) { return { email: String(u.email), name: String(u.full_name), role: String(u.role), lead: toBool_(u.is_sr_lead) }; });
+  const users = rows_(TAB.USERS).map(function (u) { return { email: String(u.email), name: String(u.full_name), role: String(u.role) }; });
   const byTitle = function (part) { const t = rows_(TAB.TICKETS).filter(function (r) { return String(r.title).indexOf(part) !== -1; })[0]; return t ? String(t.ticket_id) : ''; };
-  let current = demoUsers_().sr2;
+  const U = demoUsers_();
+  let current = U.salesFood1;
   window.__proto = {
     users: users,
-    tickets: { pricing: byTitle('กุ้งขาว PD'), closed: byTitle('แซลมอนฟิเล่'), needInfo: byTitle('หมึกกล้วย'), pendingManager: byTitle('ซอสเทริยากิ'), pendingGm: byTitle('ถุงสุญญากาศ') },
+    tickets: { pricing: byTitle('ริเวอร์ไซด์'), srm: byTitle('ทะเลทอง'), closed: byTitle('ซูชิ ดีไลท์') },
+    who: { sales: U.salesFood1, gm: U.gm, sr: U.sr2, srm: U.srManager },
     get user() { return current; },
     setUser: function (email) { current = email; },
     call: function (fn, args) {
@@ -83,16 +90,17 @@ ${gs}
 })();
 </script>`;
 
-const ROLE_TH = { sales: 'Sales', manager: 'Manager', gm: 'GM', sr: 'SR', admin: 'Admin' };
+const ROLE_TH = { sales: 'Sales', manager: 'Sales Manager', gm: 'GM', sr: 'SR', sr_manager: 'SR Manager', admin: 'Admin' };
 const bar = `
 <div class="proto-bar" role="region" aria-label="ตัวควบคุม Prototype">
   <span class="proto-tag">PROTOTYPE</span>
   <span class="proto-note">ข้อมูลตัวอย่าง · รีเฟรชหน้า = เริ่มใหม่</span>
   <label class="proto-who">ดูในมุมมองของ <select id="proto-user"></select></label>
   <span class="proto-links">
+    <button type="button" class="btn sm" data-jump="form">📝 ฟอร์มขอราคา (Sales)</button>
+    <button type="button" class="btn sm" data-jump="dash">📊 Dashboard (GM)</button>
     <button type="button" class="btn sm" data-jump="pricing">💰 ใบเสนอราคา (SR)</button>
-    <button type="button" class="btn sm" data-jump="closed">ใบที่ส่งราคาแล้ว (Food)</button>
-    <button type="button" class="btn sm" data-jump="manager">ใบรอ Manager อนุมัติ</button>
+    <button type="button" class="btn sm" data-jump="srm">✅ SR Manager ตรวจราคา</button>
   </span>
 </div>
 <style>
@@ -107,7 +115,7 @@ const bar = `
   const ROLE_TH = ${JSON.stringify(ROLE_TH)};
   const sel = document.getElementById('proto-user');
   sel.innerHTML = window.__proto.users.map(function (u) {
-    return '<option value="' + u.email + '"' + (u.email === window.__proto.user ? ' selected' : '') + '>' + u.name + ' — ' + ROLE_TH[u.role] + (u.lead ? ' Lead' : '') + '</option>';
+    return '<option value="' + u.email + '"' + (u.email === window.__proto.user ? ' selected' : '') + '>' + u.name + ' — ' + ROLE_TH[u.role] + '</option>';
   }).join('');
   function switchTo(email, route) {
     window.__proto.setUser(email);
@@ -119,21 +127,26 @@ const bar = `
     App.start();
   }
   sel.onchange = function () { switchTo(sel.value, {}); };
-  const find = function (role, lead) { return window.__proto.users.filter(function (u) { return u.role === role && (lead === undefined || u.lead === lead); }); };
   document.querySelectorAll('[data-jump]').forEach(function (b) {
     b.onclick = function () {
       const t = window.__proto.tickets;
+      const w = window.__proto.who;
       const j = b.getAttribute('data-jump');
-      if (j === 'pricing') switchTo(find('sr', false).filter(function (u) { return u.email.indexOf('sr2') === 0; })[0].email, { page: 'pricing', id: t.pricing });
-      if (j === 'closed') switchTo(window.__proto.users.filter(function (u) { return u.email.indexOf('sales.food1') === 0; })[0].email, { page: 'ticket', id: t.closed });
-      if (j === 'manager') switchTo(window.__proto.users.filter(function (u) { return u.email.indexOf('mgr.food') === 0; })[0].email, { page: 'tickets', scope: 'inbox' });
+      if (j === 'form') switchTo(w.sales, { page: 'new' });
+      if (j === 'dash') switchTo(w.gm, { page: 'dashboard' });
+      if (j === 'pricing') switchTo(w.sr, { page: 'pricing', id: t.pricing });
+      if (j === 'srm') switchTo(w.srm, { page: 'ticket', id: t.srm });
     };
   });
-  window.__protoStart = { page: 'pricing', id: window.__proto.tickets.pricing };
+  window.__protoStart = { page: 'new' };
 })();
 </script>`;
 
 body = body.replace(/(<header class="topbar">)/, backend + bar + '$1');
-const html = '<title>MGS Price Request</title>\n' + head.trim() + '\n' + body.trim() + '\n';
+let html = '<title>MGS Price Request</title>\n' + head.trim() + '\n' + body.trim() + '\n';
+if (process.argv[3] === '--standalone') {
+  html = '<!DOCTYPE html>\n<html lang="th">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
+    html.replace(/(<\/style>\s*)(?=<script>|<div class="proto-bar")/, '$1</head>\n<body>\n') + '</body>\n</html>\n';
+}
 fs.writeFileSync(out, html);
 console.log('Prototype written: ' + out + ' (' + Math.round(html.length / 1024) + ' KB, ' + publicFns.length + ' server functions)');

@@ -37,7 +37,6 @@ function normUser_(r) {
     full_name: String(r.full_name || r.email),
     role: String(r.role || '').trim().toLowerCase(),
     department_code: String(r.department_code || '').trim(),
-    is_sr_lead: toBool_(r.is_sr_lead),
     is_active: toBool_(r.is_active),
     lark_open_id: String(r.lark_open_id || '')
   };
@@ -132,15 +131,12 @@ function canSeeTicket_(u, t) {
   switch (u.role) {
     case 'admin':
     case 'gm':
+    case 'manager':          // Sales Manager sees every request
       return true;
     case 'sales':
       return t.requestor_email === u.email;
-    case 'manager': {
-      if (t.manager_email === u.email) return true;
-      const d = departmentByCode_(t.department_code);
-      return !!d && d.manager_email === u.email;
-    }
     case 'sr':
+    case 'sr_manager':
       return !!t.gm_approved_at;
     default:
       return false;
@@ -150,7 +146,7 @@ function canSeeTicket_(u, t) {
 /** Vendor prices: SR / GM / Admin always; Sales & Manager only after SR submitted. */
 function canViewQuotes_(u, t) {
   if (!canSeeTicket_(u, t)) return false;
-  if (['admin', 'gm', 'sr'].indexOf(u.role) !== -1) return true;
+  if (['admin', 'gm', 'sr', 'sr_manager'].indexOf(u.role) !== -1) return true;
   return t.status === 'completed' || t.status === 'closed';
 }
 
@@ -170,7 +166,8 @@ function canEditChecklist_(u, t) {
 
 function canUpload_(u, t) {
   if (u.role === 'sales' && t.requestor_email === u.email) {
-    return ['pending_manager', 'returned', 'need_info'].indexOf(t.stage) !== -1;
+    // until GM approves (pending_gm included: the Sales Manager step may be skipped right after submit)
+    return ['pending_manager', 'returned', 'pending_gm', 'need_info'].indexOf(t.stage) !== -1;
   }
   return u.role === 'sr' && t.sr_email === u.email && t.status === 'on_process';
 }

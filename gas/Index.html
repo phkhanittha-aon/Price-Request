@@ -169,6 +169,42 @@
     .qcard { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 10px; }
     .tag-cheap { background: #E9F7F0; border-color: #B7E3CB; color: #0d5b35; }
     .tag-win { background: var(--brand); border-color: var(--brand); color: #fff; }
+    /* request form (Food) */
+    .form-wrap { max-width: 760px; margin: 0 auto; }
+    .form-head { text-align: center; border-top: 6px solid var(--brand); }
+    .form-head h1 { margin: 4px 0 6px; font-size: 1.35rem; text-wrap: balance; }
+    .form-head .route { color: var(--brand-dark); background: var(--brand-soft); border-radius: 8px; padding: 6px 10px; text-align: left; }
+    label.field .hint, .field .hint { display: block; margin: -2px 0 6px; color: var(--muted); font-size: .82rem; font-weight: 400; }
+    .drop { border: 1px dashed #A9BAC0; border-radius: 10px; padding: 14px; background: #F8FAFB; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+    .drop.over { border-color: var(--brand); background: var(--brand-soft); }
+    .pics { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+    .pic { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border-radius: 999px; background: #fff; border: 1px solid var(--line); font-size: .85rem; }
+    .form-actions { justify-content: center; margin-top: 8px; }
+    .btn.submit { min-width: 200px; }
+
+    /* dashboard (simple) */
+    .out-done { background: var(--ok); } .out-open { background: var(--warn); } .out-rej { background: var(--danger); }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 12px; }
+    .tile { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "ic v" "l l" "p p"; align-items: center; gap: 2px 10px; text-align: left;
+      padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--line); background: #fff; cursor: pointer; font: inherit; color: var(--text); }
+    .tile:hover { border-color: var(--brand); }
+    .tile .ic { grid-area: ic; width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; color: #fff; background: var(--brand); }
+    .tile.out-done .ic { background: var(--ok); } .tile.out-open .ic { background: var(--warn); color: #13262E; } .tile.out-rej .ic { background: var(--danger); }
+    .tile.out-done, .tile.out-open, .tile.out-rej, .tile.out-all { background: #fff; }
+    .tile .v { grid-area: v; font-size: 2rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .tile .l { grid-area: l; font-weight: 600; } .tile .p { grid-area: p; color: var(--muted); font-size: .82rem; }
+    .split { display: flex; gap: 2px; height: 14px; border-radius: 7px; overflow: hidden; background: var(--line); }
+    .split > div { height: 100%; }
+    .split.empty-bar { opacity: .5; }
+    .legend i.out-done, .legend i.out-open, .legend i.out-rej { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+    .status-list, .recent { list-style: none; margin: 0; padding: 0; }
+    .status-list a, .recent a { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--line); text-decoration: none; color: var(--text); min-height: var(--tap); }
+    .status-list a:hover, .recent a:hover { background: #F6FAFB; }
+    .status-list .sl { flex: 1; } .status-list .sc { min-width: 32px; text-align: right; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+    .dotc { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+    .recent a { justify-content: space-between; align-items: flex-start; }
+    table.people a { text-decoration: none; font-weight: 600; }
+
     /* pricing page */
     .steps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0 0 16px; flex-wrap: wrap; }
     .steps li { display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; background: #fff; border: 1px solid var(--line); color: var(--muted); font-size: .9rem; }
