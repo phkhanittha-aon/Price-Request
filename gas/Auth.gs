@@ -143,10 +143,21 @@ function canSeeTicket_(u, t) {
   }
 }
 
-/** Vendor prices: SR / GM / Admin always; Sales & Manager only after SR submitted. */
+/** Roles that may see cost: vendor prices, clearance, landed cost, GP and quotation files. */
+const COST_ROLES_ = ['admin', 'gm', 'sr', 'sr_manager'];
+
+/**
+ * Cost view (vendor quotations, clearance, landed cost, GP, profit, quotation files).
+ * Sales side (Sales, Sales Manager) NEVER sees cost — only the selling price, see canViewSellPrice_.
+ */
 function canViewQuotes_(u, t) {
+  return canSeeTicket_(u, t) && COST_ROLES_.indexOf(u.role) !== -1;
+}
+
+/** Selling price per unit: cost roles always; Sales side once GM approved the price (completed / closed). */
+function canViewSellPrice_(u, t) {
   if (!canSeeTicket_(u, t)) return false;
-  if (['admin', 'gm', 'sr', 'sr_manager'].indexOf(u.role) !== -1) return true;
+  if (canViewQuotes_(u, t)) return true;
   return t.status === 'completed' || t.status === 'closed';
 }
 

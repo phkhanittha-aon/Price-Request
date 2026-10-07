@@ -224,16 +224,55 @@ function render(route) {
   }
 }
 function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || ''); }
+const PAGE_TITLE = { ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
 function renderNav() {
+  initShell();
   const cur = state.route;
+  let group = null;
+  let activeItem = null;
   $('#nav').innerHTML = state.menu.map(function (m, i) {
     const active = routeKey(cleanRoute(m.route)) === routeKey(cur) && !cur.id;
+    if (active) activeItem = m;
     const count = m.badge === 'inbox' && state.poll.inbox ? '<span class="count">' + state.poll.inbox + '</span>' : '';
-    return '<button data-i="' + i + '" class="' + (active ? 'active ' : '') + (m.primary ? 'primary' : '') + '">' + esc(m.label) + count + '</button>';
+    const head = m.group && m.group !== group ? '<div class="grp">' + esc(m.group) + '</div>' : '';
+    group = m.group || group;
+    return head + '<button type="button" data-i="' + i + '" title="' + esc(m.label) + '" class="' + (active ? 'active ' : '') + (m.primary ? 'primary' : '') + '"' +
+      (active ? ' aria-current="page"' : '') + '><span class="ico" aria-hidden="true">' + esc(m.icon || '•') + '</span><span class="lbl">' + esc(m.label) + '</span>' + count + '</button>';
   }).join('');
   $all('#nav button').forEach(function (b) {
-    b.onclick = function () { go(state.menu[Number(b.getAttribute('data-i'))].route); };
+    b.onclick = function () { setSide(false); go(state.menu[Number(b.getAttribute('data-i'))].route); };
   });
+  const crumb = $('#crumb');
+  if (crumb) {
+    const title = activeItem ? activeItem.label : (PAGE_TITLE[cur.page] || '');
+    const mod = activeItem ? activeItem.group : 'ใบขอราคา';
+    crumb.innerHTML = title ? '<span class="mod">' + esc(mod || '') + '</span><span aria-hidden="true">›</span><span class="cur">' + esc(title) + '</span>' : '';
+  }
+}
+
+/* Module sidebar: collapse to icons on desktop (remembered per browser), slide-in drawer on phones. */
+let shellReady = false;
+function initShell() {
+  if (shellReady || !$('#shell')) return;
+  shellReady = true;
+  try { if (localStorage.getItem('mgs.side.mini') === '1') $('#shell').classList.add('mini'); } catch (e) { /* storage blocked */ }
+  $('#side-mini').onclick = function () {
+    const mini = $('#shell').classList.toggle('mini');
+    try { localStorage.setItem('mgs.side.mini', mini ? '1' : '0'); } catch (e) { /* storage blocked */ }
+  };
+  $('#side-toggle').onclick = function () { setSide(true); };
+  $('#side-close').onclick = function () { setSide(false); };
+  $('#side-ov').onclick = function () { setSide(false); };
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && $('#side').classList.contains('open')) setSide(false); });
+}
+function setSide(open) {
+  const side = $('#side');
+  if (!side) return;
+  side.classList.toggle('open', open);
+  $('#side-ov').classList.toggle('open', open);
+  $('#side-close').hidden = !open;
+  $('#side-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) { const first = $('#nav button'); if (first) first.focus(); }
 }
 
 /* ===== 6. Notifications & polling ===== */

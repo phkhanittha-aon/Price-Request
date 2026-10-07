@@ -7,7 +7,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.07-2';
+const APP_VERSION = '2026.10.07-3';
 
 const CFG = {
   APP_NAME: 'MGS Price Request',
@@ -25,6 +25,7 @@ const CFG = {
     LARK_APP_SECRET: 'LARK_APP_SECRET',
     LARK_HOST: 'LARK_HOST',
     LARK_GROUP_CHAT_ID: 'LARK_GROUP_CHAT_ID',
+    LARK_PRICE_GROUP_CHAT_ID: 'LARK_PRICE_GROUP_CHAT_ID',
     WEBAPP_URL: 'WEBAPP_URL'
   }
 };

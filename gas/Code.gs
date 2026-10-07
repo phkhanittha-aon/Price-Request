@@ -52,18 +52,23 @@ function getBootstrap() {
   });
 }
 
+/** ERP module menu (right-hand sidebar). Grouped by module; the browser renders `group` headings in order. */
 function menuFor_(u) {
-  const m = [{ key: 'dashboard', label: 'ภาพรวม', route: { page: 'dashboard' } }];
-  m.push({ key: 'inbox', label: 'งานรอฉัน', route: { page: 'tickets', scope: 'inbox' }, badge: 'inbox' });
+  const G_OVERVIEW = 'ภาพรวม';
+  const G_WORK = 'งานของฉัน';
+  const G_REQ = 'ใบขอราคา';
+  const G_SRC = 'จัดหาราคา (Sourcing)';
+  const m = [{ key: 'dashboard', group: G_OVERVIEW, icon: '📊', label: 'Dashboard', route: { page: 'dashboard' } }];
+  m.push({ key: 'inbox', group: G_WORK, icon: '📥', label: 'งานรอฉัน', route: { page: 'tickets', scope: 'inbox' }, badge: 'inbox' });
   if (u.role === 'sales') {
-    m.push({ key: 'mine', label: 'ใบขอราคาของฉัน', route: { page: 'tickets', scope: 'mine' } });
-    m.push({ key: 'new', label: '+ สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+    m.push({ key: 'new', group: G_REQ, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+    m.push({ key: 'mine', group: G_REQ, icon: '📄', label: 'ใบขอราคาของฉัน', route: { page: 'tickets', scope: 'mine' } });
   }
   if (u.role === 'sr' || u.role === 'sr_manager') {
-    m.push({ key: 'queue', label: 'คิวรอรับงาน', route: { page: 'tickets', scope: 'queue' } });
+    m.push({ key: 'queue', group: G_SRC, icon: '🧾', label: 'คิวรอรับงาน', route: { page: 'tickets', scope: 'queue' } });
   }
-  if (u.role === 'sr') m.push({ key: 'mine', label: 'งานของฉัน', route: { page: 'tickets', scope: 'mine' } });
-  if (u.role !== 'sales') m.push({ key: 'all', label: 'ใบขอราคาทั้งหมด', route: { page: 'tickets', scope: 'all' } });
+  if (u.role === 'sr') m.push({ key: 'mine', group: G_SRC, icon: '💼', label: 'งานของฉัน (SR)', route: { page: 'tickets', scope: 'mine' } });
+  if (u.role !== 'sales') m.push({ key: 'all', group: G_REQ, icon: '📚', label: 'ใบขอราคาทั้งหมด', route: { page: 'tickets', scope: 'all' } });
   return m;
 }
 

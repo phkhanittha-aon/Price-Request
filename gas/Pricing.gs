@@ -54,6 +54,23 @@ function itemPricing_(it, winner) {
   return out;
 }
 
+/**
+ * Sales-side view of the price: selling price per unit + the offer terms Sales needs to quote the customer.
+ * Deliberately leaves out vendor name, vendor price, currency/FX, VAT, clearance, landed cost, GP and profit.
+ */
+function salesPricing_(it, winner) {
+  if (!winner) return null;
+  const p = itemPricing_(it, winner);
+  return {
+    sell_price_thb: p.sell_price_thb,
+    target_price: p.target_price,
+    target_diff_pct: p.target_diff_pct,
+    brand: winner.brand || '', origin_country: winner.origin_country || '', packing: winner.packing || '',
+    shelf_life: winner.shelf_life || '', moq: winner.moq, lead_time_days: winner.lead_time_days,
+    valid_until: winner.valid_until || ''
+  };
+}
+
 function normQuote_(r) {
   return {
     quote_id: String(r.quote_id),

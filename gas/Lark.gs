@@ -9,6 +9,8 @@
  *        LARK_APP_ID, LARK_APP_SECRET
  *        LARK_HOST           (optional, default https://open.larksuite.com — Feishu: https://open.feishu.cn)
  *        LARK_GROUP_CHAT_ID  (optional, oc_xxx — group that receives SLA breach summaries; add the bot to it)
+ *        LARK_PRICE_GROUP_CHAT_ID (optional, oc_xxx — group told "ทำราคาเสร็จแล้ว" with the selling price when GM
+ *                             approves; blank = use LARK_GROUP_CHAT_ID; add the bot to the group)
  *   4. Run testLarkConnection() then installTriggers().
  *
  * Rules: a Lark failure never blocks or rolls back a business action. Rows stay in the
@@ -25,7 +27,8 @@ function larkConfig_() {
     app_id: p.getProperty(CFG.PROP.LARK_APP_ID) || '',
     app_secret: p.getProperty(CFG.PROP.LARK_APP_SECRET) || '',
     host: p.getProperty(CFG.PROP.LARK_HOST) || 'https://open.larksuite.com',
-    group_chat_id: p.getProperty(CFG.PROP.LARK_GROUP_CHAT_ID) || ''
+    group_chat_id: p.getProperty(CFG.PROP.LARK_GROUP_CHAT_ID) || '',
+    price_group_chat_id: p.getProperty(CFG.PROP.LARK_PRICE_GROUP_CHAT_ID) || p.getProperty(CFG.PROP.LARK_GROUP_CHAT_ID) || ''
   };
 }
 
@@ -99,7 +102,7 @@ function larkCard_(n) {
   const link = String(n.link || '');
   const card = {
     config: { wide_screen_mode: true },
-    header: { template: String(n.type).indexOf('sla_breach') === 0 ? 'red' : 'blue', title: { tag: 'plain_text', content: String(n.title).slice(0, 150) } },
+    header: { template: String(n.type).indexOf('sla_breach') === 0 ? 'red' : (n.type === 'price_done_group' ? 'green' : 'blue'), title: { tag: 'plain_text', content: String(n.title).slice(0, 150) } },
     elements: [{ tag: 'div', text: { tag: 'lark_md', content: String(n.body || '').slice(0, 1500) } }]
   };
   if (/^https:\/\//.test(link)) {
@@ -139,11 +142,24 @@ function dispatchNotifications() {
   const results = {};
   let ids = {};
   try {
-    ids = larkOpenIds_(batch.map(function (b) { return b.email; }).filter(function (e, i, a) { return a.indexOf(e) === i; }));
+    ids = larkOpenIds_(batch.map(function (b) { return b.email; }).filter(function (e, i, a) { return e.charAt(0) !== '#' && a.indexOf(e) === i; }));
   } catch (e) {
     batch.forEach(function (b) { results[b.notif_id] = { status: 'pending', error: String(e.message).slice(0, 300) }; });
   }
   batch.forEach(function (b) {
+    if (b.email === PRICE_GROUP_KEY_) {           // group message: does not need the open_id lookup
+      const chatId = larkConfig_().price_group_chat_id;
+      if (!chatId) { results[b.notif_id] = { status: 'no_group', error: 'ยังไม่ได้ตั้ง LARK_PRICE_GROUP_CHAT_ID' }; return; }
+      try {
+        larkCall_('/open-apis/im/v1/messages?receive_id_type=chat_id', {
+          receive_id: chatId, msg_type: 'interactive', content: JSON.stringify(larkCard_(b)), uuid: b.notif_id.slice(0, 50)
+        });
+        results[b.notif_id] = { status: 'sent', error: '' };
+      } catch (e) {
+        results[b.notif_id] = { status: b.attempts >= LARK_MAX_ATTEMPTS_ ? 'failed' : 'pending', error: String(e.message).slice(0, 300) };
+      }
+      return;
+    }
     if (results[b.notif_id]) return;
     if (!ids[b.email]) { results[b.notif_id] = { status: 'no_lark_user', error: 'ไม่พบผู้ใช้ Lark จากอีเมลนี้' }; return; }
     try {

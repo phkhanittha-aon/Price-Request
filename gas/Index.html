@@ -31,10 +31,18 @@
     a { color: var(--brand); }
     button, input, select, textarea { font: inherit; color: inherit; }
 
-    /* ===== 2. Layout ===== */
-    .topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; display: flex; align-items: center; gap: 12px; padding: 8px 16px;
-      background: var(--brand); color: #fff; box-shadow: var(--shadow); }
-    .brand { font-weight: 700; font-size: 1.05rem; white-space: nowrap; cursor: pointer; }
+    /* ===== 2. Layout — ERP shell: top bar + content + module menu on the RIGHT ===== */
+    :root { --topbar-h: 60px; --side-w: 252px; --side-mini: 68px;
+      --side-bg: #0E2A33; --side-ink: #D5E4E8; --side-muted: #8FA9B0; --side-hover: rgba(255,255,255,.07); --side-active: rgba(92,195,223,.16); --side-accent: #5CC3DF; }
+    .topbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 12px; min-height: var(--topbar-h); padding: 8px 16px;
+      padding-top: calc(8px + env(safe-area-inset-top, 0px)); background: var(--brand-dark); color: #fff; box-shadow: 0 2px 6px rgba(16,38,46,.18); }
+    .brand { display: flex; align-items: center; gap: 10px; white-space: nowrap; cursor: pointer; }
+    .brand .logo { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; background: #fff; color: var(--brand-dark); font-weight: 700; font-size: .85rem; letter-spacing: .02em; }
+    .brand .name { display: flex; flex-direction: column; line-height: 1.15; }
+    .brand .name b { font-size: 1rem; } .brand .name small { font-size: .74rem; opacity: .8; font-weight: 400; }
+    .crumb { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 14px; margin-left: 2px; border-left: 1px solid rgba(255,255,255,.25);
+      font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .crumb .mod { opacity: .75; } .crumb .cur { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
     .topbar .spacer { flex: 1; }
     .who { text-align: right; font-size: .85rem; line-height: 1.2; }
     .who small { opacity: .85; }
@@ -43,15 +51,57 @@
     .icon-btn:focus-visible { outline: 3px solid #fff; }
     .dot { position: absolute; top: 4px; right: 4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
       background: var(--danger); color: #fff; font-size: .72rem; font-weight: 700; line-height: 20px; }
-    nav.menu { display: flex; gap: 6px; padding: 8px 16px; overflow-x: auto; background: var(--card); border-bottom: 1px solid var(--line); }
-    nav.menu button { min-height: 40px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; background: #fff;
-      white-space: nowrap; cursor: pointer; }
-    nav.menu button.active { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-dark); font-weight: 600; }
-    nav.menu button.primary { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
-    nav.menu .count { display: inline-block; margin-left: 6px; min-width: 22px; padding: 0 6px; border-radius: 11px;
-      background: var(--danger); color: #fff; font-size: .75rem; font-weight: 700; text-align: center; }
-    main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    #side-toggle { display: none; }
+
+    .shell { display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w); min-height: calc(100vh - var(--topbar-h)); transition: grid-template-columns .18s; }
+    .shell.mini { grid-template-columns: minmax(0, 1fr) var(--side-mini); }
+    .content { min-width: 0; display: flex; flex-direction: column; }
+    main { width: 100%; max-width: 1200px; margin: 0 auto; padding: 16px; flex: 1; }
     footer { padding: 16px; text-align: center; color: var(--muted); font-size: .8rem; }
+
+    .side { position: sticky; top: var(--topbar-h); height: calc(100vh - var(--topbar-h)); display: flex; flex-direction: column;
+      background: var(--side-bg); color: var(--side-ink); border-left: 1px solid #0A2027; overflow: hidden; }
+    .side-head { display: flex; align-items: center; gap: 8px; padding: 14px 14px 8px; }
+    .side-head .ttl { flex: 1; font-size: .78rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--side-muted); }
+    .side-btn { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 8px; background: var(--side-hover); color: var(--side-ink); cursor: pointer; font-size: 1rem; }
+    .side-btn:focus-visible { outline: 2px solid var(--side-accent); }
+    .side-btn[hidden] { display: none; }
+    nav.menu { flex: 1; overflow-y: auto; padding: 4px 10px 16px; }
+    nav.menu .grp { margin: 14px 8px 6px; font-size: .74rem; font-weight: 600; color: var(--side-muted); letter-spacing: .04em; }
+    nav.menu .grp:first-child { margin-top: 4px; }
+    nav.menu button { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--tap); padding: 8px 12px; margin: 2px 0;
+      border: 0; border-radius: 10px; background: transparent; color: var(--side-ink); text-align: left; cursor: pointer; }
+    nav.menu button:hover { background: var(--side-hover); }
+    nav.menu button:focus-visible { outline: 2px solid var(--side-accent); outline-offset: -2px; }
+    nav.menu button.active { background: var(--side-active); color: #fff; font-weight: 600; }
+    nav.menu button.active::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 4px; border-radius: 0 4px 4px 0; background: var(--side-accent); }
+    nav.menu button.primary { background: var(--brand); color: #fff; font-weight: 600; margin: 4px 0 6px; }
+    nav.menu button.primary:hover { background: #12809f; }
+    nav.menu .ico { flex: none; width: 24px; text-align: center; font-size: 1.1rem; }
+    nav.menu .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    nav.menu .count { flex: none; min-width: 22px; padding: 0 6px; border-radius: 11px; background: var(--danger); color: #fff; font-size: .75rem; font-weight: 700; text-align: center; line-height: 20px; }
+    .side-foot { padding: 10px 16px 14px; border-top: 1px solid rgba(255,255,255,.08); font-size: .74rem; color: var(--side-muted); }
+    .shell.mini .side-head .ttl, .shell.mini nav.menu .lbl, .shell.mini nav.menu .grp, .shell.mini .side-foot { display: none; }
+    .shell.mini .side-head { justify-content: center; padding: 14px 0 8px; }
+    .shell.mini nav.menu { padding: 4px 8px 16px; }
+    .shell.mini nav.menu button { justify-content: center; padding: 8px 0; }
+    .shell.mini nav.menu .count { position: absolute; top: 2px; right: 2px; min-width: 18px; line-height: 18px; font-size: .68rem; }
+    .side-ov { display: none; }
+
+    @media (max-width: 900px) {
+      #side-toggle { display: inline-block; }
+      #side-mini { display: none; }
+      .crumb { display: none; }
+      .shell, .shell.mini { grid-template-columns: minmax(0, 1fr); }
+      .side { position: fixed; top: 0; right: 0; z-index: 40; width: min(300px, 86vw); height: 100%; padding-top: env(safe-area-inset-top, 0px);
+        transform: translateX(100%); transition: transform .2s ease-out; box-shadow: -8px 0 24px rgba(0,0,0,.25); }
+      .side.open { transform: none; }
+      .shell.mini .side-head .ttl, .shell.mini nav.menu .lbl, .shell.mini nav.menu .grp, .shell.mini .side-foot { display: revert; }
+      .shell.mini nav.menu button { justify-content: flex-start; padding: 8px 12px; }
+      .side-ov.open { display: block; position: fixed; inset: 0; z-index: 35; background: rgba(8,20,24,.45); }
+    }
+    @media (max-width: 560px) { .brand .name small { display: none; } .who { display: none; } }
+    @media (prefers-reduced-motion: reduce) { .shell, .side { transition: none; } }
 
     /* ===== 3. Components ===== */
     .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; margin-bottom: 16px; }
@@ -246,6 +296,10 @@
     .costtbl tr.ref td { color: var(--muted); border-bottom: 0; }
     .costtbl input.gp { display: inline-block; width: 84px; min-height: 36px; padding: 4px 8px; margin: 0 4px; text-align: right; }
     .costtbl input.gp.invalid { border-color: var(--danger); }
+    .sales-sell .sell-price { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+    .sales-sell .sell-price .lbl { color: var(--muted); font-weight: 500; }
+    .sales-sell .sell-price b { font-size: 1.5rem; color: var(--brand); font-variant-numeric: tabular-nums; }
+    .sales-sell .sell-price .u { color: var(--muted); }
     .sumtbl td.num, .sumtbl th.num { white-space: nowrap; }
     @media (max-width: 480px) { .costtbl td { padding: 6px 4px; } .costtbl td.u { font-size: .75rem; } }
     .food { border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 4px; }
@@ -266,14 +320,30 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand" id="brand" role="link" tabindex="0">MGS Price Request</div>
+    <div class="brand" id="brand" role="link" tabindex="0" aria-label="ไปหน้า Dashboard">
+      <span class="logo" aria-hidden="true">MGS</span>
+      <span class="name"><b>MGS ERP</b><small>Price Request &amp; Sourcing</small></span>
+    </div>
+    <div class="crumb" id="crumb" aria-live="polite"></div>
     <div class="spacer"></div>
     <div class="who" id="who"></div>
     <button class="icon-btn" id="bell" aria-label="การแจ้งเตือน" title="การแจ้งเตือน">🔔<span class="dot" id="bell-dot" hidden>0</span></button>
+    <button class="icon-btn" id="side-toggle" aria-label="เปิดเมนูโมดูล" aria-controls="side" aria-expanded="false">☰</button>
   </header>
-  <nav class="menu" id="nav" aria-label="เมนูหลัก"></nav>
-  <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-  <footer>MGS Price Request · เวอร์ชัน <span id="ver"><?= appVersion ?></span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+  <div class="shell" id="shell">
+    <div class="content">
+      <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
+      <footer>MGS Price Request · เวอร์ชัน <span id="ver"><?= appVersion ?></span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+    </div>
+    <aside class="side" id="side" aria-label="โมดูล">
+      <div class="side-head"><span class="ttl">โมดูล</span>
+        <button type="button" class="side-btn" id="side-mini" aria-label="ย่อ/ขยายเมนู" title="ย่อ/ขยายเมนู">⇥</button>
+        <button type="button" class="side-btn" id="side-close" aria-label="ปิดเมนู" hidden>✕</button></div>
+      <nav class="menu" id="nav" aria-label="เมนูหลัก"></nav>
+      <div class="side-foot">M Global Sourcing Ltd.</div>
+    </aside>
+  </div>
+  <div class="side-ov" id="side-ov"></div>
   <div id="modal-root"></div>
   <div id="toast-root" aria-live="polite"></div>
   <div id="tip" role="tooltip"></div>

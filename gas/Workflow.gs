@@ -420,10 +420,17 @@ function doTransition_(ticketId, action, comment, payload) {
   if (saved.stage === 'rejected' || saved.stage === 'closed') recipients.push(saved.requestor_email);
   const page = ['doc_check', 'sourcing'].indexOf(saved.stage) !== -1 ? 'pricing' : 'ticket';
   if (saved.stage === 'sourcing' && (action === 'srm_return' || action === 'gm_price_return')) recipients.push(saved.sr_email);
-  enqueueNotifications_(recipients, saved, notifyType,
-    '[' + saved.ticket_no + '] ' + STAGE_LABEL_TH[saved.stage],
-    ACTION_LABEL_TH[action] + ' โดย ' + u.full_name + ' — ' + saved.title + (note ? '\n' + note : ''),
-    ticketLink_(saved, page));
+  const nTitle = '[' + saved.ticket_no + '] ' + STAGE_LABEL_TH[saved.stage];
+  const nBody = ACTION_LABEL_TH[action] + ' โดย ' + u.full_name + ' — ' + saved.title;
+  if (PRICE_REVIEW_ACTIONS_.indexOf(action) !== -1) {
+    // reviewer comments may discuss cost / GP → only cost roles get them; Sales side gets the status line
+    const isCost = function (e) { const x = userByEmail_(e); return !!x && COST_ROLES_.indexOf(x.role) !== -1; };
+    enqueueNotifications_(recipients.filter(isCost), saved, notifyType, nTitle, nBody + (note ? '\n' + note : ''), ticketLink_(saved, page));
+    enqueueNotifications_(recipients.filter(function (e) { return !isCost(e); }), saved, notifyType, nTitle, nBody, ticketLink_(saved, page));
+  } else {
+    enqueueNotifications_(recipients, saved, notifyType, nTitle, nBody + (note ? '\n' + note : ''), ticketLink_(saved, page));
+  }
+  if (action === 'gm_price_approve') enqueuePriceDoneGroup_(saved);
 
   return { ticket: publicTicket_(saved) };
 }
@@ -480,11 +487,25 @@ function getTicket(ticketId) {
 function ticketDetail_(u, t) {
   {
     const showQuotes = canViewQuotes_(u, t);
+    const showSell = canViewSellPrice_(u, t);
     const items = activeItemsOf_(t.ticket_id).map(function (it) {
       const out = Object.assign({}, it);
       out.product_group_name = groupName_(it.product_group_code);
-      out.quotations = showQuotes ? compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id)) : [];
-      out.pricing = showQuotes ? itemPricing_(it, out.quotations.filter(function (q) { return q.is_selected; })[0]) : null;
+      if (showQuotes) {
+        out.quotations = compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id));
+        out.pricing = itemPricing_(it, out.quotations.filter(function (q) { return q.is_selected; })[0]);
+      } else {
+        // Sales side: no cost data leaves the server — selling price only, and only after GM approval
+        delete out.gp_percent;
+        out.quotations = [];
+        out.pricing = null;
+        out.sell_price_thb = null;
+        if (showSell) {
+          const win = compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id)).filter(function (q) { return q.is_selected; })[0];
+          out.sales_pricing = salesPricing_(it, win);
+          out.sell_price_thb = out.sales_pricing ? out.sales_pricing.sell_price_thb : null;
+        }
+      }
       return out;
     });
     const attachments = findAll_(TAB.ATTACHMENTS, 'ticket_id', t.ticket_id)
@@ -503,13 +524,14 @@ function ticketDetail_(u, t) {
       items: items,
       checklist: checklistOf_(t.ticket_id),
       attachments: attachments,
-      timeline: timelineOf_(t.ticket_id),
+      timeline: showQuotes ? timelineOf_(t.ticket_id) : salesTimeline_(timelineOf_(t.ticket_id)),
       permissions: {
         can_edit_request: canEditRequest_(u, t),
         can_edit_quotes: canEditQuotes_(u, t),
         can_edit_checklist: canEditChecklist_(u, t),
         can_upload: canUpload_(u, t),
         can_view_quotes: showQuotes,
+        can_view_sell_price: showSell,
         actions: allowedActions_(u, t)
       },
       me: { email: u.email, full_name: u.full_name, role: u.role },
@@ -667,6 +689,29 @@ function timelineOf_(ticketId) {
         metadata: parseJson_(l.metadata_json, {}), stage_duration_sec: l.stage_duration_sec === '' ? null : Number(l.stage_duration_sec)
       };
     });
+}
+
+/** Log actions that are pure cost work (vendor prices, GP) — never shown to the Sales side. */
+const COST_LOG_ACTIONS_ = ['quotation_added', 'quotation_updated', 'quotation_deleted', 'quotation_selected', 'pricing_updated'];
+/** Internal price review steps: shown to Sales as a status line only (no metadata, no reviewer comment). */
+const PRICE_REVIEW_ACTIONS_ = ['submit_quote', 'srm_approve', 'srm_return', 'gm_price_approve', 'gm_price_return'];
+
+/** Timeline as the Sales side may see it: cost logs removed, price-review details stripped. */
+function salesTimeline_(timeline) {
+  return timeline.filter(function (l) {
+    if (COST_LOG_ACTIONS_.indexOf(l.action) !== -1) return false;
+    if (l.metadata && l.metadata.category === 'quotation') return false;
+    return true;
+  }).map(function (l) {
+    if (PRICE_REVIEW_ACTIONS_.indexOf(l.action) !== -1) {
+      l.metadata = {};
+      l.comment = '';
+    } else if (l.metadata) {
+      delete l.metadata.winners;
+      delete l.metadata.grand_total_cost_thb;
+    }
+    return l;
+  });
 }
 
 /**

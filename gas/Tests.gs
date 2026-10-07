@@ -275,7 +275,9 @@ function runCases_(results) {
     expectErr(saveQ({ quote_id: qA.quote_id, item_id: items[0].item_id, vendor_name: 'Vendor A', unit_price: 1, vat_term: 'ex_vat' }),
       'FORBIDDEN', 'SR cannot edit prices after submission');
     const salesView2 = as(U.salesFood3, function () { return must(getTicket(id)); });
-    ok(salesView2.items[0].quotations.length === 3 && salesView2.items[1].quotations.length === 1, 'Sales sees quotations after submission');
+    ok(salesView2.items.every(function (it) { return it.quotations.length === 0 && it.pricing === null; }) &&
+      salesView2.items.every(function (it) { return it.sales_pricing && it.sales_pricing.sell_price_thb > 0; }),
+      'After GM approval Sales sees the selling price only — never vendor quotations');
 
     expectErr(go(U.salesFood3, id, 'request_revision'), 'COMMENT_REQUIRED', 'Revision needs a comment');
     const rev = must(go(U.salesFood3, id, 'request_revision', 'ลูกค้าต่อราคา')).ticket;
@@ -703,9 +705,14 @@ function runPhase3Cases_(results) {
     expectErr(draft([{ item_id: items[0].item_id, quotes: [a] }]), 'FORBIDDEN', 'Draft locked after submission');
     approvePriceT_(U, id);
     const sales = as(U.salesFood2, function () { return must(getTicket(id)); });
-    const win = sales.items[0].quotations.filter(function (x) { return x.is_selected; })[0];
-    ok(win.incoterm === 'CIF' && win.selection_reason === 'ลูกค้ากำหนด Origin เวียดนาม' && sales.items[0].quotations.length === 2,
-      'Sales sees food fields + reason after submission');
+    const sp0 = sales.items[0].sales_pricing;
+    ok(sales.items[0].quotations.length === 0 && sp0 && sp0.origin_country && sp0.shelf_life && sp0.incoterm === undefined &&
+      sp0.vendor_name === undefined && sp0.selection_reason === undefined,
+      'Sales sees offer terms (origin, shelf life) with the selling price — no vendor, incoterm or reason');
+    const srm = as(U.srManager, function () { return must(getTicket(id)); });
+    const win = srm.items[0].quotations.filter(function (x) { return x.is_selected; })[0];
+    ok(win.incoterm === 'CIF' && win.selection_reason === 'ลูกค้ากำหนด Origin เวียดนาม' && srm.items[0].quotations.length === 2,
+      'SR Manager sees all vendor food fields + reason');
   });
 }
 
@@ -894,15 +901,44 @@ function runSellPriceCases_(results) {
     expectErr(draft({ quotes: [cif, local], winner_quote_id: local.quote_id, gp_percent: -5 }), 'VALIDATION', 'Negative GP rejected');
     expectErr(draft({ quotes: [Object.assign({}, cif, { clearance_thb: -1 }), local] }), 'VALIDATION', 'Negative clearance rejected');
 
-    ok(as(U.salesFood2, function () { return must(getTicket(id)); }).items[0].pricing === null, 'Sales cannot see cost / GP before approval');
+    ok(as(U.salesFood2, function () { return must(getTicket(id)); }).items[0].pricing === null &&
+      !as(U.salesFood2, function () { return must(getTicket(id)); }).items[0].sales_pricing, 'Sales cannot see cost / GP / selling price before approval');
     must(go(U.sr1, id, 'submit_quote'));
     const saved = activeItemsOf_(id)[0];
     ok(saved.gp_percent === 20 && saved.sell_price_thb === 337.62, 'Submit stores GP % and selling price on the item');
     const log = findAll_(TAB.LOGS, 'ticket_id', id).filter(function (l) { return l.action === 'submit_quote'; }).pop();
     ok(parseJson_(log.metadata_json, {}).winners[0].sell_price_thb === 337.62, 'Submit log records the proposed selling price');
     approvePriceT_(U, id);
-    const sales = as(U.salesFood2, function () { return must(getTicket(id)); }).items[0].pricing;
-    ok(sales.sell_price_thb === 337.62 && sales.vendor_name === 'Andaman Seafood Co., Ltd.', 'Sales sees the selling price after GM approval');
+    const sd = as(U.salesFood2, function () { return must(getTicket(id)); });
+    const sit = sd.items[0];
+    ok(sit.sales_pricing.sell_price_thb === 337.62 && sit.sell_price_thb === 337.62 && sd.permissions.can_view_sell_price,
+      'Sales sees the selling price 337.62 after GM approval');
+    const leak = JSON.stringify(sit.sales_pricing) + JSON.stringify(sd.timeline) + JSON.stringify(sd.attachments);
+    ok(sit.pricing === null && sit.quotations.length === 0 && sit.gp_percent === undefined && !sd.permissions.can_view_quotes &&
+      !/Andaman|270\.09|274\.8|262\.8|gp_percent|clearance|landed|unit_price|winners/.test(leak),
+      'Sales detail carries no vendor, cost, clearance, landed cost or GP (items, timeline, files)');
+    ok(!sd.timeline.some(function (l) { return ['quotation_added', 'quotation_updated', 'pricing_updated'].indexOf(l.action) !== -1; }) &&
+      sd.timeline.some(function (l) { return l.action === 'gm_price_approve'; }), 'Sales timeline keeps the status steps, drops cost work');
+    const mgr = as(U.mgrFood, function () { return must(getTicket(id)); });
+    ok(mgr.items[0].pricing === null && mgr.items[0].quotations.length === 0 && mgr.items[0].sales_pricing.sell_price_thb === 337.62,
+      'Sales Manager also sees the selling price only');
+    const salesNotes = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return String(n.user_email) === U.salesFood2; });
+    ok(salesNotes.length > 0 && salesNotes.every(function (n) { return String(n.body).indexOf('\n') === -1; }),
+      'Sales notification carries no GM / SR Manager price comment');
+    const grp = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === PRICE_GROUP_KEY_; });
+    ok(grp.length === 1 && grp[0].type === 'price_done_group' && String(grp[0].body).indexOf('337.62') !== -1 &&
+      !/Andaman|270\.09|GP \d|\d%|ต้นทุน|เคลียร์/.test(String(grp[0].body)), 'GM approval queues ONE Lark group message: selling price only, no cost');
+    TEST_LARK_ = { app_id: 'a', app_secret: 'b', host: 'https://lark.test', group_chat_id: '', price_group_chat_id: 'oc_price' };
+    const fh = fakeHttp_();
+    TEST_HTTP_ = fh;
+    for (let n = 0; n < 30; n++) {   // dispatcher sends LARK_BATCH_ per run; drain the whole test queue
+      if (!withIdentity_(U.admin, function () { return dispatchNotifications(); }).claimed) break;
+    }
+    const sentTo = fh.calls.filter(function (c) { return c.url.indexOf('/im/v1/messages') !== -1; })
+      .map(function (c) { return c.url + ' ' + c.payload.receive_id; });
+    TEST_LARK_ = null; TEST_HTTP_ = null;
+    ok(sentTo.some(function (x) { return /receive_id_type=chat_id oc_price$/.test(x); }) &&
+      String(findOne_(TAB.NOTIFICATIONS, 'notif_id', grp[0].notif_id).lark_status) === 'sent', 'Group message delivered to the price group chat');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: SELL_PRICE — ' + e.message + '\n' + e.stack);
   }

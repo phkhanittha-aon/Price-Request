@@ -88,3 +88,40 @@ function ticketLink_(t, page) {
   }
   return base + '?page=' + (page || 'ticket') + '&id=' + encodeURIComponent(t.ticket_id);
 }
+
+/** Pseudo-recipient for the Lark group that is told when a price is finished (GM approved). */
+const PRICE_GROUP_KEY_ = '#price_group';
+
+/**
+ * Queue one Lark group message: "price finished" with the SELLING price per unit only
+ * (the group includes Sales — no vendor, cost, clearance or GP). Sent by dispatchNotifications().
+ */
+function enqueuePriceDoneGroup_(t) {
+  const items = activeItemsOf_(t.ticket_id);
+  const lines = items.map(function (it) {
+    const win = compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id)).filter(function (q) { return q.is_selected; })[0];
+    const sp = salesPricing_(it, win);
+    const spec = [it.size, it.packing_size].filter(Boolean).join(' · ');
+    return '**#' + it.line_no + ' ' + it.product_name + '**' + (spec ? ' (' + spec + ')' : '') + '\n' +
+      'ราคาขาย **' + (sp ? money2_(sp.sell_price_thb) : '-') + ' บาท/' + it.uom + '**' +
+      (sp && sp.valid_until ? ' · ยืนราคาถึง ' + sp.valid_until : '');
+  });
+  const req = userByEmail_(t.requestor_email);
+  const sr = userByEmail_(t.sr_email);
+  insertRows_(TAB.NOTIFICATIONS, [{
+    notif_id: uuid_(), user_email: PRICE_GROUP_KEY_, ticket_id: t.ticket_id, type: 'price_done_group',
+    title: '✅ [' + t.ticket_no + '] ทำราคาเสร็จแล้ว — ' + (t.customer_name || t.title),
+    body: 'ลูกค้า: ' + (t.customer_name || '-') + ' · Sales: ' + (req ? req.full_name : t.requestor_email) +
+      ' · SR: ' + (sr ? sr.full_name : (t.sr_email || '-')) + '\n\n' + lines.join('\n'),
+    link: ticketLink_(t, 'ticket'), is_read: false, read_at: '', created_at: new Date(),
+    lark_status: 'pending', lark_attempts: 0, lark_error: '', lark_sent_at: ''
+  }]);
+}
+
+/** 1234.5 → "1,234.50" (Lark message text). */
+function money2_(n) {
+  const v = Number(n);
+  if (!isFinite(v)) return '-';
+  const parts = v.toFixed(2).split('.');
+  return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + parts[1];
+}

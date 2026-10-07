@@ -26,10 +26,18 @@
     a { color: var(--brand); }
     button, input, select, textarea { font: inherit; color: inherit; }
 
-    /* ===== 2. Layout ===== */
-    .topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; display: flex; align-items: center; gap: 12px; padding: 8px 16px;
-      background: var(--brand); color: #fff; box-shadow: var(--shadow); }
-    .brand { font-weight: 700; font-size: 1.05rem; white-space: nowrap; cursor: pointer; }
+    /* ===== 2. Layout — ERP shell: top bar + content + module menu on the RIGHT ===== */
+    :root { --topbar-h: 60px; --side-w: 252px; --side-mini: 68px;
+      --side-bg: #0E2A33; --side-ink: #D5E4E8; --side-muted: #8FA9B0; --side-hover: rgba(255,255,255,.07); --side-active: rgba(92,195,223,.16); --side-accent: #5CC3DF; }
+    .topbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 12px; min-height: var(--topbar-h); padding: 8px 16px;
+      padding-top: calc(8px + env(safe-area-inset-top, 0px)); background: var(--brand-dark); color: #fff; box-shadow: 0 2px 6px rgba(16,38,46,.18); }
+    .brand { display: flex; align-items: center; gap: 10px; white-space: nowrap; cursor: pointer; }
+    .brand .logo { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; background: #fff; color: var(--brand-dark); font-weight: 700; font-size: .85rem; letter-spacing: .02em; }
+    .brand .name { display: flex; flex-direction: column; line-height: 1.15; }
+    .brand .name b { font-size: 1rem; } .brand .name small { font-size: .74rem; opacity: .8; font-weight: 400; }
+    .crumb { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 14px; margin-left: 2px; border-left: 1px solid rgba(255,255,255,.25);
+      font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .crumb .mod { opacity: .75; } .crumb .cur { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
     .topbar .spacer { flex: 1; }
     .who { text-align: right; font-size: .85rem; line-height: 1.2; }
     .who small { opacity: .85; }
@@ -38,15 +46,57 @@
     .icon-btn:focus-visible { outline: 3px solid #fff; }
     .dot { position: absolute; top: 4px; right: 4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
       background: var(--danger); color: #fff; font-size: .72rem; font-weight: 700; line-height: 20px; }
-    nav.menu { display: flex; gap: 6px; padding: 8px 16px; overflow-x: auto; background: var(--card); border-bottom: 1px solid var(--line); }
-    nav.menu button { min-height: 40px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; background: #fff;
-      white-space: nowrap; cursor: pointer; }
-    nav.menu button.active { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-dark); font-weight: 600; }
-    nav.menu button.primary { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
-    nav.menu .count { display: inline-block; margin-left: 6px; min-width: 22px; padding: 0 6px; border-radius: 11px;
-      background: var(--danger); color: #fff; font-size: .75rem; font-weight: 700; text-align: center; }
-    main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    #side-toggle { display: none; }
+
+    .shell { display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w); min-height: calc(100vh - var(--topbar-h)); transition: grid-template-columns .18s; }
+    .shell.mini { grid-template-columns: minmax(0, 1fr) var(--side-mini); }
+    .content { min-width: 0; display: flex; flex-direction: column; }
+    main { width: 100%; max-width: 1200px; margin: 0 auto; padding: 16px; flex: 1; }
     footer { padding: 16px; text-align: center; color: var(--muted); font-size: .8rem; }
+
+    .side { position: sticky; top: var(--topbar-h); height: calc(100vh - var(--topbar-h)); display: flex; flex-direction: column;
+      background: var(--side-bg); color: var(--side-ink); border-left: 1px solid #0A2027; overflow: hidden; }
+    .side-head { display: flex; align-items: center; gap: 8px; padding: 14px 14px 8px; }
+    .side-head .ttl { flex: 1; font-size: .78rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--side-muted); }
+    .side-btn { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 8px; background: var(--side-hover); color: var(--side-ink); cursor: pointer; font-size: 1rem; }
+    .side-btn:focus-visible { outline: 2px solid var(--side-accent); }
+    .side-btn[hidden] { display: none; }
+    nav.menu { flex: 1; overflow-y: auto; padding: 4px 10px 16px; }
+    nav.menu .grp { margin: 14px 8px 6px; font-size: .74rem; font-weight: 600; color: var(--side-muted); letter-spacing: .04em; }
+    nav.menu .grp:first-child { margin-top: 4px; }
+    nav.menu button { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--tap); padding: 8px 12px; margin: 2px 0;
+      border: 0; border-radius: 10px; background: transparent; color: var(--side-ink); text-align: left; cursor: pointer; }
+    nav.menu button:hover { background: var(--side-hover); }
+    nav.menu button:focus-visible { outline: 2px solid var(--side-accent); outline-offset: -2px; }
+    nav.menu button.active { background: var(--side-active); color: #fff; font-weight: 600; }
+    nav.menu button.active::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 4px; border-radius: 0 4px 4px 0; background: var(--side-accent); }
+    nav.menu button.primary { background: var(--brand); color: #fff; font-weight: 600; margin: 4px 0 6px; }
+    nav.menu button.primary:hover { background: #12809f; }
+    nav.menu .ico { flex: none; width: 24px; text-align: center; font-size: 1.1rem; }
+    nav.menu .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    nav.menu .count { flex: none; min-width: 22px; padding: 0 6px; border-radius: 11px; background: var(--danger); color: #fff; font-size: .75rem; font-weight: 700; text-align: center; line-height: 20px; }
+    .side-foot { padding: 10px 16px 14px; border-top: 1px solid rgba(255,255,255,.08); font-size: .74rem; color: var(--side-muted); }
+    .shell.mini .side-head .ttl, .shell.mini nav.menu .lbl, .shell.mini nav.menu .grp, .shell.mini .side-foot { display: none; }
+    .shell.mini .side-head { justify-content: center; padding: 14px 0 8px; }
+    .shell.mini nav.menu { padding: 4px 8px 16px; }
+    .shell.mini nav.menu button { justify-content: center; padding: 8px 0; }
+    .shell.mini nav.menu .count { position: absolute; top: 2px; right: 2px; min-width: 18px; line-height: 18px; font-size: .68rem; }
+    .side-ov { display: none; }
+
+    @media (max-width: 900px) {
+      #side-toggle { display: inline-block; }
+      #side-mini { display: none; }
+      .crumb { display: none; }
+      .shell, .shell.mini { grid-template-columns: minmax(0, 1fr); }
+      .side { position: fixed; top: 0; right: 0; z-index: 40; width: min(300px, 86vw); height: 100%; padding-top: env(safe-area-inset-top, 0px);
+        transform: translateX(100%); transition: transform .2s ease-out; box-shadow: -8px 0 24px rgba(0,0,0,.25); }
+      .side.open { transform: none; }
+      .shell.mini .side-head .ttl, .shell.mini nav.menu .lbl, .shell.mini nav.menu .grp, .shell.mini .side-foot { display: revert; }
+      .shell.mini nav.menu button { justify-content: flex-start; padding: 8px 12px; }
+      .side-ov.open { display: block; position: fixed; inset: 0; z-index: 35; background: rgba(8,20,24,.45); }
+    }
+    @media (max-width: 560px) { .brand .name small { display: none; } .who { display: none; } }
+    @media (prefers-reduced-motion: reduce) { .shell, .side { transition: none; } }
 
     /* ===== 3. Components ===== */
     .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; margin-bottom: 16px; }
@@ -241,6 +291,10 @@
     .costtbl tr.ref td { color: var(--muted); border-bottom: 0; }
     .costtbl input.gp { display: inline-block; width: 84px; min-height: 36px; padding: 4px 8px; margin: 0 4px; text-align: right; }
     .costtbl input.gp.invalid { border-color: var(--danger); }
+    .sales-sell .sell-price { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+    .sales-sell .sell-price .lbl { color: var(--muted); font-weight: 500; }
+    .sales-sell .sell-price b { font-size: 1.5rem; color: var(--brand); font-variant-numeric: tabular-nums; }
+    .sales-sell .sell-price .u { color: var(--muted); }
     .sumtbl td.num, .sumtbl th.num { white-space: nowrap; }
     @media (max-width: 480px) { .costtbl td { padding: 6px 4px; } .costtbl td.u { font-size: .75rem; } }
     .food { border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 4px; }
@@ -482,7 +536,7 @@ var HtmlService = {};
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.07-2';
+const APP_VERSION = '2026.10.07-3';
 
 const CFG = {
   APP_NAME: 'MGS Price Request',
@@ -500,6 +554,7 @@ const CFG = {
     LARK_APP_SECRET: 'LARK_APP_SECRET',
     LARK_HOST: 'LARK_HOST',
     LARK_GROUP_CHAT_ID: 'LARK_GROUP_CHAT_ID',
+    LARK_PRICE_GROUP_CHAT_ID: 'LARK_PRICE_GROUP_CHAT_ID',
     WEBAPP_URL: 'WEBAPP_URL'
   }
 };
@@ -1368,10 +1423,21 @@ function canSeeTicket_(u, t) {
   }
 }
 
-/** Vendor prices: SR / GM / Admin always; Sales & Manager only after SR submitted. */
+/** Roles that may see cost: vendor prices, clearance, landed cost, GP and quotation files. */
+const COST_ROLES_ = ['admin', 'gm', 'sr', 'sr_manager'];
+
+/**
+ * Cost view (vendor quotations, clearance, landed cost, GP, profit, quotation files).
+ * Sales side (Sales, Sales Manager) NEVER sees cost — only the selling price, see canViewSellPrice_.
+ */
 function canViewQuotes_(u, t) {
+  return canSeeTicket_(u, t) && COST_ROLES_.indexOf(u.role) !== -1;
+}
+
+/** Selling price per unit: cost roles always; Sales side once GM approved the price (completed / closed). */
+function canViewSellPrice_(u, t) {
   if (!canSeeTicket_(u, t)) return false;
-  if (['admin', 'gm', 'sr', 'sr_manager'].indexOf(u.role) !== -1) return true;
+  if (canViewQuotes_(u, t)) return true;
   return t.status === 'completed' || t.status === 'closed';
 }
 
@@ -1489,6 +1555,23 @@ function itemPricing_(it, winner) {
     target_diff_pct: it.target_price ? round_((sell - it.target_price) / it.target_price * 100, 1) : null
   };
   return out;
+}
+
+/**
+ * Sales-side view of the price: selling price per unit + the offer terms Sales needs to quote the customer.
+ * Deliberately leaves out vendor name, vendor price, currency/FX, VAT, clearance, landed cost, GP and profit.
+ */
+function salesPricing_(it, winner) {
+  if (!winner) return null;
+  const p = itemPricing_(it, winner);
+  return {
+    sell_price_thb: p.sell_price_thb,
+    target_price: p.target_price,
+    target_diff_pct: p.target_diff_pct,
+    brand: winner.brand || '', origin_country: winner.origin_country || '', packing: winner.packing || '',
+    shelf_life: winner.shelf_life || '', moq: winner.moq, lead_time_days: winner.lead_time_days,
+    valid_until: winner.valid_until || ''
+  };
 }
 
 function normQuote_(r) {
@@ -1648,6 +1731,43 @@ function ticketLink_(t, page) {
     try { base = ScriptApp.getService().getUrl() || ''; } catch (e) { base = ''; }
   }
   return base + '?page=' + (page || 'ticket') + '&id=' + encodeURIComponent(t.ticket_id);
+}
+
+/** Pseudo-recipient for the Lark group that is told when a price is finished (GM approved). */
+const PRICE_GROUP_KEY_ = '#price_group';
+
+/**
+ * Queue one Lark group message: "price finished" with the SELLING price per unit only
+ * (the group includes Sales — no vendor, cost, clearance or GP). Sent by dispatchNotifications().
+ */
+function enqueuePriceDoneGroup_(t) {
+  const items = activeItemsOf_(t.ticket_id);
+  const lines = items.map(function (it) {
+    const win = compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id)).filter(function (q) { return q.is_selected; })[0];
+    const sp = salesPricing_(it, win);
+    const spec = [it.size, it.packing_size].filter(Boolean).join(' · ');
+    return '**#' + it.line_no + ' ' + it.product_name + '**' + (spec ? ' (' + spec + ')' : '') + '\n' +
+      'ราคาขาย **' + (sp ? money2_(sp.sell_price_thb) : '-') + ' บาท/' + it.uom + '**' +
+      (sp && sp.valid_until ? ' · ยืนราคาถึง ' + sp.valid_until : '');
+  });
+  const req = userByEmail_(t.requestor_email);
+  const sr = userByEmail_(t.sr_email);
+  insertRows_(TAB.NOTIFICATIONS, [{
+    notif_id: uuid_(), user_email: PRICE_GROUP_KEY_, ticket_id: t.ticket_id, type: 'price_done_group',
+    title: '✅ [' + t.ticket_no + '] ทำราคาเสร็จแล้ว — ' + (t.customer_name || t.title),
+    body: 'ลูกค้า: ' + (t.customer_name || '-') + ' · Sales: ' + (req ? req.full_name : t.requestor_email) +
+      ' · SR: ' + (sr ? sr.full_name : (t.sr_email || '-')) + '\n\n' + lines.join('\n'),
+    link: ticketLink_(t, 'ticket'), is_read: false, read_at: '', created_at: new Date(),
+    lark_status: 'pending', lark_attempts: 0, lark_error: '', lark_sent_at: ''
+  }]);
+}
+
+/** 1234.5 → "1,234.50" (Lark message text). */
+function money2_(n) {
+  const v = Number(n);
+  if (!isFinite(v)) return '-';
+  const parts = v.toFixed(2).split('.');
+  return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + parts[1];
 }
 
 // ==== Workflow.gs ====
@@ -2073,10 +2193,17 @@ function doTransition_(ticketId, action, comment, payload) {
   if (saved.stage === 'rejected' || saved.stage === 'closed') recipients.push(saved.requestor_email);
   const page = ['doc_check', 'sourcing'].indexOf(saved.stage) !== -1 ? 'pricing' : 'ticket';
   if (saved.stage === 'sourcing' && (action === 'srm_return' || action === 'gm_price_return')) recipients.push(saved.sr_email);
-  enqueueNotifications_(recipients, saved, notifyType,
-    '[' + saved.ticket_no + '] ' + STAGE_LABEL_TH[saved.stage],
-    ACTION_LABEL_TH[action] + ' โดย ' + u.full_name + ' — ' + saved.title + (note ? '\n' + note : ''),
-    ticketLink_(saved, page));
+  const nTitle = '[' + saved.ticket_no + '] ' + STAGE_LABEL_TH[saved.stage];
+  const nBody = ACTION_LABEL_TH[action] + ' โดย ' + u.full_name + ' — ' + saved.title;
+  if (PRICE_REVIEW_ACTIONS_.indexOf(action) !== -1) {
+    // reviewer comments may discuss cost / GP → only cost roles get them; Sales side gets the status line
+    const isCost = function (e) { const x = userByEmail_(e); return !!x && COST_ROLES_.indexOf(x.role) !== -1; };
+    enqueueNotifications_(recipients.filter(isCost), saved, notifyType, nTitle, nBody + (note ? '\n' + note : ''), ticketLink_(saved, page));
+    enqueueNotifications_(recipients.filter(function (e) { return !isCost(e); }), saved, notifyType, nTitle, nBody, ticketLink_(saved, page));
+  } else {
+    enqueueNotifications_(recipients, saved, notifyType, nTitle, nBody + (note ? '\n' + note : ''), ticketLink_(saved, page));
+  }
+  if (action === 'gm_price_approve') enqueuePriceDoneGroup_(saved);
 
   return { ticket: publicTicket_(saved) };
 }
@@ -2133,11 +2260,25 @@ function getTicket(ticketId) {
 function ticketDetail_(u, t) {
   {
     const showQuotes = canViewQuotes_(u, t);
+    const showSell = canViewSellPrice_(u, t);
     const items = activeItemsOf_(t.ticket_id).map(function (it) {
       const out = Object.assign({}, it);
       out.product_group_name = groupName_(it.product_group_code);
-      out.quotations = showQuotes ? compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id)) : [];
-      out.pricing = showQuotes ? itemPricing_(it, out.quotations.filter(function (q) { return q.is_selected; })[0]) : null;
+      if (showQuotes) {
+        out.quotations = compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id));
+        out.pricing = itemPricing_(it, out.quotations.filter(function (q) { return q.is_selected; })[0]);
+      } else {
+        // Sales side: no cost data leaves the server — selling price only, and only after GM approval
+        delete out.gp_percent;
+        out.quotations = [];
+        out.pricing = null;
+        out.sell_price_thb = null;
+        if (showSell) {
+          const win = compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id)).filter(function (q) { return q.is_selected; })[0];
+          out.sales_pricing = salesPricing_(it, win);
+          out.sell_price_thb = out.sales_pricing ? out.sales_pricing.sell_price_thb : null;
+        }
+      }
       return out;
     });
     const attachments = findAll_(TAB.ATTACHMENTS, 'ticket_id', t.ticket_id)
@@ -2156,13 +2297,14 @@ function ticketDetail_(u, t) {
       items: items,
       checklist: checklistOf_(t.ticket_id),
       attachments: attachments,
-      timeline: timelineOf_(t.ticket_id),
+      timeline: showQuotes ? timelineOf_(t.ticket_id) : salesTimeline_(timelineOf_(t.ticket_id)),
       permissions: {
         can_edit_request: canEditRequest_(u, t),
         can_edit_quotes: canEditQuotes_(u, t),
         can_edit_checklist: canEditChecklist_(u, t),
         can_upload: canUpload_(u, t),
         can_view_quotes: showQuotes,
+        can_view_sell_price: showSell,
         actions: allowedActions_(u, t)
       },
       me: { email: u.email, full_name: u.full_name, role: u.role },
@@ -2320,6 +2462,29 @@ function timelineOf_(ticketId) {
         metadata: parseJson_(l.metadata_json, {}), stage_duration_sec: l.stage_duration_sec === '' ? null : Number(l.stage_duration_sec)
       };
     });
+}
+
+/** Log actions that are pure cost work (vendor prices, GP) — never shown to the Sales side. */
+const COST_LOG_ACTIONS_ = ['quotation_added', 'quotation_updated', 'quotation_deleted', 'quotation_selected', 'pricing_updated'];
+/** Internal price review steps: shown to Sales as a status line only (no metadata, no reviewer comment). */
+const PRICE_REVIEW_ACTIONS_ = ['submit_quote', 'srm_approve', 'srm_return', 'gm_price_approve', 'gm_price_return'];
+
+/** Timeline as the Sales side may see it: cost logs removed, price-review details stripped. */
+function salesTimeline_(timeline) {
+  return timeline.filter(function (l) {
+    if (COST_LOG_ACTIONS_.indexOf(l.action) !== -1) return false;
+    if (l.metadata && l.metadata.category === 'quotation') return false;
+    return true;
+  }).map(function (l) {
+    if (PRICE_REVIEW_ACTIONS_.indexOf(l.action) !== -1) {
+      l.metadata = {};
+      l.comment = '';
+    } else if (l.metadata) {
+      delete l.metadata.winners;
+      delete l.metadata.grand_total_cost_thb;
+    }
+    return l;
+  });
 }
 
 /**
@@ -3394,6 +3559,8 @@ function ticketFolderId_(t) {
  *        LARK_APP_ID, LARK_APP_SECRET
  *        LARK_HOST           (optional, default https://open.larksuite.com — Feishu: https://open.feishu.cn)
  *        LARK_GROUP_CHAT_ID  (optional, oc_xxx — group that receives SLA breach summaries; add the bot to it)
+ *        LARK_PRICE_GROUP_CHAT_ID (optional, oc_xxx — group told "ทำราคาเสร็จแล้ว" with the selling price when GM
+ *                             approves; blank = use LARK_GROUP_CHAT_ID; add the bot to the group)
  *   4. Run testLarkConnection() then installTriggers().
  *
  * Rules: a Lark failure never blocks or rolls back a business action. Rows stay in the
@@ -3410,7 +3577,8 @@ function larkConfig_() {
     app_id: p.getProperty(CFG.PROP.LARK_APP_ID) || '',
     app_secret: p.getProperty(CFG.PROP.LARK_APP_SECRET) || '',
     host: p.getProperty(CFG.PROP.LARK_HOST) || 'https://open.larksuite.com',
-    group_chat_id: p.getProperty(CFG.PROP.LARK_GROUP_CHAT_ID) || ''
+    group_chat_id: p.getProperty(CFG.PROP.LARK_GROUP_CHAT_ID) || '',
+    price_group_chat_id: p.getProperty(CFG.PROP.LARK_PRICE_GROUP_CHAT_ID) || p.getProperty(CFG.PROP.LARK_GROUP_CHAT_ID) || ''
   };
 }
 
@@ -3484,7 +3652,7 @@ function larkCard_(n) {
   const link = String(n.link || '');
   const card = {
     config: { wide_screen_mode: true },
-    header: { template: String(n.type).indexOf('sla_breach') === 0 ? 'red' : 'blue', title: { tag: 'plain_text', content: String(n.title).slice(0, 150) } },
+    header: { template: String(n.type).indexOf('sla_breach') === 0 ? 'red' : (n.type === 'price_done_group' ? 'green' : 'blue'), title: { tag: 'plain_text', content: String(n.title).slice(0, 150) } },
     elements: [{ tag: 'div', text: { tag: 'lark_md', content: String(n.body || '').slice(0, 1500) } }]
   };
   if (/^https:\/\//.test(link)) {
@@ -3524,11 +3692,24 @@ function dispatchNotifications() {
   const results = {};
   let ids = {};
   try {
-    ids = larkOpenIds_(batch.map(function (b) { return b.email; }).filter(function (e, i, a) { return a.indexOf(e) === i; }));
+    ids = larkOpenIds_(batch.map(function (b) { return b.email; }).filter(function (e, i, a) { return e.charAt(0) !== '#' && a.indexOf(e) === i; }));
   } catch (e) {
     batch.forEach(function (b) { results[b.notif_id] = { status: 'pending', error: String(e.message).slice(0, 300) }; });
   }
   batch.forEach(function (b) {
+    if (b.email === PRICE_GROUP_KEY_) {           // group message: does not need the open_id lookup
+      const chatId = larkConfig_().price_group_chat_id;
+      if (!chatId) { results[b.notif_id] = { status: 'no_group', error: 'ยังไม่ได้ตั้ง LARK_PRICE_GROUP_CHAT_ID' }; return; }
+      try {
+        larkCall_('/open-apis/im/v1/messages?receive_id_type=chat_id', {
+          receive_id: chatId, msg_type: 'interactive', content: JSON.stringify(larkCard_(b)), uuid: b.notif_id.slice(0, 50)
+        });
+        results[b.notif_id] = { status: 'sent', error: '' };
+      } catch (e) {
+        results[b.notif_id] = { status: b.attempts >= LARK_MAX_ATTEMPTS_ ? 'failed' : 'pending', error: String(e.message).slice(0, 300) };
+      }
+      return;
+    }
     if (results[b.notif_id]) return;
     if (!ids[b.email]) { results[b.notif_id] = { status: 'no_lark_user', error: 'ไม่พบผู้ใช้ Lark จากอีเมลนี้' }; return; }
     try {
@@ -3807,18 +3988,23 @@ function getBootstrap() {
   });
 }
 
+/** ERP module menu (right-hand sidebar). Grouped by module; the browser renders `group` headings in order. */
 function menuFor_(u) {
-  const m = [{ key: 'dashboard', label: 'ภาพรวม', route: { page: 'dashboard' } }];
-  m.push({ key: 'inbox', label: 'งานรอฉัน', route: { page: 'tickets', scope: 'inbox' }, badge: 'inbox' });
+  const G_OVERVIEW = 'ภาพรวม';
+  const G_WORK = 'งานของฉัน';
+  const G_REQ = 'ใบขอราคา';
+  const G_SRC = 'จัดหาราคา (Sourcing)';
+  const m = [{ key: 'dashboard', group: G_OVERVIEW, icon: '📊', label: 'Dashboard', route: { page: 'dashboard' } }];
+  m.push({ key: 'inbox', group: G_WORK, icon: '📥', label: 'งานรอฉัน', route: { page: 'tickets', scope: 'inbox' }, badge: 'inbox' });
   if (u.role === 'sales') {
-    m.push({ key: 'mine', label: 'ใบขอราคาของฉัน', route: { page: 'tickets', scope: 'mine' } });
-    m.push({ key: 'new', label: '+ สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+    m.push({ key: 'new', group: G_REQ, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+    m.push({ key: 'mine', group: G_REQ, icon: '📄', label: 'ใบขอราคาของฉัน', route: { page: 'tickets', scope: 'mine' } });
   }
   if (u.role === 'sr' || u.role === 'sr_manager') {
-    m.push({ key: 'queue', label: 'คิวรอรับงาน', route: { page: 'tickets', scope: 'queue' } });
+    m.push({ key: 'queue', group: G_SRC, icon: '🧾', label: 'คิวรอรับงาน', route: { page: 'tickets', scope: 'queue' } });
   }
-  if (u.role === 'sr') m.push({ key: 'mine', label: 'งานของฉัน', route: { page: 'tickets', scope: 'mine' } });
-  if (u.role !== 'sales') m.push({ key: 'all', label: 'ใบขอราคาทั้งหมด', route: { page: 'tickets', scope: 'all' } });
+  if (u.role === 'sr') m.push({ key: 'mine', group: G_SRC, icon: '💼', label: 'งานของฉัน (SR)', route: { page: 'tickets', scope: 'mine' } });
+  if (u.role !== 'sales') m.push({ key: 'all', group: G_REQ, icon: '📚', label: 'ใบขอราคาทั้งหมด', route: { page: 'tickets', scope: 'all' } });
   return m;
 }
 
@@ -4383,14 +4569,30 @@ function fakeDrive_() {
   window.__protoStart = { page: 'new' };
 })();
 </script><header class="topbar">
-    <div class="brand" id="brand" role="link" tabindex="0">MGS Price Request</div>
+    <div class="brand" id="brand" role="link" tabindex="0" aria-label="ไปหน้า Dashboard">
+      <span class="logo" aria-hidden="true">MGS</span>
+      <span class="name"><b>MGS ERP</b><small>Price Request &amp; Sourcing</small></span>
+    </div>
+    <div class="crumb" id="crumb" aria-live="polite"></div>
     <div class="spacer"></div>
     <div class="who" id="who"></div>
     <button class="icon-btn" id="bell" aria-label="การแจ้งเตือน" title="การแจ้งเตือน">🔔<span class="dot" id="bell-dot" hidden>0</span></button>
+    <button class="icon-btn" id="side-toggle" aria-label="เปิดเมนูโมดูล" aria-controls="side" aria-expanded="false">☰</button>
   </header>
-  <nav class="menu" id="nav" aria-label="เมนูหลัก"></nav>
-  <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-  <footer>MGS Price Request · เวอร์ชัน <span id="ver">2026.10.07-2 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+  <div class="shell" id="shell">
+    <div class="content">
+      <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
+      <footer>MGS Price Request · เวอร์ชัน <span id="ver">2026.10.07-3 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+    </div>
+    <aside class="side" id="side" aria-label="โมดูล">
+      <div class="side-head"><span class="ttl">โมดูล</span>
+        <button type="button" class="side-btn" id="side-mini" aria-label="ย่อ/ขยายเมนู" title="ย่อ/ขยายเมนู">⇥</button>
+        <button type="button" class="side-btn" id="side-close" aria-label="ปิดเมนู" hidden>✕</button></div>
+      <nav class="menu" id="nav" aria-label="เมนูหลัก"></nav>
+      <div class="side-foot">M Global Sourcing Ltd.</div>
+    </aside>
+  </div>
+  <div class="side-ov" id="side-ov"></div>
   <div id="modal-root"></div>
   <div id="toast-root" aria-live="polite"></div>
   <div id="tip" role="tooltip"></div>
@@ -4621,16 +4823,55 @@ function render(route) {
   }
 }
 function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || ''); }
+const PAGE_TITLE = { ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
 function renderNav() {
+  initShell();
   const cur = state.route;
+  let group = null;
+  let activeItem = null;
   $('#nav').innerHTML = state.menu.map(function (m, i) {
     const active = routeKey(cleanRoute(m.route)) === routeKey(cur) && !cur.id;
+    if (active) activeItem = m;
     const count = m.badge === 'inbox' && state.poll.inbox ? '<span class="count">' + state.poll.inbox + '</span>' : '';
-    return '<button data-i="' + i + '" class="' + (active ? 'active ' : '') + (m.primary ? 'primary' : '') + '">' + esc(m.label) + count + '</button>';
+    const head = m.group && m.group !== group ? '<div class="grp">' + esc(m.group) + '</div>' : '';
+    group = m.group || group;
+    return head + '<button type="button" data-i="' + i + '" title="' + esc(m.label) + '" class="' + (active ? 'active ' : '') + (m.primary ? 'primary' : '') + '"' +
+      (active ? ' aria-current="page"' : '') + '><span class="ico" aria-hidden="true">' + esc(m.icon || '•') + '</span><span class="lbl">' + esc(m.label) + '</span>' + count + '</button>';
   }).join('');
   $all('#nav button').forEach(function (b) {
-    b.onclick = function () { go(state.menu[Number(b.getAttribute('data-i'))].route); };
+    b.onclick = function () { setSide(false); go(state.menu[Number(b.getAttribute('data-i'))].route); };
   });
+  const crumb = $('#crumb');
+  if (crumb) {
+    const title = activeItem ? activeItem.label : (PAGE_TITLE[cur.page] || '');
+    const mod = activeItem ? activeItem.group : 'ใบขอราคา';
+    crumb.innerHTML = title ? '<span class="mod">' + esc(mod || '') + '</span><span aria-hidden="true">›</span><span class="cur">' + esc(title) + '</span>' : '';
+  }
+}
+
+/* Module sidebar: collapse to icons on desktop (remembered per browser), slide-in drawer on phones. */
+let shellReady = false;
+function initShell() {
+  if (shellReady || !$('#shell')) return;
+  shellReady = true;
+  try { if (localStorage.getItem('mgs.side.mini') === '1') $('#shell').classList.add('mini'); } catch (e) { /* storage blocked */ }
+  $('#side-mini').onclick = function () {
+    const mini = $('#shell').classList.toggle('mini');
+    try { localStorage.setItem('mgs.side.mini', mini ? '1' : '0'); } catch (e) { /* storage blocked */ }
+  };
+  $('#side-toggle').onclick = function () { setSide(true); };
+  $('#side-close').onclick = function () { setSide(false); };
+  $('#side-ov').onclick = function () { setSide(false); };
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && $('#side').classList.contains('open')) setSide(false); });
+}
+function setSide(open) {
+  const side = $('#side');
+  if (!side) return;
+  side.classList.toggle('open', open);
+  $('#side-ov').classList.toggle('open', open);
+  $('#side-close').hidden = !open;
+  $('#side-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) { const first = $('#nav button'); if (first) first.focus(); }
 }
 
 /* ===== 6. Notifications & polling ===== */
@@ -5116,8 +5357,10 @@ Pages.ticket = (function () {
                 q.shelf_life ? 'อายุ ' + q.shelf_life : '', q.moq != null ? 'MOQ ' + fmtNum(q.moq) : '', q.lead_time_days != null ? 'Lead ' + q.lead_time_days + ' วัน' : '',
                 q.payment_term, q.valid_until ? 'ยืนราคาถึง ' + fmtDate(q.valid_until) : ''].filter(Boolean).map(esc).join(' · ') + '</td></tr>';
           }).join('') + '</tbody></table></div>' + sellHtml(it);
+      } else if (!showQ && it.sales_pricing) {
+        html += salesSellHtml(it);
       } else if (!showQ && ['on_process'].indexOf(d.ticket.status) !== -1) {
-        html += '<div class="small muted" style="margin-top:6px">ราคาจะแสดงเมื่อ SR ส่งราคาแล้ว</div>';
+        html += '<div class="small muted" style="margin-top:6px">ราคาขายจะแสดงเมื่อ GM อนุมัติราคาแล้ว</div>';
       }
       return html + '</div>';
     }).join('') + '</div>';
@@ -5138,6 +5381,21 @@ Pages.ticket = (function () {
       '<tr class="total"><td>= ราคาขาย</td><td class="num">' + fmtMoney(p.sell_price_thb) + '</td><td class="u">' + u + '</td></tr>' +
       '<tr class="ref"><td>ราคาเป้าหมายลูกค้า</td><td class="num">' + (p.target_price ? fmtMoney(p.target_price) : 'ไม่มี') + '</td><td class="u">' + diff + '</td></tr>' +
       '</tbody></table></div>';
+  }
+
+  /** Sales side: selling price per unit + offer terms only (the server sends no cost / vendor / GP). */
+  function salesSellHtml(it) {
+    const p = it.sales_pricing;
+    const u = 'บาท/' + esc(it.uom);
+    const diff = p.target_diff_pct == null ? '' : (p.target_diff_pct > 0 ? '<span class="sla breach">▲ สูงกว่าเป้า ' + fmtNum(p.target_diff_pct) + '%</span>' :
+      '<span class="sla ok">✓ ' + (p.target_diff_pct < 0 ? 'ต่ำกว่าเป้า ' + fmtNum(-p.target_diff_pct) + '%' : 'เท่าราคาเป้า') + '</span>');
+    const terms = [p.brand ? 'แบรนด์ ' + p.brand : '', p.origin_country ? 'Origin ' + p.origin_country : '', p.packing,
+      p.shelf_life ? 'อายุ ' + p.shelf_life : '', p.moq != null ? 'MOQ ' + fmtNum(p.moq) : '', p.lead_time_days != null ? 'Lead ' + p.lead_time_days + ' วัน' : '']
+      .filter(Boolean).map(esc).join(' · ');
+    return '<div class="sell sales-sell"><div class="sell-price"><span class="lbl">ราคาขาย</span><b>' + fmtMoney(p.sell_price_thb) + '</b> <span class="u">' + u + '</span></div>' +
+      '<dl class="kv small"><dt>ราคาเป้าหมายลูกค้า</dt><dd>' + (p.target_price ? fmtMoney(p.target_price) + ' ' + u + ' ' + diff : 'ไม่มี') + '</dd>' +
+      (p.valid_until ? '<dt>ยืนราคาถึง</dt><dd>' + esc(fmtDate(p.valid_until)) + '</dd>' : '') +
+      (terms ? '<dt>รายละเอียดสินค้า</dt><dd>' + terms + '</dd>' : '') + '</dl></div>';
   }
 
   function incoLabel(k) {

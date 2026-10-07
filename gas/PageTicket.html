@@ -106,8 +106,10 @@ Pages.ticket = (function () {
                 q.shelf_life ? 'อายุ ' + q.shelf_life : '', q.moq != null ? 'MOQ ' + fmtNum(q.moq) : '', q.lead_time_days != null ? 'Lead ' + q.lead_time_days + ' วัน' : '',
                 q.payment_term, q.valid_until ? 'ยืนราคาถึง ' + fmtDate(q.valid_until) : ''].filter(Boolean).map(esc).join(' · ') + '</td></tr>';
           }).join('') + '</tbody></table></div>' + sellHtml(it);
+      } else if (!showQ && it.sales_pricing) {
+        html += salesSellHtml(it);
       } else if (!showQ && ['on_process'].indexOf(d.ticket.status) !== -1) {
-        html += '<div class="small muted" style="margin-top:6px">ราคาจะแสดงเมื่อ SR ส่งราคาแล้ว</div>';
+        html += '<div class="small muted" style="margin-top:6px">ราคาขายจะแสดงเมื่อ GM อนุมัติราคาแล้ว</div>';
       }
       return html + '</div>';
     }).join('') + '</div>';
@@ -128,6 +130,21 @@ Pages.ticket = (function () {
       '<tr class="total"><td>= ราคาขาย</td><td class="num">' + fmtMoney(p.sell_price_thb) + '</td><td class="u">' + u + '</td></tr>' +
       '<tr class="ref"><td>ราคาเป้าหมายลูกค้า</td><td class="num">' + (p.target_price ? fmtMoney(p.target_price) : 'ไม่มี') + '</td><td class="u">' + diff + '</td></tr>' +
       '</tbody></table></div>';
+  }
+
+  /** Sales side: selling price per unit + offer terms only (the server sends no cost / vendor / GP). */
+  function salesSellHtml(it) {
+    const p = it.sales_pricing;
+    const u = 'บาท/' + esc(it.uom);
+    const diff = p.target_diff_pct == null ? '' : (p.target_diff_pct > 0 ? '<span class="sla breach">▲ สูงกว่าเป้า ' + fmtNum(p.target_diff_pct) + '%</span>' :
+      '<span class="sla ok">✓ ' + (p.target_diff_pct < 0 ? 'ต่ำกว่าเป้า ' + fmtNum(-p.target_diff_pct) + '%' : 'เท่าราคาเป้า') + '</span>');
+    const terms = [p.brand ? 'แบรนด์ ' + p.brand : '', p.origin_country ? 'Origin ' + p.origin_country : '', p.packing,
+      p.shelf_life ? 'อายุ ' + p.shelf_life : '', p.moq != null ? 'MOQ ' + fmtNum(p.moq) : '', p.lead_time_days != null ? 'Lead ' + p.lead_time_days + ' วัน' : '']
+      .filter(Boolean).map(esc).join(' · ');
+    return '<div class="sell sales-sell"><div class="sell-price"><span class="lbl">ราคาขาย</span><b>' + fmtMoney(p.sell_price_thb) + '</b> <span class="u">' + u + '</span></div>' +
+      '<dl class="kv small"><dt>ราคาเป้าหมายลูกค้า</dt><dd>' + (p.target_price ? fmtMoney(p.target_price) + ' ' + u + ' ' + diff : 'ไม่มี') + '</dd>' +
+      (p.valid_until ? '<dt>ยืนราคาถึง</dt><dd>' + esc(fmtDate(p.valid_until)) + '</dd>' : '') +
+      (terms ? '<dt>รายละเอียดสินค้า</dt><dd>' + terms + '</dd>' : '') + '</dl></div>';
   }
 
   function incoLabel(k) {
