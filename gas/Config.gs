@@ -36,6 +36,7 @@ const TAB = {
   PRODUCT_GROUPS: 'ProductGroups',
   VENDORS: 'Vendors',
   SUPPLIER_LOGS: 'SupplierLogs',
+  USAGE_LOG: 'UsageLog',
   SETTINGS: 'Settings',
   COUNTERS: 'Counters',
   TICKETS: 'Tickets',
@@ -77,6 +78,10 @@ const SCHEMA = {
            // Supplier master (appended v2026.10.08-2): search names, trade terms used to pre-fill quotations, QC info
            'short_name', 'supplier_type', 'payment_term', 'incoterm', 'lead_time_days', 'moq', 'validity_days',
            'clearance_per_kg', 'brands', 'product_groups', 'chat_id', 'certs_json', 'quality_note', 'updated_by', 'version']
+  },
+  UsageLog: {
+    key: 'log_id',
+    cols: ['log_id', 'day', 'email', 'role', 'page', 'views']
   },
   SupplierLogs: {
     key: 'log_id',

@@ -691,7 +691,7 @@ Pages.pricing = (function () {
     refreshItem(idx);
     refreshSummary();
     if (focusLast) {
-      const cols = $all('.vcol', fresh);
+      const cols = $all('.vcol[data-q]', fresh);
       const inpEl = cols.length && $('[data-sup-search]', cols[cols.length - 1]);
       if (inpEl) inpEl.focus();
     }
@@ -791,7 +791,7 @@ Pages.pricing = (function () {
     const card = $('.card.item[data-item="' + idx + '"]', ctx.view);
     if (!card) return;
     card.open = true;
-    const col = vendorIndex != null ? $all('.vcol', card).filter(function (c) {
+    const col = vendorIndex != null ? $all('.vcol[data-q]', card).filter(function (c) {
       const q = ctx.model.items[idx].quotes[Number(c.getAttribute('data-q'))];
       return !isBlank(q);
     })[vendorIndex] : null;

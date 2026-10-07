@@ -212,7 +212,7 @@ Pages.suppliers = (function () {
 
   return {
     render: function (view) {
-      if (['sr', 'sr_manager', 'gm', 'admin'].indexOf(state.me.role) === -1) { go({ page: 'dashboard' }, true); return; }
+      if (['sr', 'sr_manager', 'gm', 'admin'].indexOf(state.me.role) === -1) { go({ page: 'home' }, true); return; }
       view.innerHTML = '<div class="sup-page"><div class="page-head"><h1>Supplier</h1><span class="small muted">ฐานข้อมูลผู้ขาย · ใช้เติมข้อมูลในใบเสนอราคาอัตโนมัติ</span><span class="sep"></span>' +
         (['sr', 'sr_manager', 'admin'].indexOf(state.me.role) !== -1 ? '<button class="btn primary" data-add>+ เพิ่ม Supplier</button>' : '') + '</div>' +
         '<div class="card list-bar"><div class="list-tools"><input type="search" id="s-q" placeholder="ค้นหา ชื่อ / ชื่อเรียก / รหัส / เลขผู้เสียภาษี / แบรนด์" value="' + esc(f.q) + '">' +

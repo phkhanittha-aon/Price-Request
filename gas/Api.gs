@@ -215,8 +215,40 @@ function pollData_(u) {
 }
 
 /** Called every ~60 s by the page while it is visible. */
-function getPoll() {
-  return api_('getPoll', function () { return pollData_(currentUser_()); });
+/**
+ * Called every ~60 s by the page while it is visible. `views` = pages opened since the last poll
+ * ({page: count}) → UsageLog, so unused screens can be found before anything is removed.
+ */
+function getPoll(views) {
+  return api_('getPoll', function () {
+    const u = currentUser_();
+    logUsage_(u, views);
+    return pollData_(u);
+  });
+}
+
+function logUsage_(u, views) {
+  if (!views || typeof views !== 'object') return;
+  const day = todayBkk_();
+  const rowsToAdd = Object.keys(views).filter(function (p) { return PAGES_.indexOf(p) !== -1 && Number(views[p]) > 0; }).map(function (p) {
+    return { log_id: uuid_(), day: day, email: u.email, role: u.role, page: p, views: Math.min(Number(views[p]) || 0, 500) };
+  });
+  if (rowsToAdd.length) {
+    try { insertRows_(TAB.USAGE_LOG, rowsToAdd); } catch (e) { console.warn('usage log failed', e); }   // never breaks polling
+  }
+}
+
+/** Admin home card: delivery problems in the last 24 h. */
+function getAdminHealth() {
+  return api_('getAdminHealth', function () {
+    const u = currentUser_();
+    if (u.role !== 'admin') throw appError_('FORBIDDEN', 'เฉพาะผู้ดูแลระบบ');
+    const since = Date.now() - 86400000;
+    const recent = rows_(TAB.NOTIFICATIONS).filter(function (n) { return new Date(n.created_at).getTime() > since; });
+    const count = function (st) { return recent.filter(function (n) { return String(n.lark_status) === st; }).length; };
+    return { lark_failed: count('failed'), lark_no_user: count('no_lark_user'), lark_no_group: count('no_group'), lark_pending: count('pending'),
+      lark_configured: larkConfigured_(), db_version: APP_VERSION };
+  });
 }
 
 function getNotifications(limit) {

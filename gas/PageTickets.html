@@ -9,7 +9,7 @@
 <script>
 Pages.tickets = (function () {
   const PAGE_SIZE = 50;
-  const board = { rows: null, at: 0, seq: 0 };   // last board, kept while the app is open
+  const board = { rows: null, at: 0, seq: 0, user: '' };   // last board, kept while the app is open (same user only)
 
   /* ---------- tabs (one click) ---------- */
   const TABS = [
@@ -30,7 +30,7 @@ Pages.tickets = (function () {
   }
 
   /* ---------- filter state <-> route ---------- */
-  const ADV = ['stage', 'requestor', 'sr', 'outcome', 'group', 'prio', 'from', 'to'];
+  const ADV = ['stage', 'requestor', 'sr', 'outcome', 'sla', 'group', 'prio', 'from', 'to'];
   function fromRoute(route) {
     const f = { tab: route.scope || 'all', q: route.q || '', sort: route.sort || '' };
     if (route.follow) f.tab = 'follow';                       // old menu links
@@ -69,6 +69,7 @@ Pages.tickets = (function () {
     if (f.requestor && r.requestor_email !== f.requestor) return false;
     if (f.sr && r.sr_email !== f.sr) return false;
     if (f.outcome && r.outcome !== f.outcome) return false;
+    if (f.sla && r.sla_status !== f.sla) return false;
     if (f.prio && r.priority !== f.prio) return false;
     if (f.group && r.group_codes.indexOf(f.group) === -1 && r.root_codes.indexOf(f.group) === -1) return false;
     const day = String(r.created_at || '').slice(0, 10);
@@ -127,6 +128,7 @@ Pages.tickets = (function () {
     const items = [];
     if (f.stage) items.push(['stage', 'ขั้นตอน: ' + (sg[f.stage] || f.stage)]);
     if (f.outcome) items.push(['outcome', 'ผล: ' + ({ done: 'เสนอราคาจบแล้ว', open: 'ยังไม่จบ', rejected: 'ไม่อนุมัติ / ยกเลิก' }[f.outcome] || f.outcome)]);
+    if (f.sla) items.push(['sla', f.sla === 'breach' ? 'เกินกำหนด (SLA)' : 'ใกล้ครบกำหนด']);
     if (f.requestor) items.push(['requestor', 'Sales: ' + nameOf(state.ref.sales_users, f.requestor)]);
     if (f.sr) items.push(['sr', 'SR: ' + nameOf(state.ref.sr_users, f.sr)]);
     if (f.group) items.push(['group', 'กลุ่ม: ' + (groupName(f.group) || f.group)]);
@@ -230,7 +232,7 @@ Pages.tickets = (function () {
         const list = base.filter(tab.test).sort(SORTS[f.sort] || SORTS.smart);
         $('#t-results', pg).innerHTML = tableHtml(list, f, shown);
         $('#t-chips', pg).innerHTML = chipsHtml(f);
-        const nAdv = ['stage', 'outcome', 'requestor', 'sr', 'group', 'prio', 'sort'].filter(function (k) { return f[k]; }).length + (f.from || f.to ? 1 : 0);
+        const nAdv = ['stage', 'outcome', 'sla', 'requestor', 'sr', 'group', 'prio', 'sort'].filter(function (k) { return f[k]; }).length + (f.from || f.to ? 1 : 0);
         const badge = $('#f-adv-n', pg);
         badge.hidden = !nAdv; badge.textContent = nAdv;
       };
@@ -268,6 +270,7 @@ Pages.tickets = (function () {
 
       // show what we have at once, then refresh in the background (cheap: the server caches per data version).
       // A late answer never overwrites a newer one.
+      if (board.user !== state.me.email) { board.rows = null; board.user = state.me.email; }
       if (board.rows) draw();
       {
         const seq = ++board.seq;

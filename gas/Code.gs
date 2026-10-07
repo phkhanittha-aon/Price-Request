@@ -15,7 +15,7 @@
  * Deployment settings: Execute as = Me (owner), Who has access = Anyone within <company domain>.
  */
 
-const PAGES_ = ['dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
+const PAGES_ = ['home', 'dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
 const PARTIALS_ = ['App', 'PageDashboard', 'PageTickets', 'PageTicket', 'PageForm', 'PagePricing'];
 
 function doGet(e) {
@@ -52,36 +52,28 @@ function getBootstrap() {
   });
 }
 
-/** ERP module menu (right-hand sidebar). Grouped by module; the browser renders `group` headings in order. */
+/**
+ * Module menu (left sidebar) — at most 5 items per role. Status views (รอฉัน, ของฉัน, คิว, ส่งตามหลัง …)
+ * are tabs on the ใบเสนอราคา page, not menu items; statistics live under รายงาน (managers only).
+ */
 function menuFor_(u) {
-  const G_OVERVIEW = 'ภาพรวม';
-  const G_WORK = 'งานของฉัน';
-  const G_REQ = 'ใบขอราคา';
-  const G_SRC = 'จัดหาราคา (Sourcing)';
-  const G_GM = 'อนุมัติ (GM)';
-  const m = [{ key: 'dashboard', group: G_OVERVIEW, icon: '📊', label: 'Dashboard', route: { page: 'dashboard' } }];
-  m.push({ key: 'inbox', group: G_WORK, icon: '📥', label: 'งานรอฉัน', route: { page: 'tickets', scope: 'inbox' }, badge: 'inbox' });
+  const MAIN = 'เมนูหลัก';
+  const m = [{ key: 'home', group: MAIN, icon: '🏠', label: 'หน้าแรก', route: { page: 'home' } }];
+  m.push({ key: 'tickets', group: MAIN, icon: '📄', label: 'ใบเสนอราคา', route: { page: 'tickets' }, badge: 'inbox' });
+  if (u.role === 'sales') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
   if (u.role === 'gm') {
     // two separate GM approvals: sales side (the request) and purchasing side (vendor price + selling price)
-    m.push({ key: 'gm_sales', group: G_GM, icon: '🛒', label: 'อนุมัติฝั่งขาย', hint: 'คำขอราคาจาก Sales',
+    m.push({ key: 'gm_sales', group: MAIN, icon: '🛒', label: 'อนุมัติฝั่งขาย', hint: 'คำขอราคาจาก Sales',
       route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm' }, badge: 'gm_sales' });
-    m.push({ key: 'gm_buy', group: G_GM, icon: '📦', label: 'อนุมัติฝั่งซื้อ', hint: 'ราคาซื้อ + ราคาขาย จาก SR',
+    m.push({ key: 'gm_buy', group: MAIN, icon: '📦', label: 'อนุมัติฝั่งซื้อ', hint: 'ราคาซื้อ + ราคาขาย จาก SR',
       route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm_price' }, badge: 'gm_buy' });
   }
-  if (u.role === 'sales') {
-    m.push({ key: 'new', group: G_REQ, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
-    m.push({ key: 'mine', group: G_REQ, icon: '📄', label: 'ใบขอราคาของฉัน', route: { page: 'tickets', scope: 'mine' } });
+  if (['sr', 'sr_manager', 'admin'].indexOf(u.role) !== -1) {
+    m.push({ key: 'suppliers', group: MAIN, icon: '🏭', label: 'Supplier', route: { page: 'suppliers' } });
   }
-  if (u.role === 'sr' || u.role === 'sr_manager') {
-    m.push({ key: 'queue', group: G_SRC, icon: '🧾', label: 'คิวรอรับงาน', route: { page: 'tickets', scope: 'queue' } });
+  if (['manager', 'sr_manager', 'gm', 'admin'].indexOf(u.role) !== -1) {
+    m.push({ key: 'reports', group: MAIN, icon: '📊', label: 'รายงาน', route: { page: 'dashboard' } });
   }
-  if (u.role === 'sr') m.push({ key: 'mine', group: G_SRC, icon: '💼', label: 'งานของฉัน (SR)', route: { page: 'tickets', scope: 'mine' } });
-  m.push({ key: 'follow', group: G_WORK, icon: '📌', label: 'ส่งตามหลัง (ค้าง)', hint: 'รายการที่ SR แยกไปหาราคาต่อ',
-    route: { page: 'tickets', scope: u.role === 'sales' || u.role === 'sr' ? 'mine' : 'all', follow: '1', outcome: 'open' }, badge: 'follow_up' });
-  if (COST_ROLES_.indexOf(u.role) !== -1) {
-    m.push({ key: 'suppliers', group: G_SRC, icon: '🏭', label: 'Supplier', hint: 'ฐานข้อมูลผู้ขาย', route: { page: 'suppliers' } });
-  }
-  if (u.role !== 'sales') m.push({ key: 'all', group: G_REQ, icon: '📚', label: 'ใบขอราคาทั้งหมด', route: { page: 'tickets', scope: 'all' } });
   return m;
 }
 

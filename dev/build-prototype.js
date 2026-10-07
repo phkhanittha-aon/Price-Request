@@ -106,7 +106,8 @@ const bar = `
   <label class="proto-who">ดูในมุมมองของ <select id="proto-user"></select></label>
   <span class="proto-links">
     <button type="button" class="btn sm" data-jump="form">📝 ฟอร์มขอราคา (Sales)</button>
-    <button type="button" class="btn sm" data-jump="dash">📊 Dashboard (GM)</button>
+    <button type="button" class="btn sm" data-jump="dash">🏠 หน้าแรก (GM)</button>
+    <button type="button" class="btn sm" data-jump="sup">🏭 Supplier (SR)</button>
     <button type="button" class="btn sm" data-jump="pricing">💰 ใบเสนอราคา (SR)</button>
     <button type="button" class="btn sm" data-jump="srm">✅ SR Manager ตรวจราคา</button>
   </span>
@@ -141,12 +142,13 @@ const bar = `
       const w = window.__proto.who;
       const j = b.getAttribute('data-jump');
       if (j === 'form') switchTo(w.sales, { page: 'new' });
-      if (j === 'dash') switchTo(w.gm, { page: 'dashboard' });
+      if (j === 'dash') switchTo(w.gm, { page: 'home' });
+      if (j === 'sup') switchTo(w.sr, { page: 'suppliers' });
       if (j === 'pricing') switchTo(w.sr, { page: 'pricing', id: t.pricing });
       if (j === 'srm') switchTo(w.srm, { page: 'ticket', id: t.srm });
     };
   });
-  window.__protoStart = { page: 'new' };
+  window.__protoStart = { page: 'home' };
 })();
 </script>`;
 

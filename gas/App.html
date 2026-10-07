@@ -7,7 +7,7 @@
 /* ===== 1. State ===== */
 const state = {
   me: null, ref: null, menu: [], poll: { inbox: 0, unread: 0 },
-  route: { page: 'dashboard' }, renderSeq: 0, drafts: {}
+  route: { page: 'home' }, renderSeq: 0, drafts: {}, views: {}
 };
 const Pages = {};
 
@@ -195,11 +195,11 @@ function dialog(opts) {
 })();
 
 /* ===== 5. Router (google.script.history keeps the browser back button working) ===== */
-const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome', 'follow', 'q', 'sort', 'group', 'prio', 'from', 'to', 'copy'];
+const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome', 'follow', 'q', 'sort', 'group', 'prio', 'from', 'to', 'copy', 'sla'];
 function cleanRoute(p) {
   const r = {};
   ROUTE_KEYS.forEach(function (k) { if (p && p[k]) r[k] = String(p[k]); });
-  if (!r.page || ['dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'].indexOf(r.page) === -1) r.page = 'dashboard';
+  if (!r.page || ['home', 'dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'].indexOf(r.page) === -1) r.page = 'home';
   return r;
 }
 function go(route, replace) {
@@ -214,7 +214,8 @@ function render(route) {
   renderNav();
   window.scrollTo(0, 0);
   const view = $('#view');
-  const page = Pages[state.route.page] || Pages.dashboard;
+  const page = Pages[state.route.page] || Pages.home;
+  state.views[state.route.page] = (state.views[state.route.page] || 0) + 1;
   view.innerHTML = loadingHtml();
   try {
     page.render(view, state.route, function isCurrent() { return seq === state.renderSeq; });
@@ -224,7 +225,7 @@ function render(route) {
   }
 }
 function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || '') + (r.follow || ''); }
-const PAGE_TITLE = { suppliers: 'Supplier', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
+const PAGE_TITLE = { home: 'หน้าแรก', dashboard: 'รายงาน', suppliers: 'Supplier', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
 function renderNav() {
   initShell();
   const cur = state.route;
@@ -284,7 +285,11 @@ function applyPoll(p) {
   dot.textContent = state.poll.unread > 99 ? '99+' : state.poll.unread;
   renderNav();
 }
-function refreshPoll() { return api('getPoll').then(applyPoll).catch(function () { /* silent: next tick retries */ }); }
+function refreshPoll() {
+  const views = state.views;
+  state.views = {};
+  return api('getPoll', views).then(applyPoll).catch(function () { /* silent: next tick retries */ });
+}
 let pollingStarted = false;
 function startPolling() {
   if (pollingStarted) return;
@@ -359,7 +364,7 @@ function uploadFile(file, meta, onProgress) {
 /* ===== 8. Boot ===== */
 const App = {
   start: function () {
-    $('#brand').onclick = function () { go({ page: 'dashboard' }); };
+    $('#brand').onclick = function () { go({ page: 'home' }); };
     $('#bell').onclick = openNotifications;
     api('getBootstrap').then(function (b) {
       state.me = b.me; state.ref = b.ref; state.menu = b.menu;

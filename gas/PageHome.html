@@ -1,0 +1,125 @@
+<!--
+  File: PageHome.html
+  Homepage = "what do I have to do today", per role. Three numbers (รอฉัน · กำลังดำเนินการ · เกินกำหนด),
+  the task list sorted by urgency, and 1–3 shortcuts. Statistics moved to รายงาน (managers only).
+  Uses the same listTicketBoard data as the list page (server-cached), so it adds no extra sheet reads.
+-->
+<script>
+Pages.home = (function () {
+  let lastRows = null, lastUser = '';   // last board, only ever shown to the same user
+
+  function scoped(rows) {
+    // Sales and SR follow their own work; managers / GM / Admin follow everything they can see
+    return state.me.role === 'sales' || state.me.role === 'sr' ? rows.filter(function (r) { return r.is_mine || r.is_inbox; }) : rows;
+  }
+  const URGENCY = { breach: 0, warning: 1, ok: 2, none: 3, done: 4 };
+  function byUrgency(a, b) {
+    return (URGENCY[a.sla_status] - URGENCY[b.sla_status]) || ((a.due_date || '9999') < (b.due_date || '9999') ? -1 : 1) || (b.stage_age_hours - a.stage_age_hours);
+  }
+
+  function shortcuts(rows) {
+    const role = state.me.role;
+    const n = function (test) { return rows.filter(test).length; };
+    const out = [];
+    if (role === 'sales') {
+      out.push({ label: '➕ สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+      out.push({ label: '📄 ใบขอราคาของฉัน', route: { page: 'tickets', scope: 'mine' } });
+    }
+    if (role === 'sr') {
+      out.push({ label: '🧾 คิวรอรับงาน', count: n(function (r) { return r.stage === 'pending_assign'; }), route: { page: 'tickets', scope: 'queue' }, primary: true });
+      out.push({ label: '🏭 Supplier', route: { page: 'suppliers' } });
+    }
+    if (role === 'sr_manager') {
+      out.push({ label: '✅ รอตรวจราคา', count: n(function (r) { return r.stage === 'pending_sr_manager'; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_sr_manager' }, primary: true });
+      out.push({ label: '🧾 งานยังไม่มี SR รับ', count: n(function (r) { return r.stage === 'pending_assign'; }), route: { page: 'tickets', scope: 'queue' } });
+      out.push({ label: '🏭 Supplier', route: { page: 'suppliers' } });
+    }
+    if (role === 'gm') {
+      out.push({ label: '🛒 อนุมัติฝั่งขาย', count: n(function (r) { return r.stage === 'pending_gm' && r.is_inbox; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm' }, primary: true });
+      out.push({ label: '📦 อนุมัติฝั่งซื้อ', count: n(function (r) { return r.stage === 'pending_gm_price'; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm_price' }, primary: true });
+      out.push({ label: '📊 รายงาน', route: { page: 'dashboard' } });
+    }
+    if (role === 'manager') {
+      out.push({ label: '✅ รออนุมัติ', count: n(function (r) { return r.stage === 'pending_manager' && r.is_inbox; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_manager' }, primary: true });
+      out.push({ label: '📊 รายงาน', route: { page: 'dashboard' } });
+    }
+    if (role === 'admin') {
+      out.push({ label: '🏭 Supplier', route: { page: 'suppliers' } });
+      out.push({ label: '📊 รายงาน', route: { page: 'dashboard' } });
+    }
+    return out;
+  }
+
+  function draw(view, rows) {
+    const mine = scoped(rows);
+    const open = mine.filter(function (r) { return r.outcome === 'open'; });
+    const inbox = rows.filter(function (r) { return r.is_inbox && r.outcome === 'open'; }).sort(byUrgency);
+    const late = open.filter(function (r) { return r.sla_status === 'breach'; });
+    const follow = open.filter(function (r) { return r.is_follow_up; });
+    const sc = shortcuts(rows);
+    const tile = function (cls, n, label, sub, route) {
+      return '<button class="tile ' + cls + '" data-go=\'' + esc(JSON.stringify(route)) + '\'><span class="v">' + fmtInt(n) + '</span><span class="l">' + esc(label) + '</span>' +
+        '<span class="p">' + sub + '</span></button>';
+    };
+    const listScope = state.me.role === 'sales' || state.me.role === 'sr' ? 'mine' : 'all';
+    let html = '<div class="home"><div class="page-head"><div><h1>สวัสดี ' + esc(state.me.full_name) + '</h1>' +
+      '<div class="small muted">' + esc(new Intl.DateTimeFormat('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' }).format(new Date())) +
+      ' · ' + esc(state.me.role_label) + '</div></div></div>';
+    html += '<div class="tiles home-tiles">' +
+      tile('t-me', inbox.length, 'รอฉัน', inbox.length ? 'งานที่คุณต้องทำตอนนี้' : 'ไม่มีงานค้างที่คุณ 🎉', { page: 'tickets', scope: 'inbox' }) +
+      tile('t-open', open.length, 'กำลังดำเนินการ', listScope === 'mine' ? 'ใบของคุณที่ยังไม่จบ' : 'ทุกใบที่ยังไม่จบ', { page: 'tickets', scope: listScope === 'mine' ? 'mine' : 'all', outcome: 'open' }) +
+      tile('t-late' + (late.length ? ' bad' : ''), late.length, 'เกินกำหนด (SLA)', late.length ? 'ค้างในขั้นตอนนานเกินกำหนด' : 'ไม่มีงานเกินกำหนด', { page: 'tickets', scope: listScope === 'mine' ? 'mine' : 'all', sla: 'breach' }) +
+      '</div>';
+    if (sc.length) {
+      html += '<div class="quick">' + sc.map(function (x) {
+        return '<button class="btn' + (x.primary ? ' primary' : '') + '" data-go=\'' + esc(JSON.stringify(x.route)) + '\'>' + esc(x.label) +
+          (x.count != null ? ' <span class="qn">' + fmtInt(x.count) + '</span>' : '') + '</button>';
+      }).join('') + '</div>';
+    }
+    html += '<div class="card"><div class="card-head"><h3>งานที่ต้องทำ</h3>' + (inbox.length > 10 ? '<button class="btn sm ghost" data-go=\'' + esc(JSON.stringify({ page: 'tickets', scope: 'inbox' })) + '\'>ดูทั้งหมด ' + inbox.length + ' ใบ ›</button>' : '') + '</div>' +
+      (inbox.length ? '<ul class="tasks">' + inbox.slice(0, 10).map(function (r) {
+        return '<li><a href="#" data-ticket="' + esc(r.ticket_id) + '"><span class="tdot ' + esc(r.sla_status) + '" aria-hidden="true"></span><div class="tmain"><b>' + esc(r.ticket_no) + '</b> ' +
+          (r.priority !== 'normal' ? prioText(r.priority) + ' ' : '') + (r.is_follow_up ? '<span class="badge tag-follow">📌 ส่งตามหลัง</span> ' : '') +
+          '<span class="small">' + esc(r.stage_label) + '</span><div class="small muted">' + esc(r.customer_name || r.title) + ' · ' + esc(r.item_names).slice(0, 80) + '</div></div>' +
+          '<div class="tside small">' + slaBadge(r.sla_status) + (r.due_date ? '<div class="muted">ต้องการ ' + esc(fmtDate(r.due_date)) + '</div>' : '') + '</div></a></li>';
+      }).join('') + '</ul>' : '<p class="empty small">ไม่มีงานรอคุณตอนนี้</p>') + '</div>';
+    if (follow.length) {
+      html += '<div class="card"><div class="card-head"><h3>📌 รายการส่งตามหลังที่ยังค้าง</h3><button class="btn sm ghost" data-go=\'' + esc(JSON.stringify({ page: 'tickets', scope: 'follow' })) + '\'>ดูทั้งหมด ›</button></div>' +
+        '<ul class="tasks">' + follow.slice(0, 5).map(function (r) {
+          return '<li><a href="#" data-ticket="' + esc(r.ticket_id) + '"><span class="tdot ' + esc(r.sla_status) + '" aria-hidden="true"></span><div class="tmain"><b>' + esc(r.ticket_no) + '</b> <span class="small muted">จาก ' + esc(r.parent_ticket_no) + '</span>' +
+            '<div class="small muted">' + esc(r.item_names) + ' · ' + esc(r.stage_label) + '</div></div><div class="tside small muted">ค้าง ' + r.age_days + ' วัน</div></a></li>';
+        }).join('') + '</ul></div>';
+    }
+    if (state.me.role === 'admin') html += '<div class="card" id="admin-health"><h3>สถานะระบบ</h3>' + loadingHtml() + '</div>';
+    html += '</div>';
+    view.innerHTML = html;
+    $all('[data-go]', view).forEach(function (b) { b.onclick = function () { go(JSON.parse(b.getAttribute('data-go'))); }; });
+    $all('[data-ticket]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-ticket') }); }; });
+    if (state.me.role === 'admin') {
+      api('getAdminHealth').then(function (h) {
+        const box = $('#admin-health', view);
+        if (!box) return;
+        const line = function (bad, text) { return '<li class="' + (bad ? 'bad' : 'ok') + '">' + (bad ? '⚠ ' : '✓ ') + text + '</li>'; };
+        box.innerHTML = '<h3>สถานะระบบ (24 ชม.)</h3><ul class="health">' +
+          line(!h.lark_configured, h.lark_configured ? 'เชื่อมต่อ Lark แล้ว' : 'ยังไม่ได้ตั้งค่า Lark (LARK_APP_ID / SECRET)') +
+          line(h.lark_failed > 0, 'แจ้งเตือน Lark ส่งไม่สำเร็จ ' + h.lark_failed + ' รายการ') +
+          line(h.lark_no_user > 0, 'ผู้ใช้ที่ไม่พบบัญชี Lark ' + h.lark_no_user + ' รายการ') +
+          line(h.lark_no_group > 0, 'ข้อความกลุ่มที่ยังไม่ได้ตั้งกลุ่ม ' + h.lark_no_group + ' รายการ') +
+          '</ul><p class="small muted">ตรวจละเอียด: เปิด Apps Script แล้ว Run <code>runSelfTest</code></p>';
+      }).catch(function (e) { const box = $('#admin-health', view); if (box) box.innerHTML = '<h3>สถานะระบบ</h3>' + errorHtml(e); });
+    }
+  }
+
+  return {
+    render: function (view, route, isCurrent) {
+      if (lastRows && lastUser === state.me.email) draw(view, lastRows);
+      else view.innerHTML = loadingHtml();
+      const who = state.me.email;
+      api('listTicketBoard').then(function (d) {
+        lastRows = d.rows; lastUser = who;
+        if (isCurrent()) draw(view, d.rows);
+      }).catch(function (e) { if (isCurrent() && lastUser !== state.me.email) view.innerHTML = errorHtml(e, 'App.reload()'); });
+    }
+  };
+})();
+</script>

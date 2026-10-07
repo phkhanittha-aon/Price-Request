@@ -442,7 +442,14 @@ function runPhase2Cases_(results) {
     const b = as(U.salesFood1, function () { return must(getBootstrap()); });
     ok(b.me.role === 'sales' && b.menu.some(function (m) { return m.key === 'new'; }), 'Bootstrap: Sales menu has "สร้างใบขอราคา"');
     const g = as(U.gm, function () { return must(getBootstrap()); });
-    ok(!g.menu.some(function (m) { return m.key === 'new'; }) && g.menu.some(function (m) { return m.key === 'all'; }), 'Bootstrap: GM menu has no create, has all tickets');
+    ok(!g.menu.some(function (m) { return m.key === 'new'; }) && g.menu.some(function (m) { return m.key === 'tickets'; }), 'Bootstrap: GM menu has no create, has the ticket list');
+    ['admin', 'gm', 'manager', 'salesFood1', 'sr1', 'srManager'].forEach(function (k) {
+      const key = { manager: 'mgrFood' }[k] || k;
+      const menu = menuFor_(userByEmail_(U[key]));
+      ok(menu.length <= 5 && menu[0].key === 'home' && menu.some(function (m) { return m.key === 'tickets'; }), 'Menu for ' + k + ': ' + menu.length + ' items (≤ 5), homepage first');
+    });
+    ok(!menuFor_(userByEmail_(U.salesFood1)).some(function (m) { return m.key === 'reports' || m.key === 'suppliers'; }) &&
+      menuFor_(userByEmail_(U.gm)).some(function (m) { return m.key === 'reports'; }), 'Reports for managers only; Supplier not for Sales');
     ok(b.ref.product_groups.length === 5 && b.ref.vat_rate === 0.07, 'Bootstrap: reference data (product groups, VAT rate)');
     expectErr(as('nobody@' + DEMO_DOMAIN, function () { return getBootstrap(); }), 'NOT_REGISTERED', 'Bootstrap: unregistered user gets NOT_REGISTERED');
   });
@@ -1070,7 +1077,8 @@ function runFollowUpCases_(results) {
     ok(pollData_(userByEmail_(U.salesFood3)).follow_up >= 1 && pollData_(userByEmail_(U.salesFood1)).follow_up === 0, 'Menu badge counts own open follow-ups only');
     ok(as(U.salesFood3, function () { return must(getTicket(fu.ticket_id)); }).parent.ticket_no === t.ticket_no, 'Follow-up links back to the original');
     expectErr(as(U.salesFood1, function () { return getTicket(fu.ticket_id); }), 'NOT_FOUND', 'Other Sales cannot open the follow-up');
-    ok(menuFor_(userByEmail_(U.salesFood3)).some(function (m) { return m.key === 'follow' && m.route.follow === '1'; }), 'Menu has “ส่งตามหลัง (ค้าง)”');
+    ok(as(U.salesFood3, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === fu.ticket_id && r.is_follow_up && r.outcome === 'open'; }),
+      'Follow-up shows under the “ส่งตามหลัง” tab of the list');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: FOLLOW_UP — ' + e.message + '\n' + e.stack);
   }
@@ -1114,6 +1122,11 @@ function runBoardCases_(results) {
       'Sales history: own customers only (with last documents)');
     ok(h1.products.length > 0 && h1.products[0].net_weight !== undefined, 'Sales history: own products with last specs');
     ok(as(U.gm, function () { return must(getSalesHistory()); }).customers.length === 0, 'Sales history is empty for non-Sales');
+    const usageBefore = rows_(TAB.USAGE_LOG).length;
+    must(as(U.sr1, function () { return getPoll({ home: 3, tickets: 1, evil_page: 5 }); }));
+    const logged = rows_(TAB.USAGE_LOG).slice(usageBefore);
+    ok(logged.length === 2 && logged.every(function (r) { return r.email === U.sr1 && ['home', 'tickets'].indexOf(String(r.page)) !== -1; }),
+      'Page views are logged (known pages only) for the usage review');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: BOARD — ' + e.message + '\n' + e.stack);
   }

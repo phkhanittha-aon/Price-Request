@@ -133,7 +133,7 @@
     label.field { display: block; margin-bottom: 12px; }
     label.field > span { display: block; margin-bottom: 4px; font-weight: 600; font-size: .92rem; }
     label.field > span .req { color: var(--danger-ink); }
-    input[type=text], input[type=number], input[type=date], input[type=search], select, textarea {
+    input[type=text], input[type=number], input[type=date], input[type=search], input[type=tel], input[type=email], select, textarea {
       width: 100%; min-height: var(--tap); padding: 8px 10px; border: 1px solid #B8C7CC; border-radius: 8px; background: #fff; }
     textarea { min-height: 88px; resize: vertical; }
     input:focus, select:focus, textarea:focus { outline: 3px solid var(--brand-soft); border-color: var(--brand); }
@@ -253,6 +253,12 @@
     .pics { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
     .pics:empty { display: none; }
     .pic { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border-radius: 999px; background: #fff; border: 1px solid var(--line); font-size: .85rem; }
+    .doc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .doc-chip { min-height: 34px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; cursor: pointer; font: inherit; font-size: .85rem; }
+    .doc-chip.on { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-dark); font-weight: 600; }
+    .due-quick { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+    .due-quick .btn { min-height: 30px; padding: 2px 8px; font-size: .8rem; }
+    .no-target { margin-top: 6px; font-size: .85rem; }
     .form-actions { position: sticky; bottom: 0; z-index: 10; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 -16px; padding: 12px 16px;
       background: rgba(255,255,255,.96); border-top: 1px solid var(--line); box-shadow: 0 -4px 12px rgba(16,38,46,.06); }
     .form-actions .sep { flex: 1; } .form-actions .err-text { margin: 0; }
@@ -262,6 +268,33 @@
       .fgrid .span-2 { grid-column: auto; }
       .form-actions .sep { flex-basis: 100%; height: 0; } .form-actions .btn { flex: 1 1 auto; }
     }
+
+    /* homepage */
+    .home-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .home-tiles .tile { grid-template-columns: 1fr; grid-template-areas: "v" "l" "p"; }
+    .home-tiles .tile .v { font-size: 2rem; }
+    .home-tiles .t-me { border-left: 4px solid var(--brand); }
+    .home-tiles .t-open { border-left: 4px solid var(--warn); }
+    .home-tiles .t-late { border-left: 4px solid var(--line); }
+    .home-tiles .t-late.bad { border-left-color: var(--danger); }
+    .home-tiles .t-late.bad .v { color: var(--danger-ink); }
+    .quick { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+    .quick .qn { display: inline-block; min-width: 22px; padding: 0 6px; border-radius: 11px; background: rgba(0,0,0,.08); font-size: .8rem; text-align: center; }
+    .quick .btn.primary .qn { background: rgba(255,255,255,.25); }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .card-head h3 { margin: 0; }
+    .tasks { list-style: none; margin: 0; padding: 0; }
+    .tasks a { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--line); text-decoration: none; color: var(--text); min-height: var(--tap); }
+    .tasks li:last-child a { border-bottom: 0; }
+    .tasks a:hover { background: #F6FAFB; }
+    .tasks .tmain { flex: 1; min-width: 0; }
+    .tasks .tmain .small.muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tasks .tside { flex: none; text-align: right; }
+    .tdot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); }
+    .tdot.warning { background: var(--warn); } .tdot.breach { background: var(--danger); } .tdot.none, .tdot.done { background: var(--line); }
+    .health { list-style: none; padding: 0; margin: 0; }
+    .health li { padding: 6px 0; } .health li.bad { color: var(--danger-ink); } .health li.ok { color: var(--ok-ink); }
+    @media (max-width: 720px) { .home-tiles { grid-template-columns: minmax(0, 1fr); } }
 
     /* dashboard (simple) */
     .out-done { background: var(--ok); } .out-open { background: var(--warn); } .out-rej { background: var(--danger); }
@@ -321,6 +354,21 @@
     .item-stat.follow { border-left: 4px solid var(--warn); }
     .item-stat.no { border-left: 4px solid #8FA1A7; background: #FAFBFB; }
     .sumtbl tr.stat-row td { color: var(--muted); }
+    .sup-combo { position: relative; }
+    .sup-results { position: absolute; z-index: 25; left: 0; right: 0; top: calc(100% + 4px); max-height: 340px; overflow-y: auto; background: #fff;
+      border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(16,38,46,.14); padding: 4px; }
+    .sup-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px;
+      background: transparent; text-align: left; cursor: pointer; font: inherit; color: var(--text); }
+    .sup-opt.active, .sup-opt:hover { background: var(--brand-soft); }
+    .sup-opt.sup-new { color: var(--brand); font-weight: 600; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; }
+    .sup-none { padding: 8px 10px; }
+    .sup-chosen { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+    .sup-chosen b { font-size: .95rem; }
+    .sup-acts { display: flex; flex-direction: column; align-items: flex-end; }
+    .price-hint:empty { display: none; }
+    .price-hint { color: var(--brand-dark); }
+    input.auto, select.auto { background: #F2F8FA; border-style: dashed; }
+    .auto-note { color: var(--brand-dark); margin-top: 4px; }
     .vcol.add-slot { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 180px; align-self: stretch;
       border: 2px dashed #B8C7CC; background: #fff; color: var(--brand); cursor: pointer; font: inherit; }
     .vcol.add-slot:hover { border-color: var(--brand); background: var(--brand-soft); }
@@ -351,6 +399,47 @@
     .costtbl tr.ref td { color: var(--muted); border-bottom: 0; }
     .costtbl input.gp { display: inline-block; width: 84px; min-height: 36px; padding: 4px 8px; margin: 0 4px; text-align: right; }
     .costtbl input.gp.invalid { border-color: var(--danger); }
+    /* ticket list: status tabs, search, chips */
+    .list-bar { padding: 12px 16px; }
+    .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+    @media (min-width: 721px) { .tabs { flex-wrap: wrap; overflow: visible; } }
+    .tab { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px;
+      background: #fff; color: var(--text); cursor: pointer; font: inherit; font-size: .9rem; white-space: nowrap; }
+    .tab .n { min-width: 22px; padding: 0 6px; border-radius: 11px; background: var(--bg); font-size: .78rem; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+    .tab.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+    .tab.on .n { background: rgba(255,255,255,.22); color: #fff; }
+    .tab:focus-visible { outline: 3px solid var(--warn); outline-offset: 1px; }
+    .list-tools { display: flex; gap: 8px; margin-top: 10px; }
+    .list-tools input { flex: 1; min-width: 0; }
+    .list-tools .btn .count { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--brand); color: #fff; font-size: .75rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .chips:empty { display: none; }
+    .chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-dark); font-size: .85rem; }
+    .chip button { border: 0; background: transparent; color: inherit; cursor: pointer; width: 26px; height: 26px; border-radius: 50%; }
+    .chip button:hover { background: rgba(0,0,0,.06); }
+    .t-results { transition: opacity .15s; }
+    .t-results.refreshing { opacity: .6; }
+    .list-sum { margin: 4px 0 8px; }
+    .tag-me { background: #FFF4DB; border-color: #F3D08A; color: var(--warn-ink); }
+    .drawer.adv { display: flex; flex-direction: column; }
+    .adv-body { padding: 16px; overflow-y: auto; flex: 1; }
+    .adv-foot { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+    .adv-foot .sep { flex: 1; }
+    /* supplier page + form */
+    .sup-page .page-head .sep { flex: 1; }
+    .drawer.sup-form { width: min(640px, 100%); display: flex; flex-direction: column; }
+    .sup-form fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+    .sup-form .sec-label { margin: 14px 0 8px; }
+    .sup-form .sec-label:first-child { margin-top: 0; }
+    .cert-row { display: grid; grid-template-columns: 1fr 160px auto; gap: 8px; margin-bottom: 6px; }
+    .pg-pick { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+    .pg-opt { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; font-size: .9rem; }
+    .chk-inline { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: .9rem; }
+    .list-tools select { width: auto; min-width: 130px; }
+    .slist tr.off td { opacity: .55; }
+    .sup-log { list-style: none; padding: 0; margin: 0; max-height: 50vh; overflow-y: auto; }
+    .sup-log li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+    @media (max-width: 720px) { .list-tools { flex-wrap: wrap; } .list-tools input { flex-basis: 100%; } }
     .tag-follow { background: #FFF4DB; border-color: #F3D08A; color: var(--warn-ink); }
     .istat { margin-top: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
     .istat.follow { border-left: 4px solid var(--warn); background: #FFFBF0; }
@@ -603,7 +692,7 @@ var HtmlService = {};
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.08-1';
+const APP_VERSION = '2026.10.08-2';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -631,6 +720,8 @@ const TAB = {
   DEPARTMENTS: 'Departments',
   PRODUCT_GROUPS: 'ProductGroups',
   VENDORS: 'Vendors',
+  SUPPLIER_LOGS: 'SupplierLogs',
+  USAGE_LOG: 'UsageLog',
   SETTINGS: 'Settings',
   COUNTERS: 'Counters',
   TICKETS: 'Tickets',
@@ -668,7 +759,18 @@ const SCHEMA = {
   Vendors: {
     key: 'vendor_id',
     cols: ['vendor_id', 'name', 'tax_id', 'country', 'default_currency', 'default_vat_term',
-           'contact_name', 'phone', 'email', 'note', 'is_active', 'created_by', 'created_at', 'updated_at']
+           'contact_name', 'phone', 'email', 'note', 'is_active', 'created_by', 'created_at', 'updated_at',
+           // Supplier master (appended v2026.10.08-2): search names, trade terms used to pre-fill quotations, QC info
+           'short_name', 'supplier_type', 'payment_term', 'incoterm', 'lead_time_days', 'moq', 'validity_days',
+           'clearance_per_kg', 'brands', 'product_groups', 'chat_id', 'certs_json', 'quality_note', 'updated_by', 'version']
+  },
+  UsageLog: {
+    key: 'log_id',
+    cols: ['log_id', 'day', 'email', 'role', 'page', 'views']
+  },
+  SupplierLogs: {
+    key: 'log_id',
+    cols: ['log_id', 'ts', 'vendor_id', 'actor_email', 'actor_role', 'action', 'diff_json']
   },
   Settings: {
     key: 'key',
@@ -814,6 +916,10 @@ const DEFAULT_SETTINGS = [
   ['currencies', JSON.stringify(['THB', 'USD', 'CNY', 'EUR', 'JPY', 'SGD']), 'สกุลเงินใน dropdown'],
   ['max_upload_mb', '20', 'ขนาดไฟล์แนบสูงสุดต่อไฟล์ (MB)'],
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
+  ['fx_defaults', JSON.stringify({ USD: 35 }), 'อัตราแลกเปลี่ยนเริ่มต้น (บาทต่อ 1 หน่วย) ที่เติมให้ในหน้าใบเสนอราคา · SR แก้ได้ทุกใบ · สกุลที่ไม่มีในนี้ SR กรอกเอง'],
+  ['default_validity_days', '30', 'จำนวนวันยืนราคาเริ่มต้น เมื่อ Supplier ไม่ได้ระบุ'],
+  ['default_due_working_days', '3', 'วันที่ต้องการราคาเริ่มต้นในฟอร์ม Sales = วันนี้ + วันทำการ'],
+  ['document_options', JSON.stringify(['COA', 'Health Certificate', 'Halal', 'Spec sheet', 'ใบวิเคราะห์จุลินทรีย์', 'GMP / HACCP']), 'ตัวเลือกเอกสารในฟอร์มขอราคา'],
   ['allowed_mime_types', JSON.stringify([
     'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic',
     'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv'
@@ -1115,8 +1221,26 @@ function toCell_(v) {
 }
 
 /** Append objects as rows (one setValues call). Returns the objects. */
+/** Tabs whose change makes cached ticket lists stale (see listTicketBoard). */
+const BOARD_TABS_ = ['Tickets', 'TicketItems', 'Users', 'Departments', 'ProductGroups', 'Settings'];
+let DATA_DIRTY_ = false;
+function markDataChanged_(tab) {
+  if (BOARD_TABS_.indexOf(tab) === -1) return;
+  if (LOCK_DEPTH_ > 0) DATA_DIRTY_ = true;   // bumped once when the lock is released
+  else bumpDataVersion_();
+}
+/** A new data version = every cached ticket list is ignored from now on. */
+function bumpDataVersion_() {
+  DATA_DIRTY_ = false;
+  PropertiesService.getScriptProperties().setProperty('DATA_VERSION', String(Date.now()) + '-' + Math.floor(Math.random() * 1e6));
+}
+function dataVersion_() {
+  return PropertiesService.getScriptProperties().getProperty('DATA_VERSION') || '0';
+}
+
 function insertRows_(tab, objs) {
   if (!objs.length) return objs;
+  markDataChanged_(tab);
   const meta = headers_(tab);
   const width = meta.headers.length;
   const data = objs.map(function (o) {
@@ -1142,6 +1266,7 @@ function insertRow_(tab, obj) {
  * Returns the merged row object.
  */
 function updateRow_(tab, keyValue, patch) {
+  markDataChanged_(tab);
   const meta = headers_(tab);
   const sh = meta.sheet;
   const lastRow = sh.getLastRow();
@@ -1187,6 +1312,7 @@ function withLock_(fn) {
   } finally {
     LOCK_DEPTH_--;
     invalidate_();
+    if (DATA_DIRTY_) bumpDataVersion_();
     lock.releaseLock();
   }
 }
@@ -2374,7 +2500,11 @@ function ticketDetail_(u, t) {
         out.sales_pricing = null;
         out.sell_price_thb = null;
       } else if (showQuotes) {
-        out.quotations = compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id));
+        out.quotations = compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id)).map(function (q) {
+          const v = q.vendor_id ? findOne_(TAB.VENDORS, 'vendor_id', q.vendor_id) : null;
+          q.supplier_warnings = v ? certWarnings_(normSupplier_(v)) : [];   // shown to SR Manager / GM when reviewing
+          return q;
+        });
         out.pricing = itemPricing_(it, out.quotations.filter(function (q) { return q.is_selected; })[0]);
       } else {
         // Sales side: no cost data leaves the server — selling price only, and only after GM approval
@@ -3230,6 +3360,374 @@ function splitFollowUp_(u, t, it, why, now) {
   return normTicket_(ticket);
 }
 
+// ==== Suppliers.gs ====
+/**
+ * File: Suppliers.gs
+ * Supplier master (stored in the Vendors tab, so existing quotations keep their vendor_id).
+ *
+ *   - SR / SR Manager / Admin add and edit; a new supplier is usable at once (no approval step).
+ *   - GM reads. Sales and Sales Manager never see suppliers (they are purchasing-side data).
+ *   - Nothing is deleted: "ปิดใช้งาน" hides a supplier from search; old quotations still point to it.
+ *   - A quotation stores a copy of every value when it is saved, so editing a supplier later never
+ *     changes an old quotation (audit).
+ *   - Every change is written to SupplierLogs (who, when, old → new).
+ */
+
+const SUPPLIER_EDIT_ROLES_ = ['sr', 'sr_manager', 'admin'];
+const SUPPLIER_TYPES = ['local', 'import'];
+const SUPPLIER_TYPE_LABEL = { local: 'ในประเทศ', import: 'นำเข้า' };
+const SUPPLIER_FIELDS_ = ['name', 'short_name', 'tax_id', 'supplier_type', 'country', 'default_currency', 'default_vat_term',
+  'payment_term', 'incoterm', 'lead_time_days', 'moq', 'validity_days', 'clearance_per_kg', 'brands', 'product_groups',
+  'contact_name', 'phone', 'email', 'chat_id', 'certs', 'quality_note', 'note'];
+
+function requireSupplierView_(u) {
+  if (COST_ROLES_.indexOf(u.role) === -1) throw appError_('FORBIDDEN', 'ข้อมูล Supplier ดูได้เฉพาะฝ่ายจัดหา (SR / SR Manager / GM / Admin)');
+}
+function requireSupplierEdit_(u) {
+  if (SUPPLIER_EDIT_ROLES_.indexOf(u.role) === -1) throw appError_('FORBIDDEN', 'เพิ่ม / แก้ไข Supplier ได้เฉพาะ SR, SR Manager และ Admin');
+}
+
+/** "บริษัท ซีฟู้ด เทรดดิ้ง จำกัด" / "Seafood Trading Co., Ltd." → comparable key (no legal words, spaces, punctuation). */
+function normSupplierName_(name) {
+  let s = String(name || '').toLowerCase();
+  s = s.replace(/บริษัท|บจก\.?|จำกัด|\(มหาชน\)|มหาชน|ห้างหุ้นส่วน|หจก\.?/g, ' ');
+  s = s.replace(/[.,()&\-_/]/g, ' ');
+  s = s.split(/\s+/).filter(function (w) {
+    return w && ['co', 'company', 'ltd', 'limited', 'pvt', 'pte', 'inc', 'corp', 'corporation', 'llc', 'plc', 'pcl', 'public', 'as', 'gmbh', 'sa', 'bhd', 'sdn', 'tbk', 'jsc'].indexOf(w) === -1;
+  }).join('');
+  return s;
+}
+
+function normSupplier_(r) {
+  return {
+    vendor_id: String(r.vendor_id), name: String(r.name || ''), short_name: String(r.short_name || ''), tax_id: String(r.tax_id || ''),
+    supplier_type: String(r.supplier_type || ''), country: String(r.country || ''),
+    default_currency: String(r.default_currency || 'THB'), default_vat_term: String(r.default_vat_term || ''),
+    payment_term: String(r.payment_term || ''), incoterm: String(r.incoterm || ''),
+    lead_time_days: r.lead_time_days === '' || r.lead_time_days == null ? null : Number(r.lead_time_days),
+    moq: r.moq === '' || r.moq == null ? null : Number(r.moq),
+    validity_days: r.validity_days === '' || r.validity_days == null ? null : Number(r.validity_days),
+    clearance_per_kg: r.clearance_per_kg === '' || r.clearance_per_kg == null ? null : Number(r.clearance_per_kg),
+    brands: String(r.brands || ''), product_groups: String(r.product_groups || '').split(',').map(function (x) { return x.trim(); }).filter(String),
+    contact_name: String(r.contact_name || ''), phone: String(r.phone || ''), email: String(r.email || ''), chat_id: String(r.chat_id || ''),
+    certs: parseJson_(r.certs_json, []), quality_note: String(r.quality_note || ''), note: String(r.note || ''),
+    is_active: r.is_active === '' || r.is_active == null ? true : toBool_(r.is_active),
+    version: Number(r.version || 1),
+    created_by: String(r.created_by || ''), created_at: isoOrBlank_(r.created_at),
+    updated_by: String(r.updated_by || ''), updated_at: isoOrBlank_(r.updated_at)
+  };
+}
+
+/** Certificates that expired (or expire within 30 days) — shown as warnings, never blocking. */
+function certWarnings_(s) {
+  const today = todayBkk_();
+  const soon = fmtDate_(new Date(Date.now() + 30 * 86400000));
+  return (s.certs || []).filter(function (c) { return c && c.expiry; }).map(function (c) {
+    if (c.expiry < today) return { name: c.name, expiry: c.expiry, level: 'expired' };
+    if (c.expiry <= soon) return { name: c.name, expiry: c.expiry, level: 'soon' };
+    return null;
+  }).filter(Boolean);
+}
+
+/** Supplier list (+ usage counts) for the Supplier page and the pricing-page search. */
+function listSuppliers() {
+  return api_('listSuppliers', function () {
+    const u = currentUser_();
+    requireSupplierView_(u);
+    const used = {};
+    rows_(TAB.QUOTATIONS).forEach(function (q) {
+      if (toBool_(q.is_deleted) || !q.vendor_id) return;
+      const k = String(q.vendor_id);
+      const x = used[k] = used[k] || { quotes: 0, wins: 0, last: '' };
+      x.quotes++;
+      if (toBool_(q.is_selected)) x.wins++;
+      const at = isoOrBlank_(q.updated_at || q.created_at);
+      if (at > x.last) x.last = at;
+    });
+    const rows = rows_(TAB.VENDORS).map(normSupplier_).map(function (s) {
+      const x = used[s.vendor_id] || { quotes: 0, wins: 0, last: '' };
+      s.quote_count = x.quotes; s.win_count = x.wins; s.last_used_at = x.last;
+      s.cert_warnings = certWarnings_(s);
+      return s;
+    }).sort(function (a, b) { return (b.is_active - a.is_active) || a.name.localeCompare(b.name, 'th'); });
+    return { suppliers: rows, can_edit: SUPPLIER_EDIT_ROLES_.indexOf(u.role) !== -1, can_manage: ['sr_manager', 'admin'].indexOf(u.role) !== -1 };
+  });
+}
+
+function cleanSupplier_(p, groups) {
+  const out = {};
+  out.name = requireText_(p.name, 'ชื่อ Supplier', 200);
+  out.short_name = cleanText_(p.short_name, 200);
+  out.tax_id = cleanText_(p.tax_id, 30).replace(/[\s-]/g, '');
+  if (out.tax_id && !/^[0-9A-Za-z]{5,20}$/.test(out.tax_id)) throw appError_('VALIDATION', 'เลขผู้เสียภาษีต้องเป็นตัวเลข/ตัวอักษร 5–20 หลัก', { field: 'tax_id' });
+  out.supplier_type = String(p.supplier_type || '');
+  if (SUPPLIER_TYPES.indexOf(out.supplier_type) === -1) throw appError_('VALIDATION', 'กรุณาเลือกประเภท Supplier (ในประเทศ / นำเข้า)', { field: 'supplier_type' });
+  out.country = cleanText_(p.country, 60);
+  out.default_currency = String(p.default_currency || '').toUpperCase();
+  if (setting_('currencies', ['THB']).indexOf(out.default_currency) === -1) throw appError_('VALIDATION', 'สกุลเงินไม่อยู่ในรายการ', { field: 'default_currency' });
+  out.default_vat_term = String(p.default_vat_term || '');
+  if (VAT_TERMS.indexOf(out.default_vat_term) === -1) throw appError_('VALIDATION', 'กรุณาเลือกเงื่อนไข VAT', { field: 'default_vat_term' });
+  out.payment_term = cleanText_(p.payment_term, 100);
+  out.incoterm = cleanText_(p.incoterm, 30);
+  if (out.incoterm && INCOTERMS.indexOf(out.incoterm) === -1) throw appError_('VALIDATION', 'Incoterm ไม่อยู่ในรายการ', { field: 'incoterm' });
+  const num = function (k, label, o) {
+    try { return toNumber_(p[k], label, Object.assign({ allowBlank: true, min: 0 }, o || {})); }
+    catch (e) { if (e.isApp) e.details = { field: k }; throw e; }
+  };
+  out.lead_time_days = num('lead_time_days', 'Lead time (วัน)', { max: 365 });
+  out.moq = num('moq', 'MOQ');
+  out.validity_days = num('validity_days', 'จำนวนวันยืนราคา', { max: 365 });
+  out.clearance_per_kg = num('clearance_per_kg', 'ค่าเคลียร์ประมาณการ (บาท/กก.)');
+  ['lead_time_days', 'moq', 'validity_days', 'clearance_per_kg'].forEach(function (k) { if (out[k] === null) out[k] = ''; });
+  out.brands = cleanText_(p.brands, 300);
+  const pg = (Array.isArray(p.product_groups) ? p.product_groups : String(p.product_groups || '').split(','))
+    .map(function (x) { return String(x).trim(); }).filter(String);
+  pg.forEach(function (c) { if (!groups[c]) throw appError_('VALIDATION', 'ไม่พบกลุ่มสินค้า ' + c, { field: 'product_groups' }); });
+  out.product_groups = pg.join(',');
+  out.contact_name = cleanText_(p.contact_name, 100);
+  out.phone = cleanText_(p.phone, 50);
+  out.email = cleanText_(p.email, 120).toLowerCase();
+  if (out.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(out.email)) throw appError_('VALIDATION', 'อีเมลไม่ถูกต้อง', { field: 'email' });
+  out.chat_id = cleanText_(p.chat_id, 100);
+  const certs = (Array.isArray(p.certs) ? p.certs : []).slice(0, 20).map(function (c) {
+    const name = cleanText_(c && c.name, 60);
+    if (!name) return null;
+    const expiry = c.expiry ? fmtDate_(parseYmd_(c.expiry, 'วันหมดอายุใบรับรอง ' + name, true)) : '';
+    return { name: name, expiry: expiry };
+  }).filter(Boolean);
+  out.certs_json = JSON.stringify(certs);
+  out.quality_note = cleanText_(p.quality_note, 1000);
+  out.note = cleanText_(p.note, 1000);
+  return out;
+}
+
+/** Same normalized name = duplicate (refused); one name inside the other = similar (asks once). */
+function supplierDuplicates_(clean, selfId) {
+  const key = normSupplierName_(clean.name);
+  const others = rows_(TAB.VENDORS).map(normSupplier_).filter(function (s) { return s.vendor_id !== selfId; });
+  const same = others.filter(function (s) { return normSupplierName_(s.name) === key || (s.short_name && normSupplierName_(s.short_name) === key); });
+  const tax = clean.tax_id ? others.filter(function (s) { return s.tax_id && s.tax_id === clean.tax_id; }) : [];
+  const similar = key.length >= 4 ? others.filter(function (s) {
+    const k = normSupplierName_(s.name);
+    return k && k !== key && (k.indexOf(key) !== -1 || key.indexOf(k) !== -1);
+  }) : [];
+  return { same: same, tax: tax, similar: similar };
+}
+
+/**
+ * Create or update a supplier. payload = fields + vendor_id? + expected_version? + allow_similar?
+ * Returns { supplier }. A new supplier can be used in a quotation right away.
+ */
+function saveSupplier(payload) {
+  return api_('saveSupplier', function () {
+    return withLock_(function () {
+      const u = currentUser_();
+      requireSupplierEdit_(u);
+      return { supplier: saveSupplierCore_(u, payload || {}) };
+    });
+  });
+}
+
+function saveSupplierCore_(u, p) {
+  const groups = {};
+  rows_(TAB.PRODUCT_GROUPS).forEach(function (g) { groups[String(g.code)] = g; });
+  const clean = cleanSupplier_(p, groups);
+  const id = cleanText_(p.vendor_id, 64);
+  const existing = id ? findOne_(TAB.VENDORS, 'vendor_id', id) : null;
+  if (id && !existing) throw appError_('NOT_FOUND', 'ไม่พบ Supplier');
+  if (existing && Number(p.expected_version) !== Number(existing.version || 1)) {
+    throw appError_('VERSION_CONFLICT', 'ข้อมูล Supplier นี้ถูกแก้โดยผู้ใช้อื่นแล้ว กรุณาเปิดใหม่แล้วแก้อีกครั้ง');
+  }
+  const dup = supplierDuplicates_(clean, id);
+  if (dup.same.length) {
+    throw appError_('DUPLICATE', 'มี Supplier ชื่อนี้อยู่แล้ว: ' + dup.same[0].name, { field: 'name', vendor_id: dup.same[0].vendor_id });
+  }
+  if (dup.tax.length) {
+    throw appError_('DUPLICATE', 'เลขผู้เสียภาษีนี้เป็นของ ' + dup.tax[0].name + ' อยู่แล้ว', { field: 'tax_id', vendor_id: dup.tax[0].vendor_id });
+  }
+  if (dup.similar.length && !p.allow_similar && !existing) {
+    throw appError_('SIMILAR', 'มีชื่อคล้ายกัน: ' + dup.similar.slice(0, 3).map(function (s) { return s.name; }).join(', ') + ' — ถ้าเป็นคนละบริษัทกด “บันทึกต่อ”',
+      { similar: dup.similar.slice(0, 3).map(function (s) { return { vendor_id: s.vendor_id, name: s.name }; }) });
+  }
+  const now = new Date();
+  let saved;
+  if (existing) {
+    const before = normSupplier_(existing);
+    clean.updated_by = u.email; clean.updated_at = now; clean.version = Number(existing.version || 1) + 1;
+    saved = updateRow_(TAB.VENDORS, id, clean);
+    const diff = {};
+    SUPPLIER_FIELDS_.forEach(function (k) {
+      const a = k === 'certs' ? JSON.stringify(before.certs) : String(before[k] == null ? '' : before[k]);
+      const b = k === 'certs' ? clean.certs_json : String(clean[k] == null ? '' : clean[k]);
+      if (k === 'product_groups') { if (before.product_groups.join(',') !== clean.product_groups) diff[k] = { old: before.product_groups.join(','), 'new': clean.product_groups }; return; }
+      if (a !== b) diff[k] = { old: a, 'new': b };
+    });
+    if (Object.keys(diff).length) supplierLog_(u, id, 'updated', diff);
+  } else {
+    const row = Object.assign({ vendor_id: nextSupplierId_(), is_active: true, created_by: u.email, created_at: now,
+      updated_by: u.email, updated_at: now, version: 1 }, clean);
+    insertRow_(TAB.VENDORS, row);
+    supplierLog_(u, row.vendor_id, 'created', { name: { old: '', 'new': row.name } });
+    saved = row;
+  }
+  return normSupplier_(findOne_(TAB.VENDORS, 'vendor_id', String(saved.vendor_id)));
+}
+
+/** SUP-0001 style ids; old V-0001 ids stay as they are. Must run inside withLock_. */
+function nextSupplierId_() {
+  const n = nextCounter_('supplier_no');
+  let id = 'SUP-' + ('000' + n).slice(-Math.max(4, String(n).length));
+  while (findOne_(TAB.VENDORS, 'vendor_id', id)) id = 'SUP-' + ('000' + nextCounter_('supplier_no')).slice(-4);
+  return id;
+}
+
+function supplierLog_(u, vendorId, action, diff) {
+  insertRow_(TAB.SUPPLIER_LOGS, { log_id: uuid_(), ts: new Date(), vendor_id: vendorId, actor_email: u.email, actor_role: u.role,
+    action: action, diff_json: JSON.stringify(diff || {}) });
+}
+
+/** Turn a supplier off (hidden from search) or back on. SR Manager / Admin. */
+function setSupplierActive(vendorId, active, expectedVersion) {
+  return api_('setSupplierActive', function () {
+    return withLock_(function () {
+      const u = currentUser_();
+      if (['sr_manager', 'admin'].indexOf(u.role) === -1) throw appError_('FORBIDDEN', 'ปิด / เปิดใช้งาน Supplier ได้เฉพาะ SR Manager และ Admin');
+      const r = findOne_(TAB.VENDORS, 'vendor_id', cleanText_(vendorId, 64));
+      if (!r) throw appError_('NOT_FOUND', 'ไม่พบ Supplier');
+      if (Number(expectedVersion) !== Number(r.version || 1)) throw appError_('VERSION_CONFLICT', 'ข้อมูล Supplier นี้ถูกแก้โดยผู้ใช้อื่นแล้ว กรุณาเปิดใหม่');
+      const on = !!active;
+      updateRow_(TAB.VENDORS, r.vendor_id, { is_active: on, version: Number(r.version || 1) + 1, updated_by: u.email, updated_at: new Date() });
+      supplierLog_(u, String(r.vendor_id), on ? 'activated' : 'deactivated', { is_active: { old: String(!on), 'new': String(on) } });
+      return { supplier: normSupplier_(findOne_(TAB.VENDORS, 'vendor_id', String(r.vendor_id))) };
+    });
+  });
+}
+
+/**
+ * Merge a duplicate into the supplier that stays: quotations are re-pointed, the duplicate is
+ * turned off. Quotation values themselves are not changed (they are snapshots). SR Manager / Admin.
+ */
+function mergeSuppliers(fromId, intoId) {
+  return api_('mergeSuppliers', function () {
+    return withLock_(function () {
+      const u = currentUser_();
+      if (['sr_manager', 'admin'].indexOf(u.role) === -1) throw appError_('FORBIDDEN', 'รวม Supplier ได้เฉพาะ SR Manager และ Admin');
+      const from = findOne_(TAB.VENDORS, 'vendor_id', cleanText_(fromId, 64));
+      const into = findOne_(TAB.VENDORS, 'vendor_id', cleanText_(intoId, 64));
+      if (!from || !into) throw appError_('NOT_FOUND', 'ไม่พบ Supplier');
+      if (String(from.vendor_id) === String(into.vendor_id)) throw appError_('VALIDATION', 'เลือก Supplier คนละรายการ');
+      let moved = 0;
+      rows_(TAB.QUOTATIONS).filter(function (q) { return String(q.vendor_id) === String(from.vendor_id); }).forEach(function (q) {
+        updateRow_(TAB.QUOTATIONS, q.quote_id, { vendor_id: String(into.vendor_id) });
+        moved++;
+      });
+      updateRow_(TAB.VENDORS, from.vendor_id, { is_active: false, note: cleanText_('รวมเข้ากับ ' + into.vendor_id + ' ' + into.name + (from.note ? ' · ' + from.note : ''), 1000),
+        version: Number(from.version || 1) + 1, updated_by: u.email, updated_at: new Date() });
+      supplierLog_(u, String(from.vendor_id), 'merged', { into: { old: '', 'new': String(into.vendor_id) }, quotations: { old: '', 'new': String(moved) } });
+      supplierLog_(u, String(into.vendor_id), 'merged_in', { from: { old: '', 'new': String(from.vendor_id) } });
+      return { moved_quotations: moved };
+    });
+  });
+}
+
+/** Change history of one supplier (newest first). */
+function getSupplierLog(vendorId) {
+  return api_('getSupplierLog', function () {
+    const u = currentUser_();
+    requireSupplierView_(u);
+    const names = {};
+    rows_(TAB.USERS).forEach(function (r) { names[String(r.email).toLowerCase()] = String(r.full_name); });
+    return findAll_(TAB.SUPPLIER_LOGS, 'vendor_id', cleanText_(vendorId, 64)).map(function (l) {
+      return { ts: isoOrBlank_(l.ts), action: String(l.action), actor_name: names[String(l.actor_email).toLowerCase()] || String(l.actor_email),
+        diff: parseJson_(l.diff_json, {}) };
+    }).sort(function (a, b) { return a.ts < b.ts ? 1 : -1; });
+  });
+}
+
+/**
+ * For the pricing page: per item, the latest quotation of each supplier for the SAME product
+ * (other tickets, newest first) — shown as a hint under the price box, never filled in.
+ * Falls back to the same product group when the product name differs.
+ */
+function supplierHints(ticketId) {
+  return api_('supplierHints', function () {
+    const u = currentUser_();
+    requireSupplierView_(u);
+    const t = ticketForUser_(u, ticketId);
+    const items = activeItemsOf_(t.ticket_id);
+    const key = function (s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); };
+    const itemsById = {};
+    rows_(TAB.ITEMS).forEach(function (r) { itemsById[String(r.item_id)] = r; });
+    const quotes = rows_(TAB.QUOTATIONS).filter(function (q) { return !toBool_(q.is_deleted) && q.vendor_id && String(q.ticket_id) !== t.ticket_id; })
+      .map(function (q) { return { q: q, it: itemsById[String(q.item_id)] }; })
+      .filter(function (x) { return x.it; })
+      .sort(function (a, b) { return isoOrBlank_(b.q.updated_at || b.q.created_at) < isoOrBlank_(a.q.updated_at || a.q.created_at) ? -1 : 1; });
+    const out = {};
+    items.forEach(function (it) {
+      const map = {};
+      quotes.forEach(function (x) {
+        const vid = String(x.q.vendor_id);
+        const same = key(x.it.product_name) === key(it.product_name);
+        const group = String(x.it.product_group_code) === it.product_group_code;
+        if (!same && !group) return;
+        const prev = map[vid];
+        if (prev && (prev.match === 'product' || !same)) return;
+        const tk = findOne_(TAB.TICKETS, 'ticket_id', x.q.ticket_id);
+        map[vid] = {
+          match: same ? 'product' : 'group', product_name: String(x.it.product_name),
+          unit_price: Number(x.q.unit_price), currency: String(x.q.currency), vat_term: String(x.q.vat_term),
+          at: fmtDate_(x.q.updated_at || x.q.created_at), ticket_no: tk ? String(tk.ticket_no) : '',
+          packing: String(x.q.packing || ''), shelf_life: String(x.q.shelf_life || ''), brand: String(x.q.brand || ''),
+          origin_country: String(x.q.origin_country || '')
+        };
+      });
+      out[it.item_id] = map;
+    });
+    return { hints: out };
+  });
+}
+
+/**
+ * One-off (safe to re-run): suppliers for every vendor name typed into old quotations, and
+ * vendor_id filled in on those quotations. Owner / Admin. Also run by setupDatabase().
+ */
+function migrateSuppliers() {
+  requireAdminOrOwner_();
+  return withLock_(function () { return migrateSuppliersCore_(); });
+}
+
+function migrateSuppliersCore_() {
+  const now = new Date();
+  const byKey = {};
+  rows_(TAB.VENDORS).forEach(function (v) {
+    byKey[normSupplierName_(v.name)] = String(v.vendor_id);
+    const patch = {};
+    if (!v.version) patch.version = 1;
+    if (!v.supplier_type) patch.supplier_type = String(v.default_currency || 'THB') === 'THB' ? 'local' : 'import';
+    if (Object.keys(patch).length) updateRow_(TAB.VENDORS, v.vendor_id, patch);
+  });
+  let created = 0;
+  let linked = 0;
+  rows_(TAB.QUOTATIONS).forEach(function (q) {
+    if (q.vendor_id || !String(q.vendor_name || '').trim()) return;
+    const k = normSupplierName_(q.vendor_name);
+    if (!k) return;
+    let id = byKey[k];
+    if (!id) {
+      id = nextSupplierId_();
+      insertRow_(TAB.VENDORS, { vendor_id: id, name: String(q.vendor_name).trim(), supplier_type: String(q.currency) === 'THB' ? 'local' : 'import',
+        country: String(q.origin_country || ''), default_currency: String(q.currency || 'THB'), default_vat_term: String(q.vat_term || ''),
+        payment_term: String(q.payment_term || ''), incoterm: String(q.incoterm || ''), is_active: true,
+        created_by: 'migration', created_at: now, updated_by: 'migration', updated_at: now, version: 1 });
+      byKey[k] = id;
+      created++;
+    }
+    updateRow_(TAB.QUOTATIONS, q.quote_id, { vendor_id: id });
+    linked++;
+  });
+  return { created: created, linked: linked };
+}
+
 // ==== Api.gs ====
 /**
  * File: Api.gs
@@ -3448,8 +3946,40 @@ function pollData_(u) {
 }
 
 /** Called every ~60 s by the page while it is visible. */
-function getPoll() {
-  return api_('getPoll', function () { return pollData_(currentUser_()); });
+/**
+ * Called every ~60 s by the page while it is visible. `views` = pages opened since the last poll
+ * ({page: count}) → UsageLog, so unused screens can be found before anything is removed.
+ */
+function getPoll(views) {
+  return api_('getPoll', function () {
+    const u = currentUser_();
+    logUsage_(u, views);
+    return pollData_(u);
+  });
+}
+
+function logUsage_(u, views) {
+  if (!views || typeof views !== 'object') return;
+  const day = todayBkk_();
+  const rowsToAdd = Object.keys(views).filter(function (p) { return PAGES_.indexOf(p) !== -1 && Number(views[p]) > 0; }).map(function (p) {
+    return { log_id: uuid_(), day: day, email: u.email, role: u.role, page: p, views: Math.min(Number(views[p]) || 0, 500) };
+  });
+  if (rowsToAdd.length) {
+    try { insertRows_(TAB.USAGE_LOG, rowsToAdd); } catch (e) { console.warn('usage log failed', e); }   // never breaks polling
+  }
+}
+
+/** Admin home card: delivery problems in the last 24 h. */
+function getAdminHealth() {
+  return api_('getAdminHealth', function () {
+    const u = currentUser_();
+    if (u.role !== 'admin') throw appError_('FORBIDDEN', 'เฉพาะผู้ดูแลระบบ');
+    const since = Date.now() - 86400000;
+    const recent = rows_(TAB.NOTIFICATIONS).filter(function (n) { return new Date(n.created_at).getTime() > since; });
+    const count = function (st) { return recent.filter(function (n) { return String(n.lark_status) === st; }).length; };
+    return { lark_failed: count('failed'), lark_no_user: count('no_lark_user'), lark_no_group: count('no_group'), lark_pending: count('pending'),
+      lark_configured: larkConfigured_(), db_version: APP_VERSION };
+  });
 }
 
 function getNotifications(limit) {
@@ -3593,6 +4123,110 @@ function myOpenFollowUps_(u) {
     if (u.role === 'sr') return t.sr_email === u.email;
     return true;
   }).sort(function (a, b) { return new Date(a.created_at) - new Date(b.created_at); });
+}
+
+// =============================================================================
+// Ticket board — ONE call returns every ticket the user may see; the page filters,
+// searches and counts in the browser (no round trip per filter = no lag, no race).
+// =============================================================================
+
+const BOARD_TTL_SEC_ = 300;
+const BOARD_CHUNK_ = 90000;   // CacheService: 100 KB per value
+
+/**
+ * Rows = summaryRow_ (no prices) + flags for the status tabs.
+ * Cached per user for 5 minutes; any write to tickets / items / users / settings starts a
+ * new data version, so a cached list is never older than the last change.
+ */
+function listTicketBoard() {
+  return api_('listTicketBoard', function () {
+    const u = currentUser_();
+    const key = 'brd:' + dataVersion_() + ':' + u.email;
+    const cached = boardCacheGet_(key);
+    if (cached) { cached.cached = true; return cached; }
+    const now = new Date();
+    const ctx = listContext_();
+    const rows = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return canSeeTicket_(u, t); }).map(function (t) {
+      const r = summaryRow_(t, ctx, now);
+      r.is_inbox = isAssignee_(u, t, ctx);
+      r.is_mine = u.role === 'sr' ? t.sr_email === u.email : t.requestor_email === u.email;
+      r.is_follow_up = !!t.parent_ticket_id;
+      r.outcome = outcome_(t);
+      r.priority = String(t.priority);
+      return r;
+    });
+    const out = { rows: rows, generated_at: now.toISOString(), cached: false };
+    boardCachePut_(key, out);
+    return out;
+  });
+}
+
+function boardCacheGet_(key) {
+  try {
+    const c = CacheService.getScriptCache();
+    const head = c.get(key);
+    if (!head) return null;
+    const n = Number(head);
+    let s = '';
+    for (let i = 0; i < n; i++) {
+      const part = c.get(key + ':' + i);
+      if (part === null) return null;
+      s += part;
+    }
+    return JSON.parse(s);
+  } catch (e) {
+    return null;   // a cache problem only costs a fresh read
+  }
+}
+
+function boardCachePut_(key, obj) {
+  try {
+    const s = JSON.stringify(obj);
+    if (s.length > BOARD_CHUNK_ * 20) return;   // > ~1.8 MB: just don't cache
+    const c = CacheService.getScriptCache();
+    const n = Math.ceil(s.length / BOARD_CHUNK_) || 1;
+    for (let i = 0; i < n; i++) c.put(key + ':' + i, s.slice(i * BOARD_CHUNK_, (i + 1) * BOARD_CHUNK_), BOARD_TTL_SEC_);
+    c.put(key, String(n), BOARD_TTL_SEC_);
+  } catch (e) {
+    console.warn('board cache put failed', e);
+  }
+}
+
+/**
+ * Sales form helpers — ONLY the signed-in Sales' own requests: their customers (newest first, with the
+ * documents asked last time) and their products (with the specs used last time). Never other Sales' data.
+ */
+function getSalesHistory() {
+  return api_('getSalesHistory', function () {
+    const u = currentUser_();
+    if (u.role !== 'sales') return { customers: [], products: [] };
+    const mine = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return t.requestor_email === u.email; })
+      .sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+    const customers = [];
+    const seenC = {};
+    mine.forEach(function (t) {
+      const name = String(t.customer_name || '').trim();
+      const k = name.toLowerCase();
+      if (!name || seenC[k]) return;
+      seenC[k] = true;
+      customers.push({ name: name, documents_needed: String(t.documents_needed || ''), last_at: fmtDate_(t.created_at) });
+    });
+    const ids = {};
+    mine.forEach(function (t, i) { ids[t.ticket_id] = i; });
+    const products = [];
+    const seenP = {};
+    rows_(TAB.ITEMS).filter(function (r) { return !toBool_(r.is_deleted) && ids[String(r.ticket_id)] !== undefined; })
+      .sort(function (a, b) { return ids[String(a.ticket_id)] - ids[String(b.ticket_id)]; })
+      .forEach(function (r) {
+        const name = String(r.product_name || '').trim();
+        const k = name.toLowerCase();
+        if (!name || seenP[k]) return;
+        seenP[k] = true;
+        products.push({ name: name, product_group_code: String(r.product_group_code || ''), net_weight: String(r.net_weight || ''),
+          size: String(r.size || ''), packing_size: String(r.packing_size || ''), uom: String(r.uom || '') });
+      });
+    return { customers: customers.slice(0, 100), products: products.slice(0, 200) };
+  });
 }
 
 // ==== Files.gs ====
@@ -4238,7 +4872,7 @@ function runSelfTest() {
  * Deployment settings: Execute as = Me (owner), Who has access = Anyone within <company domain>.
  */
 
-const PAGES_ = ['dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing'];
+const PAGES_ = ['home', 'dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
 const PARTIALS_ = ['App', 'PageDashboard', 'PageTickets', 'PageTicket', 'PageForm', 'PagePricing'];
 
 function doGet(e) {
@@ -4266,7 +4900,7 @@ function getBootstrap() {
     return {
       me: { email: u.email, full_name: u.full_name, role: u.role, role_label: ROLE_LABEL_TH[u.role], department_code: u.department_code },
       menu: menuFor_(u),
-      ref: referenceData_(),
+      ref: referenceData_(u),
       poll: pollData_(u),
       approval_route: approvalRouteNote_(u),
       app_version: APP_VERSION,
@@ -4275,37 +4909,32 @@ function getBootstrap() {
   });
 }
 
-/** ERP module menu (right-hand sidebar). Grouped by module; the browser renders `group` headings in order. */
+/**
+ * Module menu (left sidebar) — at most 5 items per role. Status views (รอฉัน, ของฉัน, คิว, ส่งตามหลัง …)
+ * are tabs on the ใบเสนอราคา page, not menu items; statistics live under รายงาน (managers only).
+ */
 function menuFor_(u) {
-  const G_OVERVIEW = 'ภาพรวม';
-  const G_WORK = 'งานของฉัน';
-  const G_REQ = 'ใบขอราคา';
-  const G_SRC = 'จัดหาราคา (Sourcing)';
-  const G_GM = 'อนุมัติ (GM)';
-  const m = [{ key: 'dashboard', group: G_OVERVIEW, icon: '📊', label: 'Dashboard', route: { page: 'dashboard' } }];
-  m.push({ key: 'inbox', group: G_WORK, icon: '📥', label: 'งานรอฉัน', route: { page: 'tickets', scope: 'inbox' }, badge: 'inbox' });
+  const MAIN = 'เมนูหลัก';
+  const m = [{ key: 'home', group: MAIN, icon: '🏠', label: 'หน้าแรก', route: { page: 'home' } }];
+  m.push({ key: 'tickets', group: MAIN, icon: '📄', label: 'ใบเสนอราคา', route: { page: 'tickets' }, badge: 'inbox' });
+  if (u.role === 'sales') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
   if (u.role === 'gm') {
     // two separate GM approvals: sales side (the request) and purchasing side (vendor price + selling price)
-    m.push({ key: 'gm_sales', group: G_GM, icon: '🛒', label: 'อนุมัติฝั่งขาย', hint: 'คำขอราคาจาก Sales',
+    m.push({ key: 'gm_sales', group: MAIN, icon: '🛒', label: 'อนุมัติฝั่งขาย', hint: 'คำขอราคาจาก Sales',
       route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm' }, badge: 'gm_sales' });
-    m.push({ key: 'gm_buy', group: G_GM, icon: '📦', label: 'อนุมัติฝั่งซื้อ', hint: 'ราคาซื้อ + ราคาขาย จาก SR',
+    m.push({ key: 'gm_buy', group: MAIN, icon: '📦', label: 'อนุมัติฝั่งซื้อ', hint: 'ราคาซื้อ + ราคาขาย จาก SR',
       route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm_price' }, badge: 'gm_buy' });
   }
-  if (u.role === 'sales') {
-    m.push({ key: 'new', group: G_REQ, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
-    m.push({ key: 'mine', group: G_REQ, icon: '📄', label: 'ใบขอราคาของฉัน', route: { page: 'tickets', scope: 'mine' } });
+  if (['sr', 'sr_manager', 'admin'].indexOf(u.role) !== -1) {
+    m.push({ key: 'suppliers', group: MAIN, icon: '🏭', label: 'Supplier', route: { page: 'suppliers' } });
   }
-  if (u.role === 'sr' || u.role === 'sr_manager') {
-    m.push({ key: 'queue', group: G_SRC, icon: '🧾', label: 'คิวรอรับงาน', route: { page: 'tickets', scope: 'queue' } });
+  if (['manager', 'sr_manager', 'gm', 'admin'].indexOf(u.role) !== -1) {
+    m.push({ key: 'reports', group: MAIN, icon: '📊', label: 'รายงาน', route: { page: 'dashboard' } });
   }
-  if (u.role === 'sr') m.push({ key: 'mine', group: G_SRC, icon: '💼', label: 'งานของฉัน (SR)', route: { page: 'tickets', scope: 'mine' } });
-  m.push({ key: 'follow', group: G_WORK, icon: '📌', label: 'ส่งตามหลัง (ค้าง)', hint: 'รายการที่ SR แยกไปหาราคาต่อ',
-    route: { page: 'tickets', scope: u.role === 'sales' || u.role === 'sr' ? 'mine' : 'all', follow: '1', outcome: 'open' }, badge: 'follow_up' });
-  if (u.role !== 'sales') m.push({ key: 'all', group: G_REQ, icon: '📚', label: 'ใบขอราคาทั้งหมด', route: { page: 'tickets', scope: 'all' } });
   return m;
 }
 
-function referenceData_() {
+function referenceData_(me) {
   const groups = rows_(TAB.PRODUCT_GROUPS)
     .filter(function (g) { return toBool_(g.is_active); })
     .map(function (g) {
@@ -4314,12 +4943,13 @@ function referenceData_() {
     .sort(function (a, b) { return a.sort_order - b.sort_order; });
   const srs = activeUsersByRole_('sr').map(function (u) { return { email: u.email, full_name: u.full_name }; });
   const salesUsers = activeUsersByRole_('sales').map(function (u) { return { email: u.email, full_name: u.full_name }; });
-  const vendors = rows_(TAB.VENDORS)
-    .filter(function (v) { return toBool_(v.is_active); })
-    .map(function (v) {
-      return { vendor_id: String(v.vendor_id), name: String(v.name), default_currency: String(v.default_currency || 'THB'),
-        default_vat_term: String(v.default_vat_term || '') };
-    });
+  // Suppliers are purchasing-side data: only cost roles receive them (never Sales / Sales Manager)
+  const vendors = me && COST_ROLES_.indexOf(me.role) !== -1
+    ? rows_(TAB.VENDORS).map(normSupplier_).filter(function (v) { return v.is_active; }).map(function (v) {
+      v.cert_warnings = certWarnings_(v);
+      return v;
+    })
+    : [];
   return {
     product_groups: groups,
     sr_users: srs,
@@ -4327,6 +4957,11 @@ function referenceData_() {
     vendors: vendors,
     currencies: setting_('currencies', ['THB']),
     vat_rate: vatRate_(),
+    fx_defaults: setting_('fx_defaults', { USD: 35 }),
+    default_validity_days: Number(setting_('default_validity_days', 30)),
+    default_due_working_days: Number(setting_('default_due_working_days', 3)),
+    document_options: setting_('document_options', []),
+    supplier_types: SUPPLIER_TYPES.map(function (k) { return { key: k, label: SUPPLIER_TYPE_LABEL[k] }; }),
     default_gp_percent: defaultGp_(),
     vat_terms: VAT_TERMS.map(function (k) { return { key: k, label: VAT_TERM_LABEL[k] }; }),
     incoterms: INCOTERMS.map(function (k) { return { key: k, label: INCOTERM_LABEL[k] }; }),
@@ -4398,6 +5033,8 @@ function setupDatabase() {
     props.setProperty(CFG.PROP.DRIVE_ROOT_ID, folder.getId());
     report.push('Created Drive folder ' + folder.getId());
   }
+  const mig = withLock_(function () { return migrateSuppliersCore_(); });
+  report.push('Suppliers from old quotations: +' + mig.created + ' created, ' + mig.linked + ' quotations linked');
   console.log(report.join('\n'));
   console.log('Database URL: ' + ss.getUrl());
   return report;
@@ -4770,7 +5407,7 @@ function fakeDrive_() {
 }
 
 
-  const PUBLIC = { verifyLogChain: verifyLogChain, createTicket: createTicket, transitionTicket: transitionTicket, getTicket: getTicket, updateTicketRequest: updateTicketRequest, saveItem: saveItem, deleteItem: deleteItem, updateChecklist: updateChecklist, saveQuotation: saveQuotation, deleteQuotation: deleteQuotation, selectQuotation: selectQuotation, saveSourcingDraft: saveSourcingDraft, saveChecklist: saveChecklist, setItemQuoteStatus: setItemQuoteStatus, listTickets: listTickets, getPoll: getPoll, getNotifications: getNotifications, markNotificationsRead: markNotificationsRead, getDashboard: getDashboard, beginUpload: beginUpload, uploadChunk: uploadChunk, deleteAttachment: deleteAttachment, openAttachment: openAttachment, dispatchNotifications: dispatchNotifications, testLarkConnection: testLarkConnection, installTriggers: installTriggers, checkSlaAlerts: checkSlaAlerts, weeklyBackup: weeklyBackup, runSelfTest: runSelfTest, doGet: doGet, getBootstrap: getBootstrap, setupDatabase: setupDatabase, seedMasterData: seedMasterData, seedDemoData: seedDemoData };
+  const PUBLIC = { verifyLogChain: verifyLogChain, createTicket: createTicket, transitionTicket: transitionTicket, getTicket: getTicket, updateTicketRequest: updateTicketRequest, saveItem: saveItem, deleteItem: deleteItem, updateChecklist: updateChecklist, saveQuotation: saveQuotation, deleteQuotation: deleteQuotation, selectQuotation: selectQuotation, saveSourcingDraft: saveSourcingDraft, saveChecklist: saveChecklist, setItemQuoteStatus: setItemQuoteStatus, listSuppliers: listSuppliers, saveSupplier: saveSupplier, setSupplierActive: setSupplierActive, mergeSuppliers: mergeSuppliers, getSupplierLog: getSupplierLog, supplierHints: supplierHints, migrateSuppliers: migrateSuppliers, listTickets: listTickets, getPoll: getPoll, getAdminHealth: getAdminHealth, getNotifications: getNotifications, markNotificationsRead: markNotificationsRead, getDashboard: getDashboard, listTicketBoard: listTicketBoard, getSalesHistory: getSalesHistory, beginUpload: beginUpload, uploadChunk: uploadChunk, deleteAttachment: deleteAttachment, openAttachment: openAttachment, dispatchNotifications: dispatchNotifications, testLarkConnection: testLarkConnection, installTriggers: installTriggers, checkSlaAlerts: checkSlaAlerts, weeklyBackup: weeklyBackup, runSelfTest: runSelfTest, doGet: doGet, getBootstrap: getBootstrap, setupDatabase: setupDatabase, seedMasterData: seedMasterData, seedDemoData: seedDemoData };
   setupDatabase();
   seedDemoData();
   TEST_HTTP_ = fakeHttp_();     // uploads go to a fake Drive
@@ -4823,7 +5460,8 @@ function fakeDrive_() {
   <label class="proto-who">ดูในมุมมองของ <select id="proto-user"></select></label>
   <span class="proto-links">
     <button type="button" class="btn sm" data-jump="form">📝 ฟอร์มขอราคา (Sales)</button>
-    <button type="button" class="btn sm" data-jump="dash">📊 Dashboard (GM)</button>
+    <button type="button" class="btn sm" data-jump="dash">🏠 หน้าแรก (GM)</button>
+    <button type="button" class="btn sm" data-jump="sup">🏭 Supplier (SR)</button>
     <button type="button" class="btn sm" data-jump="pricing">💰 ใบเสนอราคา (SR)</button>
     <button type="button" class="btn sm" data-jump="srm">✅ SR Manager ตรวจราคา</button>
   </span>
@@ -4858,12 +5496,13 @@ function fakeDrive_() {
       const w = window.__proto.who;
       const j = b.getAttribute('data-jump');
       if (j === 'form') switchTo(w.sales, { page: 'new' });
-      if (j === 'dash') switchTo(w.gm, { page: 'dashboard' });
+      if (j === 'dash') switchTo(w.gm, { page: 'home' });
+      if (j === 'sup') switchTo(w.sr, { page: 'suppliers' });
       if (j === 'pricing') switchTo(w.sr, { page: 'pricing', id: t.pricing });
       if (j === 'srm') switchTo(w.srm, { page: 'ticket', id: t.srm });
     };
   });
-  window.__protoStart = { page: 'new' };
+  window.__protoStart = { page: 'home' };
 })();
 </script><header class="topbar">
     <button class="icon-btn" id="side-toggle" aria-label="เปิดเมนูโมดูล" aria-controls="side" aria-expanded="false">☰</button>
@@ -4886,7 +5525,7 @@ function fakeDrive_() {
     </aside>
     <div class="content">
       <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.08-1 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.08-2 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
     </div>
   </div>
   <div class="side-ov" id="side-ov"></div>
@@ -4903,7 +5542,7 @@ function fakeDrive_() {
 /* ===== 1. State ===== */
 const state = {
   me: null, ref: null, menu: [], poll: { inbox: 0, unread: 0 },
-  route: { page: 'dashboard' }, renderSeq: 0, drafts: {}
+  route: { page: 'home' }, renderSeq: 0, drafts: {}, views: {}
 };
 const Pages = {};
 
@@ -5091,11 +5730,11 @@ function dialog(opts) {
 })();
 
 /* ===== 5. Router (google.script.history keeps the browser back button working) ===== */
-const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome', 'follow'];
+const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome', 'follow', 'q', 'sort', 'group', 'prio', 'from', 'to', 'copy', 'sla'];
 function cleanRoute(p) {
   const r = {};
   ROUTE_KEYS.forEach(function (k) { if (p && p[k]) r[k] = String(p[k]); });
-  if (!r.page || ['dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing'].indexOf(r.page) === -1) r.page = 'dashboard';
+  if (!r.page || ['home', 'dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'].indexOf(r.page) === -1) r.page = 'home';
   return r;
 }
 function go(route, replace) {
@@ -5110,7 +5749,8 @@ function render(route) {
   renderNav();
   window.scrollTo(0, 0);
   const view = $('#view');
-  const page = Pages[state.route.page] || Pages.dashboard;
+  const page = Pages[state.route.page] || Pages.home;
+  state.views[state.route.page] = (state.views[state.route.page] || 0) + 1;
   view.innerHTML = loadingHtml();
   try {
     page.render(view, state.route, function isCurrent() { return seq === state.renderSeq; });
@@ -5120,7 +5760,7 @@ function render(route) {
   }
 }
 function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || '') + (r.follow || ''); }
-const PAGE_TITLE = { ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
+const PAGE_TITLE = { home: 'หน้าแรก', dashboard: 'รายงาน', suppliers: 'Supplier', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
 function renderNav() {
   initShell();
   const cur = state.route;
@@ -5180,7 +5820,11 @@ function applyPoll(p) {
   dot.textContent = state.poll.unread > 99 ? '99+' : state.poll.unread;
   renderNav();
 }
-function refreshPoll() { return api('getPoll').then(applyPoll).catch(function () { /* silent: next tick retries */ }); }
+function refreshPoll() {
+  const views = state.views;
+  state.views = {};
+  return api('getPoll', views).then(applyPoll).catch(function () { /* silent: next tick retries */ });
+}
 let pollingStarted = false;
 function startPolling() {
   if (pollingStarted) return;
@@ -5255,7 +5899,7 @@ function uploadFile(file, meta, onProgress) {
 /* ===== 8. Boot ===== */
 const App = {
   start: function () {
-    $('#brand').onclick = function () { go({ page: 'dashboard' }); };
+    $('#brand').onclick = function () { go({ page: 'home' }); };
     $('#bell').onclick = openNotifications;
     api('getBootstrap').then(function (b) {
       state.me = b.me; state.ref = b.ref; state.menu = b.menu;
@@ -5278,6 +5922,132 @@ const App = {
   reload: function () { render(state.route); },
   go: go
 };
+</script>
+
+  <!--
+  File: PageHome.html
+  Homepage = "what do I have to do today", per role. Three numbers (รอฉัน · กำลังดำเนินการ · เกินกำหนด),
+  the task list sorted by urgency, and 1–3 shortcuts. Statistics moved to รายงาน (managers only).
+  Uses the same listTicketBoard data as the list page (server-cached), so it adds no extra sheet reads.
+-->
+<script>
+Pages.home = (function () {
+  let lastRows = null, lastUser = '';   // last board, only ever shown to the same user
+
+  function scoped(rows) {
+    // Sales and SR follow their own work; managers / GM / Admin follow everything they can see
+    return state.me.role === 'sales' || state.me.role === 'sr' ? rows.filter(function (r) { return r.is_mine || r.is_inbox; }) : rows;
+  }
+  const URGENCY = { breach: 0, warning: 1, ok: 2, none: 3, done: 4 };
+  function byUrgency(a, b) {
+    return (URGENCY[a.sla_status] - URGENCY[b.sla_status]) || ((a.due_date || '9999') < (b.due_date || '9999') ? -1 : 1) || (b.stage_age_hours - a.stage_age_hours);
+  }
+
+  function shortcuts(rows) {
+    const role = state.me.role;
+    const n = function (test) { return rows.filter(test).length; };
+    const out = [];
+    if (role === 'sales') {
+      out.push({ label: '➕ สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+      out.push({ label: '📄 ใบขอราคาของฉัน', route: { page: 'tickets', scope: 'mine' } });
+    }
+    if (role === 'sr') {
+      out.push({ label: '🧾 คิวรอรับงาน', count: n(function (r) { return r.stage === 'pending_assign'; }), route: { page: 'tickets', scope: 'queue' }, primary: true });
+      out.push({ label: '🏭 Supplier', route: { page: 'suppliers' } });
+    }
+    if (role === 'sr_manager') {
+      out.push({ label: '✅ รอตรวจราคา', count: n(function (r) { return r.stage === 'pending_sr_manager'; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_sr_manager' }, primary: true });
+      out.push({ label: '🧾 งานยังไม่มี SR รับ', count: n(function (r) { return r.stage === 'pending_assign'; }), route: { page: 'tickets', scope: 'queue' } });
+      out.push({ label: '🏭 Supplier', route: { page: 'suppliers' } });
+    }
+    if (role === 'gm') {
+      out.push({ label: '🛒 อนุมัติฝั่งขาย', count: n(function (r) { return r.stage === 'pending_gm' && r.is_inbox; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm' }, primary: true });
+      out.push({ label: '📦 อนุมัติฝั่งซื้อ', count: n(function (r) { return r.stage === 'pending_gm_price'; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm_price' }, primary: true });
+      out.push({ label: '📊 รายงาน', route: { page: 'dashboard' } });
+    }
+    if (role === 'manager') {
+      out.push({ label: '✅ รออนุมัติ', count: n(function (r) { return r.stage === 'pending_manager' && r.is_inbox; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_manager' }, primary: true });
+      out.push({ label: '📊 รายงาน', route: { page: 'dashboard' } });
+    }
+    if (role === 'admin') {
+      out.push({ label: '🏭 Supplier', route: { page: 'suppliers' } });
+      out.push({ label: '📊 รายงาน', route: { page: 'dashboard' } });
+    }
+    return out;
+  }
+
+  function draw(view, rows) {
+    const mine = scoped(rows);
+    const open = mine.filter(function (r) { return r.outcome === 'open'; });
+    const inbox = rows.filter(function (r) { return r.is_inbox && r.outcome === 'open'; }).sort(byUrgency);
+    const late = open.filter(function (r) { return r.sla_status === 'breach'; });
+    const follow = open.filter(function (r) { return r.is_follow_up; });
+    const sc = shortcuts(rows);
+    const tile = function (cls, n, label, sub, route) {
+      return '<button class="tile ' + cls + '" data-go=\'' + esc(JSON.stringify(route)) + '\'><span class="v">' + fmtInt(n) + '</span><span class="l">' + esc(label) + '</span>' +
+        '<span class="p">' + sub + '</span></button>';
+    };
+    const listScope = state.me.role === 'sales' || state.me.role === 'sr' ? 'mine' : 'all';
+    let html = '<div class="home"><div class="page-head"><div><h1>สวัสดี ' + esc(state.me.full_name) + '</h1>' +
+      '<div class="small muted">' + esc(new Intl.DateTimeFormat('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' }).format(new Date())) +
+      ' · ' + esc(state.me.role_label) + '</div></div></div>';
+    html += '<div class="tiles home-tiles">' +
+      tile('t-me', inbox.length, 'รอฉัน', inbox.length ? 'งานที่คุณต้องทำตอนนี้' : 'ไม่มีงานค้างที่คุณ 🎉', { page: 'tickets', scope: 'inbox' }) +
+      tile('t-open', open.length, 'กำลังดำเนินการ', listScope === 'mine' ? 'ใบของคุณที่ยังไม่จบ' : 'ทุกใบที่ยังไม่จบ', { page: 'tickets', scope: listScope === 'mine' ? 'mine' : 'all', outcome: 'open' }) +
+      tile('t-late' + (late.length ? ' bad' : ''), late.length, 'เกินกำหนด (SLA)', late.length ? 'ค้างในขั้นตอนนานเกินกำหนด' : 'ไม่มีงานเกินกำหนด', { page: 'tickets', scope: listScope === 'mine' ? 'mine' : 'all', sla: 'breach' }) +
+      '</div>';
+    if (sc.length) {
+      html += '<div class="quick">' + sc.map(function (x) {
+        return '<button class="btn' + (x.primary ? ' primary' : '') + '" data-go=\'' + esc(JSON.stringify(x.route)) + '\'>' + esc(x.label) +
+          (x.count != null ? ' <span class="qn">' + fmtInt(x.count) + '</span>' : '') + '</button>';
+      }).join('') + '</div>';
+    }
+    html += '<div class="card"><div class="card-head"><h3>งานที่ต้องทำ</h3>' + (inbox.length > 10 ? '<button class="btn sm ghost" data-go=\'' + esc(JSON.stringify({ page: 'tickets', scope: 'inbox' })) + '\'>ดูทั้งหมด ' + inbox.length + ' ใบ ›</button>' : '') + '</div>' +
+      (inbox.length ? '<ul class="tasks">' + inbox.slice(0, 10).map(function (r) {
+        return '<li><a href="#" data-ticket="' + esc(r.ticket_id) + '"><span class="tdot ' + esc(r.sla_status) + '" aria-hidden="true"></span><div class="tmain"><b>' + esc(r.ticket_no) + '</b> ' +
+          (r.priority !== 'normal' ? prioText(r.priority) + ' ' : '') + (r.is_follow_up ? '<span class="badge tag-follow">📌 ส่งตามหลัง</span> ' : '') +
+          '<span class="small">' + esc(r.stage_label) + '</span><div class="small muted">' + esc(r.customer_name || r.title) + ' · ' + esc(r.item_names).slice(0, 80) + '</div></div>' +
+          '<div class="tside small">' + slaBadge(r.sla_status) + (r.due_date ? '<div class="muted">ต้องการ ' + esc(fmtDate(r.due_date)) + '</div>' : '') + '</div></a></li>';
+      }).join('') + '</ul>' : '<p class="empty small">ไม่มีงานรอคุณตอนนี้</p>') + '</div>';
+    if (follow.length) {
+      html += '<div class="card"><div class="card-head"><h3>📌 รายการส่งตามหลังที่ยังค้าง</h3><button class="btn sm ghost" data-go=\'' + esc(JSON.stringify({ page: 'tickets', scope: 'follow' })) + '\'>ดูทั้งหมด ›</button></div>' +
+        '<ul class="tasks">' + follow.slice(0, 5).map(function (r) {
+          return '<li><a href="#" data-ticket="' + esc(r.ticket_id) + '"><span class="tdot ' + esc(r.sla_status) + '" aria-hidden="true"></span><div class="tmain"><b>' + esc(r.ticket_no) + '</b> <span class="small muted">จาก ' + esc(r.parent_ticket_no) + '</span>' +
+            '<div class="small muted">' + esc(r.item_names) + ' · ' + esc(r.stage_label) + '</div></div><div class="tside small muted">ค้าง ' + r.age_days + ' วัน</div></a></li>';
+        }).join('') + '</ul></div>';
+    }
+    if (state.me.role === 'admin') html += '<div class="card" id="admin-health"><h3>สถานะระบบ</h3>' + loadingHtml() + '</div>';
+    html += '</div>';
+    view.innerHTML = html;
+    $all('[data-go]', view).forEach(function (b) { b.onclick = function () { go(JSON.parse(b.getAttribute('data-go'))); }; });
+    $all('[data-ticket]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-ticket') }); }; });
+    if (state.me.role === 'admin') {
+      api('getAdminHealth').then(function (h) {
+        const box = $('#admin-health', view);
+        if (!box) return;
+        const line = function (bad, text) { return '<li class="' + (bad ? 'bad' : 'ok') + '">' + (bad ? '⚠ ' : '✓ ') + text + '</li>'; };
+        box.innerHTML = '<h3>สถานะระบบ (24 ชม.)</h3><ul class="health">' +
+          line(!h.lark_configured, h.lark_configured ? 'เชื่อมต่อ Lark แล้ว' : 'ยังไม่ได้ตั้งค่า Lark (LARK_APP_ID / SECRET)') +
+          line(h.lark_failed > 0, 'แจ้งเตือน Lark ส่งไม่สำเร็จ ' + h.lark_failed + ' รายการ') +
+          line(h.lark_no_user > 0, 'ผู้ใช้ที่ไม่พบบัญชี Lark ' + h.lark_no_user + ' รายการ') +
+          line(h.lark_no_group > 0, 'ข้อความกลุ่มที่ยังไม่ได้ตั้งกลุ่ม ' + h.lark_no_group + ' รายการ') +
+          '</ul><p class="small muted">ตรวจละเอียด: เปิด Apps Script แล้ว Run <code>runSelfTest</code></p>';
+      }).catch(function (e) { const box = $('#admin-health', view); if (box) box.innerHTML = '<h3>สถานะระบบ</h3>' + errorHtml(e); });
+    }
+  }
+
+  return {
+    render: function (view, route, isCurrent) {
+      if (lastRows && lastUser === state.me.email) draw(view, lastRows);
+      else view.innerHTML = loadingHtml();
+      const who = state.me.email;
+      api('listTicketBoard').then(function (d) {
+        lastRows = d.rows; lastUser = who;
+        if (isCurrent()) draw(view, d.rows);
+      }).catch(function (e) { if (isCurrent() && lastUser !== state.me.email) view.innerHTML = errorHtml(e, 'App.reload()'); });
+    }
+  };
+})();
 </script>
 
   <!--
@@ -5335,7 +6105,7 @@ Pages.dashboard = (function () {
   function draw(view, d) {
     const k = d.kpi;
     const listScope = state.me.role === 'sales' || state.me.role === 'sr' ? 'mine' : 'all';
-    let html = '<div class="page-head"><h1>ภาพรวม</h1><div class="actions">' +
+    let html = '<div class="page-head"><h1>รายงาน</h1><div class="actions">' +
       PRESETS.map(function (p) { return '<button class="btn sm' + (range.key === p[0] ? ' primary' : '') + '" data-range="' + p[0] + '">' + p[1] + '</button>'; }).join('') +
       '</div></div><p class="muted small" style="margin-top:-6px">แสดง: <b>' + esc(d.scope_note) + '</b>' +
       (d.range.from ? ' · สร้างระหว่าง ' + esc(fmtDate(d.range.from)) + ' – ' + esc(fmtDate(d.range.to)) : ' · ทุกช่วงเวลา') + ' · แตะตัวเลขเพื่อดูรายการ</p>';
@@ -5416,7 +6186,9 @@ Pages.dashboard = (function () {
 
   return {
     render: function (view, route, isCurrent) {
-      view.innerHTML = loadingHtml('กำลังสรุปภาพรวม...');
+      // statistics are for managers; everyone else works from the homepage
+      if (['manager', 'sr_manager', 'gm', 'admin'].indexOf(state.me.role) === -1) { go({ page: 'home' }, true); return; }
+      view.innerHTML = loadingHtml('กำลังสรุปรายงาน...');
       api('getDashboard', { from: range.from, to: range.to }).then(function (d) {
         if (isCurrent()) draw(view, d);
       }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
@@ -5427,71 +6199,169 @@ Pages.dashboard = (function () {
 
   <!--
   File: PageTickets.html
-  Ticket list: scope (inbox / mine / queue / all), filters, search, SLA summary, paging.
-  Filtering happens on the server (listTickets) — the browser never receives tickets the user may not see.
+  Ticket list = ONE server call (listTicketBoard: every ticket this user may see, no prices) +
+  filtering, search, counts and paging in the browser. So tabs and search answer instantly,
+  nothing races, and the table never disappears while new data loads.
+  Default view = ALL tickets. Status tabs filter with one click; the advanced panel applies on "ใช้ตัวกรอง".
+  The filter lives in the URL (?page=tickets&scope=<tab>&q=…&stage=…) so Back / refresh / links keep it.
 -->
 <script>
 Pages.tickets = (function () {
-  const TITLES = { inbox: 'งานรอฉัน', mine: 'ของฉัน', queue: 'คิวรอ SR รับงาน', all: 'ใบขอราคาทั้งหมด' };
-  const filters = {};   // per scope, kept while the page is open
+  const PAGE_SIZE = 50;
+  const board = { rows: null, at: 0, seq: 0, user: '' };   // last board, kept while the app is open (same user only)
 
-  function defaults(scope) {
-    return { scope: scope, q: '', status: '', outcome: '', stage: '', group_code: '', priority: '', date_from: '', date_to: '', sr: '', requestor: '',
-      sort: (scope === 'inbox' || scope === 'queue') ? 'urgency' : 'updated_desc', page: 1 };
+  /* ---------- tabs (one click) ---------- */
+  const TABS = [
+    { id: 'all', label: 'ทั้งหมด', test: function () { return true; } },
+    { id: 'inbox', label: 'รอฉัน', test: function (r) { return r.is_inbox; } },
+    { id: 'mine', label: 'ของฉัน', roles: ['sales', 'sr'], test: function (r) { return r.is_mine; } },
+    { id: 'queue', label: 'คิวรอรับงาน', roles: ['sr', 'sr_manager', 'admin'], test: function (r) { return r.stage === 'pending_assign'; } },
+    { id: 'req', label: 'รออนุมัติฝั่งขาย', test: function (r) { return ['pending_manager', 'returned', 'pending_gm'].indexOf(r.stage) !== -1; } },
+    { id: 'src', label: 'SR กำลังหาราคา', test: function (r) { return ['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(r.stage) !== -1; } },
+    { id: 'rev', label: 'รอตรวจราคา', test: function (r) { return ['pending_sr_manager', 'pending_gm_price'].indexOf(r.stage) !== -1; } },
+    { id: 'ack', label: 'ส่งถึง Sales', test: function (r) { return r.stage === 'awaiting_sales_ack'; } },
+    { id: 'follow', label: '📌 ส่งตามหลัง', test: function (r) { return r.is_follow_up && r.outcome === 'open'; } },
+    { id: 'closed', label: 'ปิดงาน', test: function (r) { return r.stage === 'closed'; } },
+    { id: 'rejected', label: 'ไม่อนุมัติ / ยกเลิก', test: function (r) { return r.outcome === 'rejected'; } }
+  ];
+  function tabsFor() {
+    return TABS.filter(function (t) { return !t.roles || t.roles.indexOf(state.me.role) !== -1; });
   }
 
-  function title(scope) {
-    if (scope === 'mine') return state.me.role === 'sr' ? 'งานของฉัน' : 'ใบขอราคาของฉัน';
-    return TITLES[scope] || TITLES.all;
+  /* ---------- filter state <-> route ---------- */
+  const ADV = ['stage', 'requestor', 'sr', 'outcome', 'sla', 'group', 'prio', 'from', 'to'];
+  function fromRoute(route) {
+    const f = { tab: route.scope || 'all', q: route.q || '', sort: route.sort || '' };
+    if (route.follow) f.tab = 'follow';                       // old menu links
+    if (!tabsFor().some(function (t) { return t.id === f.tab; })) f.tab = 'all';
+    ADV.forEach(function (k) { f[k] = route[k] || ''; });
+    return f;
+  }
+  function toRoute(f) {
+    const r = { page: 'tickets' };
+    if (f.tab && f.tab !== 'all') r.scope = f.tab;
+    if (f.q) r.q = f.q;
+    if (f.sort) r.sort = f.sort;
+    ADV.forEach(function (k) { if (f[k]) r[k] = f[k]; });
+    return r;
+  }
+  function saveRoute(f) {
+    const r = toRoute(f);
+    state.route = cleanRoute(r);
+    google.script.history.replace(state.route, state.route);
+    renderNav();
   }
 
-  function filterBar(f) {
-    const st = state.ref.status_labels;
-    const sg = state.ref.stage_labels;
-    return '<div class="card"><div class="row">' +
-      '<label class="field" style="flex:2 1 260px"><span>ค้นหา</span><input type="search" id="f-q" placeholder="เลขที่ใบ / ชื่อเรื่อง / สินค้า / ลูกค้า" value="' + esc(f.q) + '"></label>' +
-      '<label class="field"><span>ผลการเสนอราคา</span><select id="f-outcome"><option value="">ทั้งหมด</option>' +
-      [['done', '✓ เสนอราคาจบแล้ว'], ['open', '⏳ ยังไม่จบ'], ['rejected', '✕ ไม่อนุมัติ / ยกเลิก']].map(function (o) {
-        return '<option value="' + o[0] + '"' + (f.outcome === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
-      '<label class="field"><span>สถานะ</span><select id="f-status"><option value="">ทั้งหมด</option>' +
-      Object.keys(st).map(function (k) { return '<option value="' + k + '"' + (f.status === k ? ' selected' : '') + '>' + esc(st[k]) + '</option>'; }).join('') + '</select></label>' +
-      '<label class="field"><span>เรียงตาม</span><select id="f-sort">' +
-      [['urgency', 'เร่งด่วนก่อน (SLA)'], ['updated_desc', 'อัปเดตล่าสุด'], ['created_desc', 'สร้างล่าสุด'], ['due_asc', 'วันที่ต้องการราคา']]
-        .map(function (o) { return '<option value="' + o[0] + '"' + (f.sort === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
-      '</div><details' + (f.stage || f.group_code || f.priority || f.date_from || f.date_to || f.sr || f.requestor ? ' open' : '') + '><summary class="small" style="cursor:pointer;color:var(--brand)">ตัวกรองเพิ่มเติม</summary><div class="row" style="margin-top:8px">' +
-      '<label class="field"><span>ขั้นตอน</span><select id="f-stage"><option value="">ทั้งหมด</option>' +
-      Object.keys(sg).map(function (k) { return '<option value="' + k + '"' + (f.stage === k ? ' selected' : '') + '>' + esc(sg[k]) + '</option>'; }).join('') + '</select></label>' +
-      '<label class="field"><span>กลุ่มสินค้า</span><select id="f-group">' + groupOptions(f.group_code, true) + '</select></label>' +
-      '<label class="field"><span>ความเร่งด่วน</span><select id="f-prio"><option value="">ทั้งหมด</option>' +
-      [['urgent', 'ด่วนมาก'], ['high', 'สูง'], ['normal', 'ปกติ'], ['low', 'ต่ำ']].map(function (o) {
-        return '<option value="' + o[0] + '"' + (f.priority === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
-      (state.me.role !== 'sales' ? '<label class="field"><span>ผู้ขอ (Sales)</span><select id="f-req"><option value="">ทั้งหมด</option>' +
-        (state.ref.sales_users || []).map(function (u) { return '<option value="' + esc(u.email) + '"' + (f.requestor === u.email ? ' selected' : '') + '>' + esc(u.full_name) + '</option>'; }).join('') +
-        '</select></label>' : '') +
-      (state.me.role !== 'sales' ? '<label class="field"><span>SR ผู้รับงาน</span><select id="f-sr"><option value="">ทั้งหมด</option>' +
-        state.ref.sr_users.map(function (u) { return '<option value="' + esc(u.email) + '"' + (f.sr === u.email ? ' selected' : '') + '>' + esc(u.full_name) + '</option>'; }).join('') +
-        '</select></label>' : '') +
-      '<label class="field"><span>สร้างตั้งแต่</span><input type="date" id="f-from" value="' + esc(f.date_from) + '"></label>' +
-      '<label class="field"><span>ถึง</span><input type="date" id="f-to" value="' + esc(f.date_to) + '"></label>' +
-      '</div><button class="btn sm" id="f-clear">ล้างตัวกรอง</button></details></div>';
-  }
-
-  function rowsHtml(d) {
-    if (!d.rows.length) {
-      return '<div class="card empty">' + (state.route.scope === 'inbox' ? 'ไม่มีงานรอคุณอยู่ตอนนี้ 🎉' : 'ไม่พบใบขอราคาตามเงื่อนไขนี้') +
-        (state.me.role === 'sales' ? '<p><button class="btn primary" onclick="App.go({page:\'new\'})">+ สร้างใบขอราคา</button></p>' : '') + '</div>';
+  /* ---------- filtering (pure, in the browser) ---------- */
+  function rootOf(code) {
+    const g = state.ref.product_groups;
+    let c = code;
+    for (let i = 0; i < 10; i++) {
+      const x = g.filter(function (y) { return y.code === c; })[0];
+      if (!x || !x.parent_code) return c;
+      c = x.parent_code;
     }
-    const s = d.sla_counts;
-    let html = '<p class="small"><b>' + fmtInt(d.total) + '</b> ใบ' +
-      (s.breach ? ' · <span class="sla breach">⛔ เกิน SLA ' + s.breach + '</span>' : '') +
-      (s.warning ? ' · <span class="sla warning">⚠ ใกล้ครบ ' + s.warning + '</span>' : '') + '</p>';
-    html += '<div class="card" style="padding:0"><div class="tbl-wrap"><table class="tbl stack"><thead><tr>' +
+    return c;
+  }
+  function advMatch(r, f) {
+    if (f.stage && r.stage !== f.stage) return false;
+    if (f.requestor && r.requestor_email !== f.requestor) return false;
+    if (f.sr && r.sr_email !== f.sr) return false;
+    if (f.outcome && r.outcome !== f.outcome) return false;
+    if (f.sla && r.sla_status !== f.sla) return false;
+    if (f.prio && r.priority !== f.prio) return false;
+    if (f.group && r.group_codes.indexOf(f.group) === -1 && r.root_codes.indexOf(f.group) === -1) return false;
+    const day = String(r.created_at || '').slice(0, 10);
+    if (f.from && day < f.from) return false;
+    if (f.to && day > f.to) return false;
+    return true;
+  }
+  function textMatch(r, q) {
+    if (!q) return true;
+    const hay = (r.ticket_no + ' ' + r.title + ' ' + r.customer_name + ' ' + r.item_names + ' ' + r.requestor_name + ' ' + (r.sr_name || '')).toLowerCase();
+    return q.toLowerCase().split(/\s+/).filter(String).every(function (w) { return hay.indexOf(w) !== -1; });
+  }
+  const SORTS = {
+    smart: function (a, b) {   // open work first, the most urgent on top; finished work last, newest first
+      const openA = a.outcome === 'open' ? 0 : 1, openB = b.outcome === 'open' ? 0 : 1;
+      if (openA !== openB) return openA - openB;
+      if (!openA) {
+        const rank = { breach: 0, warning: 1, ok: 2, none: 3, done: 4 };
+        return (rank[a.sla_status] - rank[b.sla_status]) || (b.stage_age_hours - a.stage_age_hours);
+      }
+      return a.updated_at < b.updated_at ? 1 : -1;
+    },
+    updated_desc: function (a, b) { return a.updated_at < b.updated_at ? 1 : -1; },
+    created_desc: function (a, b) { return a.created_at < b.created_at ? 1 : -1; },
+    due_asc: function (a, b) { return (a.due_date || '9999') < (b.due_date || '9999') ? -1 : 1; }
+  };
+  const SORT_LABEL = { smart: 'งานค้างและเร่งด่วนก่อน', updated_desc: 'อัปเดตล่าสุด', created_desc: 'สร้างล่าสุด', due_asc: 'วันที่ต้องการราคา' };
+
+  /* ---------- view ---------- */
+  function shell(f) {
+    return '<div class="page-head"><h1>ใบเสนอราคา</h1>' +
+      (state.me.role === 'sales' ? '<button class="btn primary" data-new>+ สร้างใบขอราคา</button>' : '') + '</div>' +
+      '<div class="card list-bar">' +
+      '<div class="tabs" role="tablist" id="t-tabs"></div>' +
+      '<div class="list-tools"><input type="search" id="f-q" placeholder="ค้นหา เลขที่ใบ / ลูกค้า / สินค้า / Sales / SR" value="' + esc(f.q) + '" aria-label="ค้นหา">' +
+      '<button class="btn" id="f-adv" aria-expanded="false">⚙ ตัวกรองเพิ่มเติม <span class="count" id="f-adv-n" hidden></span></button></div>' +
+      '<div class="chips" id="t-chips"></div></div>' +
+      '<div id="t-results" class="t-results">' + loadingHtml() + '</div>';
+  }
+
+  function tabsHtml(rows, f) {
+    return tabsFor().map(function (t) {
+      const n = rows.filter(t.test).length;
+      const on = f.tab === t.id;
+      return '<button type="button" role="tab" class="tab' + (on ? ' on' : '') + '" aria-selected="' + on + '" data-tab="' + t.id + '">' +
+        esc(t.label) + ' <span class="n">' + fmtInt(n) + '</span></button>';
+    }).join('');
+  }
+
+  function nameOf(list, email) {
+    const u = (list || []).filter(function (x) { return x.email === email; })[0];
+    return u ? u.full_name : email;
+  }
+  function chipsHtml(f) {
+    const sg = state.ref.stage_labels;
+    const items = [];
+    if (f.stage) items.push(['stage', 'ขั้นตอน: ' + (sg[f.stage] || f.stage)]);
+    if (f.outcome) items.push(['outcome', 'ผล: ' + ({ done: 'เสนอราคาจบแล้ว', open: 'ยังไม่จบ', rejected: 'ไม่อนุมัติ / ยกเลิก' }[f.outcome] || f.outcome)]);
+    if (f.sla) items.push(['sla', f.sla === 'breach' ? 'เกินกำหนด (SLA)' : 'ใกล้ครบกำหนด']);
+    if (f.requestor) items.push(['requestor', 'Sales: ' + nameOf(state.ref.sales_users, f.requestor)]);
+    if (f.sr) items.push(['sr', 'SR: ' + nameOf(state.ref.sr_users, f.sr)]);
+    if (f.group) items.push(['group', 'กลุ่ม: ' + (groupName(f.group) || f.group)]);
+    if (f.prio) items.push(['prio', 'ความเร่งด่วน: ' + ({ urgent: 'ด่วนมาก', high: 'สูง', normal: 'ปกติ', low: 'ต่ำ' }[f.prio] || f.prio)]);
+    if (f.from || f.to) items.push(['date', 'สร้าง ' + (f.from ? fmtDate(f.from) : '…') + ' – ' + (f.to ? fmtDate(f.to) : '…')]);
+    if (f.sort) items.push(['sort', 'เรียง: ' + SORT_LABEL[f.sort]]);
+    if (f.q) items.unshift(['q', 'ค้นหา: “' + f.q + '”']);
+    if (!items.length) return '';
+    return items.map(function (c) {
+      return '<span class="chip">' + esc(c[1]) + '<button type="button" data-unchip="' + c[0] + '" aria-label="เอาตัวกรองนี้ออก">✕</button></span>';
+    }).join('') + '<button type="button" class="btn sm ghost" data-clear>ล้างทั้งหมด</button>';
+  }
+
+  function tableHtml(list, f, shown) {
+    if (!list.length) {
+      const filtered = f.q || ADV.some(function (k) { return f[k]; }) || f.tab !== 'all';
+      return '<div class="card empty">' + (f.tab === 'inbox' && !filtered ? 'ไม่มีงานรอคุณอยู่ตอนนี้ 🎉' : 'ไม่พบใบเสนอราคาตามเงื่อนไขนี้') +
+        (filtered ? '<p><button class="btn" data-clear>ล้างตัวกรองแล้วแสดงทั้งหมด</button></p>' : '') +
+        (state.me.role === 'sales' ? '<p><button class="btn primary" data-new>+ สร้างใบขอราคา</button></p>' : '') + '</div>';
+    }
+    const breach = list.filter(function (r) { return r.sla_status === 'breach'; }).length;
+    const warn = list.filter(function (r) { return r.sla_status === 'warning'; }).length;
+    const rows = list.slice(0, shown);
+    return '<p class="small list-sum"><b>' + fmtInt(list.length) + '</b> ใบ' +
+      (breach ? ' · <span class="sla breach">⛔ เกิน SLA ' + breach + '</span>' : '') +
+      (warn ? ' · <span class="sla warning">⚠ ใกล้ครบ ' + warn + '</span>' : '') + '</p>' +
+      '<div class="card" style="padding:0"><div class="tbl-wrap"><table class="tbl stack tlist"><thead><tr>' +
       '<th class="c-main">ใบขอราคา</th><th class="c-st">สถานะ / ขั้นตอน</th><th class="c-p">ผู้ขอ</th><th class="c-p">SR</th><th class="num c-n">รายการ</th><th class="c-t">ค้างในขั้นตอน</th><th class="c-t">อายุ / ต้องการ</th></tr></thead><tbody>' +
-      d.rows.map(function (r) {
+      rows.map(function (r) {
         return '<tr class="click" data-id="' + esc(r.ticket_id) + '" tabindex="0">' +
           '<td class="main"><div><b>' + esc(r.ticket_no) + '</b> ' + (r.priority !== 'normal' ? prioText(r.priority) : '') +
+          (r.is_inbox && r.outcome === 'open' ? ' <span class="badge tag-me">รอคุณ</span>' : '') +
           (r.revision_count ? ' <span class="badge">แก้ราคา ' + r.revision_count + '</span>' : '') +
-          (r.parent_ticket_no ? ' <span class="badge tag-follow">📌 ส่งตามหลังจาก ' + esc(r.parent_ticket_no) + '</span>' : '') + '</div>' +
+          (r.parent_ticket_no ? ' <span class="badge tag-follow">📌 จาก ' + esc(r.parent_ticket_no) + '</span>' : '') + '</div>' +
           '<div>' + esc(r.title) + '</div><div class="small muted">' + esc(r.item_names).slice(0, 120) + '</div></td>' +
           '<td data-label="สถานะ">' + statusBadge(r.status, r.status_label) + '<div class="small">' + esc(r.stage_label) + '</div></td>' +
           '<td data-label="ผู้ขอ">' + esc(r.requestor_name) + '</td>' +
@@ -5499,59 +6369,126 @@ Pages.tickets = (function () {
           '<td data-label="รายการ" class="num">' + r.item_count + '</td>' +
           '<td data-label="ค้างในขั้นตอน">' + (r.sla_status === 'done' ? '–' : fmtHours(r.stage_age_hours) + '<div class="small">' + slaBadge(r.sla_status) + '</div>') + '</td>' +
           '<td data-label="อายุ">' + r.age_days + ' วัน' + (r.due_date ? '<div class="small muted">ต้องการ ' + esc(fmtDate(r.due_date)) + '</div>' : '') + '</td></tr>';
-      }).join('') + '</tbody></table></div></div>';
-    const pages = Math.ceil(d.total / d.page_size);
-    if (pages > 1) {
-      html += '<div class="actions" style="justify-content:center">' +
-        '<button class="btn sm" id="pg-prev"' + (d.page <= 1 ? ' disabled' : '') + '>‹ ก่อนหน้า</button>' +
-        '<span class="small" style="align-self:center">หน้า ' + d.page + ' / ' + pages + '</span>' +
-        '<button class="btn sm" id="pg-next"' + (d.page >= pages ? ' disabled' : '') + '>ถัดไป ›</button></div>';
-    }
-    return html;
+      }).join('') + '</tbody></table></div></div>' +
+      (list.length > shown ? '<div class="actions" style="justify-content:center"><button class="btn" data-more>แสดงเพิ่มอีก ' +
+        fmtInt(Math.min(PAGE_SIZE, list.length - shown)) + ' ใบ (เหลือ ' + fmtInt(list.length - shown) + ')</button></div>' : '');
   }
 
+  /* ---------- advanced filter panel (applies only on "ใช้ตัวกรอง") ---------- */
+  function openAdvanced(f, apply) {
+    const sg = state.ref.stage_labels;
+    const opt = function (v, label, cur) { return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(label) + '</option>'; };
+    const root = document.createElement('div');
+    root.innerHTML = '<div class="overlay" data-close></div><aside class="drawer adv" role="dialog" aria-label="ตัวกรองเพิ่มเติม">' +
+      '<header><h3>ตัวกรองเพิ่มเติม</h3><button class="btn sm ghost" data-close aria-label="ปิด">✕</button></header><div class="adv-body">' +
+      '<label class="field"><span>ขั้นตอน</span><select id="a-stage">' + opt('', 'ทั้งหมด', f.stage) +
+        Object.keys(sg).map(function (k) { return opt(k, sg[k], f.stage); }).join('') + '</select></label>' +
+      '<label class="field"><span>กลุ่มสินค้า</span><select id="a-group">' + groupOptions(f.group, true) + '</select></label>' +
+      (state.me.role !== 'sales' ? '<label class="field"><span>Sales ผู้ขอ</span><select id="a-req">' + opt('', 'ทั้งหมด', f.requestor) +
+        (state.ref.sales_users || []).map(function (u) { return opt(u.email, u.full_name, f.requestor); }).join('') + '</select></label>' +
+        '<label class="field"><span>SR ผู้รับงาน</span><select id="a-sr">' + opt('', 'ทั้งหมด', f.sr) +
+        (state.ref.sr_users || []).map(function (u) { return opt(u.email, u.full_name, f.sr); }).join('') + '</select></label>' : '') +
+      '<label class="field"><span>ความเร่งด่วน</span><select id="a-prio">' + opt('', 'ทั้งหมด', f.prio) + opt('urgent', 'ด่วนมาก', f.prio) +
+        opt('high', 'สูง', f.prio) + opt('normal', 'ปกติ', f.prio) + opt('low', 'ต่ำ', f.prio) + '</select></label>' +
+      '<div class="row tight"><label class="field"><span>สร้างตั้งแต่</span><input type="date" id="a-from" value="' + esc(f.from) + '"></label>' +
+      '<label class="field"><span>ถึง</span><input type="date" id="a-to" value="' + esc(f.to) + '"></label></div>' +
+      '<label class="field"><span>เรียงตาม</span><select id="a-sort">' + opt('', SORT_LABEL.smart + ' (ค่าเริ่มต้น)', f.sort) +
+        ['updated_desc', 'created_desc', 'due_asc'].map(function (k) { return opt(k, SORT_LABEL[k], f.sort); }).join('') + '</select></label>' +
+      '</div><footer class="adv-foot"><button class="btn" id="a-reset">ล้าง</button><span class="sep"></span>' +
+      '<button class="btn primary" id="a-apply">ใช้ตัวกรอง</button></footer></aside>';
+    $('#modal-root').appendChild(root);
+    const close = function () { root.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = function (e) { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    $all('[data-close]', root).forEach(function (b) { b.onclick = close; });
+    const val = function (id) { const el = $('#' + id, root); return el ? el.value : ''; };
+    $('#a-reset', root).onclick = function () { $all('select, input', root).forEach(function (el) { el.value = ''; }); };
+    $('#a-apply', root).onclick = function () {
+      const next = { stage: val('a-stage'), group: val('a-group'), requestor: val('a-req'), sr: val('a-sr'), prio: val('a-prio'),
+        from: val('a-from'), to: val('a-to'), sort: val('a-sort') };
+      if (next.from && next.to && next.from > next.to) { toast('วันที่เริ่มต้องไม่เกินวันที่สิ้นสุด', 'err'); return; }
+      close();
+      apply(next);
+    };
+    const first = $('select', root);
+    if (first) first.focus();
+  }
+
+  /* ---------- page ---------- */
   return {
     render: function (view, route, isCurrent) {
-      const scope = route.scope || (state.me.role === 'sales' ? 'mine' : 'all');
-      const fromRoute = route.stage || route.requestor || route.sr || route.outcome || route.follow;
-      const fkey = scope + (route.follow ? ':follow' : '');
-      const f = filters[fkey] = fromRoute ? Object.assign(defaults(scope), {
-        stage: route.stage || '', requestor: route.requestor || '', sr: route.sr || '', outcome: route.outcome || '', follow_up: !!route.follow
-      }) : (filters[fkey] || defaults(scope));
-      view.innerHTML = '<div class="page-head"><h1>' + esc(f.follow_up ? 'รายการส่งตามหลังที่ยังค้าง' : title(scope)) + '</h1>' +
-        (state.me.role === 'sales' ? '<button class="btn primary" onclick="App.go({page:\'new\'})">+ สร้างใบขอราคา</button>' : '') +
-        '</div>' + filterBar(f) + '<div id="t-results">' + loadingHtml() + '</div>';
+      const f = fromRoute(route);
+      let shown = PAGE_SIZE;
+      // listeners go on this page's own wrapper (not on #view, which outlives the page)
+      view.innerHTML = '<div class="tickets-page">' + shell(f) + '</div>';
+      const pg = view.firstChild;
 
-      const load = function () {
-        const box = $('#t-results');
-        if (!box) return;
-        box.innerHTML = loadingHtml();
-        const q = { scope: scope, q: f.q, sort: f.sort, page: f.page, page_size: 50, group_code: f.group_code, priority: f.priority,
-          date_from: f.date_from, date_to: f.date_to, sr: f.sr, requestor: f.requestor, outcome: f.outcome, follow_up: !!f.follow_up,
-          status: f.status ? [f.status] : [], stage: f.stage ? [f.stage] : [] };
-        api('listTickets', q).then(function (d) {
-          if (!isCurrent()) return;
-          box.innerHTML = rowsHtml(d);
-          $all('tr.click', box).forEach(function (tr) {
-            const open = function () { go({ page: 'ticket', id: tr.getAttribute('data-id') }); };
-            tr.onclick = open;
-            tr.onkeydown = function (e) { if (e.key === 'Enter') open(); };
-          });
-          if ($('#pg-prev')) $('#pg-prev').onclick = function () { f.page--; load(); };
-          if ($('#pg-next')) $('#pg-next').onclick = function () { f.page++; load(); };
-        }).catch(function (e) { if (isCurrent()) box.innerHTML = errorHtml(e, 'App.reload()'); });
+      const draw = function () {
+        if (!board.rows || !isCurrent()) return;
+        const base = board.rows.filter(function (r) { return advMatch(r, f) && textMatch(r, f.q); });
+        $('#t-tabs', pg).innerHTML = tabsHtml(base, f);
+        const tab = tabsFor().filter(function (t) { return t.id === f.tab; })[0] || TABS[0];
+        const list = base.filter(tab.test).sort(SORTS[f.sort] || SORTS.smart);
+        $('#t-results', pg).innerHTML = tableHtml(list, f, shown);
+        $('#t-chips', pg).innerHTML = chipsHtml(f);
+        const nAdv = ['stage', 'outcome', 'sla', 'requestor', 'sr', 'group', 'prio', 'sort'].filter(function (k) { return f[k]; }).length + (f.from || f.to ? 1 : 0);
+        const badge = $('#f-adv-n', pg);
+        badge.hidden = !nAdv; badge.textContent = nAdv;
+      };
+      const update = function (patch) {
+        Object.assign(f, patch);
+        shown = PAGE_SIZE;
+        saveRoute(f);
+        draw();
       };
 
-      const bind = function (id, key, ev) {
-        const el = $('#' + id);
-        if (!el) return;
-        el.addEventListener(ev || 'change', function () { f[key] = el.value; f.page = 1; load(); });
-      };
-      $('#f-q').addEventListener('input', debounce(function () { f.q = $('#f-q').value.trim(); f.page = 1; load(); }, 400));
-      bind('f-status', 'status'); bind('f-outcome', 'outcome'); bind('f-req', 'requestor'); bind('f-sort', 'sort'); bind('f-stage', 'stage'); bind('f-group', 'group_code');
-      bind('f-prio', 'priority'); bind('f-sr', 'sr'); bind('f-from', 'date_from'); bind('f-to', 'date_to');
-      $('#f-clear').onclick = function () { filters[scope] = defaults(scope); Pages.tickets.render(view, route, isCurrent); };
-      load();
+      // one delegated handler: survives every redraw of tabs / chips / table
+      pg.addEventListener('click', function (e) {
+        const t = e.target.closest('[data-tab], [data-unchip], [data-clear], [data-more], [data-new], tr.click');
+        if (!t) return;
+        if (t.hasAttribute('data-tab')) update({ tab: t.getAttribute('data-tab') });
+        else if (t.hasAttribute('data-unchip')) {
+          const k = t.getAttribute('data-unchip');
+          if (k === 'q') $('#f-q', pg).value = '';
+          update(k === 'date' ? { from: '', to: '' } : { [k]: '' });
+        } else if (t.hasAttribute('data-clear')) {
+          $('#f-q', pg).value = '';
+          const blank = { tab: 'all', q: '', sort: '' };
+          ADV.forEach(function (k) { blank[k] = ''; });
+          update(blank);
+        } else if (t.hasAttribute('data-more')) { shown += PAGE_SIZE; draw(); }
+        else if (t.hasAttribute('data-new')) go({ page: 'new' });
+        else go({ page: 'ticket', id: t.getAttribute('data-id') });
+      });
+      pg.addEventListener('keydown', function (e) {
+        const tr = e.target.closest('tr.click');
+        if (tr && e.key === 'Enter') go({ page: 'ticket', id: tr.getAttribute('data-id') });
+      });
+      $('#f-q', pg).addEventListener('input', debounce(function () { update({ q: $('#f-q', pg).value.trim() }); }, 150));
+      $('#f-adv', pg).onclick = function () { openAdvanced(f, update); };
+
+      // show what we have at once, then refresh in the background (cheap: the server caches per data version).
+      // A late answer never overwrites a newer one.
+      if (board.user !== state.me.email) { board.rows = null; board.user = state.me.email; }
+      if (board.rows) draw();
+      {
+        const seq = ++board.seq;
+        const res = $('#t-results', pg);
+        if (board.rows && res) res.classList.add('refreshing');
+        api('listTicketBoard').then(function (d) {
+          if (seq !== board.seq) return;
+          board.rows = d.rows;
+          board.at = Date.now();
+          draw();
+        }).catch(function (e) {
+          if (seq !== board.seq || !isCurrent()) return;
+          if (board.rows) toast('โหลดรายการล่าสุดไม่สำเร็จ — แสดงข้อมูลเดิม: ' + e.error, 'err');
+          else $('#t-results', pg).innerHTML = errorHtml(e, 'App.reload()');
+        }).then(function () {
+          const r = $('#t-results', pg);
+          if (r) r.classList.remove('refreshing');
+        });
+      }
     }
   };
 })();
@@ -5638,6 +6575,7 @@ Pages.ticket = (function () {
     const p = d.permissions;
     const buttons = [];
     if (p.can_edit_request) buttons.push('<button class="btn" data-nav="edit">✏️ แก้ไขใบขอราคา</button>');
+    if (d.me.role === 'sales' && t.requestor_email === d.me.email) buttons.push('<button class="btn" data-copy>📄 สร้างใบใหม่จากใบนี้</button>');
     const srWork = p.actions.indexOf('doc_complete') !== -1 || p.actions.indexOf('submit_quote') !== -1;
     if (srWork) buttons.push('<button class="btn primary" data-nav="pricing">' + (t.stage === 'doc_check' ? '📋 ตรวจเอกสาร' : '💰 กรอกราคา / เทียบราคา') + '</button>');
     p.actions.forEach(function (a) {
@@ -5669,6 +6607,7 @@ Pages.ticket = (function () {
           it.quotations.slice().sort(function (a, b) { return a.cost_rank - b.cost_rank; }).map(function (q) {
             return '<tr' + (q.is_selected ? ' style="background:#F1F8FB"' : '') + '><td class="main">' + esc(q.vendor_name) + ' ' +
               (q.is_selected ? '<span class="badge tag-win">✔ ผู้ชนะ</span> ' : '') + (q.is_cheapest ? '<span class="badge tag-cheap">ถูกที่สุด</span>' : '') +
+              (q.supplier_warnings || []).map(function (w) { return ' <span class="sla ' + (w.level === 'expired' ? 'breach' : 'warning') + '">⚠ ' + esc(w.name) + (w.level === 'expired' ? ' หมดอายุ' : ' ใกล้หมดอายุ') + '</span>'; }).join('') +
               (q.is_selected && q.selection_reason ? '<div class="small muted">เหตุผล: ' + esc(q.selection_reason) + '</div>' : '') + '</td>' +
               '<td class="num" data-label="ราคา/หน่วย">' + fmtNum(q.unit_price) + ' ' + esc(q.currency) + (q.currency !== 'THB' ? '<div class="small muted">@' + fmtNum(q.fx_rate) + '</div>' : '') + '</td>' +
               '<td data-label="VAT">' + esc(vatLabel(q.vat_term)) + '</td>' +
@@ -5867,6 +6806,7 @@ Pages.ticket = (function () {
     const t = d.ticket;
     $all('[data-action]', view).forEach(function (b) { b.onclick = function () { runAction(view, d, b.getAttribute('data-action')); }; });
     $all('[data-nav]', view).forEach(function (b) { b.onclick = function () { go({ page: b.getAttribute('data-nav'), id: t.ticket_id }); }; });
+    $all('[data-copy]', view).forEach(function (b) { b.onclick = function () { go({ page: 'new', copy: t.ticket_id }); }; });
     $all('[data-goto]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-goto') }); }; });
     $all('[data-open]', view).forEach(function (a) {
       a.onclick = function (e) {
@@ -5944,8 +6884,32 @@ Pages.new = Pages.edit = (function () {
     return { item_id: uuid(), product_group_code: '', product_name: '', net_weight: '', size: '', packing_size: '', qty: '', uom: 'กก.',
       target_price: '', pictures: [] };
   }
+  /** Today + n working days (Mon–Fri), Bangkok date. */
+  function workingDaysFromToday(n) {
+    let d = new Date(todayYmd(0) + 'T00:00:00Z');
+    let left = n;
+    while (left > 0) {
+      d = new Date(d.getTime() + 86400000);
+      const wd = d.getUTCDay();
+      if (wd !== 0 && wd !== 6) left--;
+    }
+    return d.toISOString().slice(0, 10);
+  }
   function newDraft() {
-    return { client_key: uuid(), customer_name: '', documents_needed: '', due_date: '', description: '', items: [blankItem()] };
+    return { client_key: uuid(), customer_name: '', documents_needed: '', due_date: workingDaysFromToday(state.ref.default_due_working_days || 3),
+      description: '', items: [blankItem()], _dueDefault: true };
+  }
+  function historyLists() {
+    const h = state.salesHistory || { customers: [], products: [] };
+    return '<datalist id="cust-list">' + h.customers.map(function (c) { return '<option value="' + esc(c.name) + '">'; }).join('') + '</datalist>' +
+      '<datalist id="prod-list">' + h.products.map(function (p) { return '<option value="' + esc(p.name) + '">'; }).join('') + '</datalist>';
+  }
+  function docChips(d) {
+    const cur = String(d.documents_needed || '').split(/\s*,\s*/).map(function (x) { return x.toLowerCase(); });
+    return '<div class="doc-chips">' + (state.ref.document_options || []).map(function (o) {
+      const on = cur.indexOf(o.toLowerCase()) !== -1;
+      return '<button type="button" class="doc-chip' + (on ? ' on' : '') + '" data-doc="' + esc(o) + '" aria-pressed="' + on + '">' + (on ? '✓ ' : '+ ') + esc(o) + '</button>';
+    }).join('') + '</div>';
   }
 
   function subGroupOptions(selected) {
@@ -5967,15 +6931,17 @@ Pages.new = Pages.edit = (function () {
     return '<div class="item-row" data-i="' + i + '"><div class="head"><span class="no">' + (i + 1) + '</span><span>สินค้ารายการที่ ' + (i + 1) + '</span><span class="sep"></span>' +
       (count > 1 ? '<button type="button" class="btn sm danger" data-remove="' + i + '">ลบสินค้านี้</button>' : '') + '</div>' +
       '<div class="fgrid">' +
-      field('ชื่อสินค้า', 'Product', '<input type="text" data-k="product_name" maxlength="300" placeholder="เช่น กุ้งขาว Vannamei HLSO" value="' + esc(it.product_name) + '">', { req: true, span: 2 }) +
+      field('ชื่อสินค้า', 'Product', '<input type="text" data-k="product_name" list="prod-list" maxlength="300" placeholder="เช่น กุ้งขาว Vannamei HLSO — หรือเลือกสินค้าที่เคยขอ" value="' + esc(it.product_name) + '">', { req: true, span: 2, hint: 'เลือกสินค้าที่เคยขอ ระบบเติม NW / Size / Packing ให้ (แก้ได้)' }) +
       field('ประเภทสินค้า', 'Category', '<select data-k="product_group_code">' + subGroupOptions(it.product_group_code) + '</select>', { hint: 'ไม่บังคับ — ใช้เลือกรายการตรวจเอกสาร' }) +
       field('น้ำหนักสุทธิ', '% Net Weight', '<input type="text" data-k="net_weight" maxlength="100" placeholder="เช่น 80% หรือ NW 90%" value="' + esc(it.net_weight) + '">', { req: true, hint: 'ไม่รวมน้ำแข็ง' }) +
       field('ขนาด', 'Size', '<input type="text" data-k="size" maxlength="100" placeholder="เช่น 31/40 หรือ 1.0–1.5 kg/pc" value="' + esc(it.size) + '">', { req: true }) +
       field('แพคย่อย', 'Packing Size', '<input type="text" data-k="packing_size" maxlength="100" placeholder="เช่น 1 Kg/Pack หรือ 500 g" value="' + esc(it.packing_size) + '">', { req: true }) +
       field('ปริมาณต่อเดือน', 'Qty / month', '<input type="number" inputmode="decimal" min="0" step="any" data-k="qty" placeholder="0" value="' + esc(it.qty) + '">', { req: true }) +
       field('หน่วย', 'Unit', '<select data-k="uom"><option value="">— เลือก —</option>' + units + '</select>', { req: true }) +
-      field('ราคาเป้าหมาย (บาท/กก.)', 'Target Price', '<input type="number" inputmode="decimal" min="0" step="any" data-k="target_price" placeholder="0" value="' + esc(it.target_price) + '">',
-        { req: true, hint: 'ราคาที่ลูกค้าปิดซื้อได้ · ไม่มีให้ใส่ 0' }) +
+      field('ราคาเป้าหมาย (บาท/กก.)', 'Target Price', '<input type="number" inputmode="decimal" min="0" step="any" data-k="target_price" placeholder="0.00" value="' +
+        esc(it.no_target ? '' : it.target_price) + '"' + (it.no_target ? ' disabled' : '') + '>' +
+        '<label class="chk-inline no-target"><input type="checkbox" data-notarget="' + i + '"' + (it.no_target ? ' checked' : '') + '> ไม่มีราคาเป้าหมาย</label>',
+        { req: true, hint: 'ราคาที่ลูกค้าปิดซื้อได้' }) +
       '<div class="field span-3"><span>รูปภาพสินค้า <em>Picture</em></span><div class="drop" data-drop="' + i + '">' +
       '<label class="btn sm"><input type="file" data-pic="' + i + '" multiple hidden accept="image/*,.pdf">＋ เลือกรูป / ไฟล์</label>' +
       '<span class="small muted">หรือลากไฟล์มาวางที่นี่ · รูปหรือ PDF ไม่เกิน ' + state.ref.max_upload_mb + ' MB</span>' +
@@ -6002,15 +6968,16 @@ Pages.new = Pages.edit = (function () {
       (mode === 'edit' && ticket.stage === 'returned' ? '<div class="notice warn">Sales Manager ส่งกลับให้แก้ไข — แก้แล้วกด “บันทึกและส่งอีกครั้ง”</div>' : '') +
       '<form id="pr-form" novalidate>' +
       '<section class="card fsec"><h2><span class="sn">1</span>ข้อมูลลูกค้า</h2><div class="fgrid">' +
-      field('ชื่อลูกค้า', 'Customer', '<input type="text" id="f-customer" maxlength="200" placeholder="ชื่อร้าน / บริษัทลูกค้า" value="' + esc(d.customer_name) + '">', { req: true }) +
-      field('วันที่ต้องการให้ตอบกลับราคา', 'Expected Date', '<input type="date" id="f-due" min="' + todayYmd(0) + '" value="' + esc(d.due_date) + '">', { req: true }) +
+      field('ชื่อลูกค้า', 'Customer', '<input type="text" id="f-customer" list="cust-list" maxlength="200" placeholder="พิมพ์หรือเลือกลูกค้าที่เคยขอ" value="' + esc(d.customer_name) + '">', { req: true }) +
+      field('วันที่ต้องการให้ตอบกลับราคา', 'Expected Date', '<input type="date" id="f-due" min="' + todayYmd(0) + '" value="' + esc(d.due_date) + '"' + (d._dueDefault ? ' class="auto"' : '') + '>' +
+        '<div class="due-quick"><button type="button" class="btn sm ghost" data-due="3">+3 วันทำการ</button><button type="button" class="btn sm ghost" data-due="5">+5 วันทำการ</button><button type="button" class="btn sm ghost" data-due="10">+2 สัปดาห์</button></div>', { req: true }) +
       field('ผู้ร้องขอ', 'Requester', '<input type="text" id="f-requester" disabled value="' + esc(state.me.full_name) + '">', { hint: 'ใช้บัญชีที่เข้าสู่ระบบ' }) +
       '</div></section>' +
       '<section class="card fsec"><h2><span class="sn">2</span>รายการสินค้า</h2>' +
       '<div id="items">' + d.items.map(function (it, i) { return itemHtml(it, i, d.items.length); }).join('') + '</div>' +
       '<button type="button" class="btn" id="add-item">＋ เพิ่มสินค้าอีกรายการ</button></section>' +
       '<section class="card fsec"><h2><span class="sn">3</span>เอกสารและหมายเหตุ</h2><div class="fgrid two">' +
-      field('เอกสารที่ต้องการประกอบ', 'Documents Needed', '<textarea id="f-docs" maxlength="2000" rows="3" placeholder="เช่น COA, Health Certificate, Halal">' + esc(d.documents_needed) + '</textarea>',
+      field('เอกสารที่ต้องการประกอบ', 'Documents Needed', docChips(d) + '<textarea id="f-docs" maxlength="2000" rows="2" placeholder="กดเลือกด้านบน หรือพิมพ์เพิ่ม คั่นด้วย ,">' + esc(d.documents_needed) + '</textarea>',
         { hint: 'ไม่ระบุ = ไม่ต้องการเอกสารประกอบ' }) +
       field('หมายเหตุ', 'Remark', '<textarea id="f-remark" maxlength="2000" rows="3" placeholder="ข้อมูลที่ต้องการแจ้งเพิ่มเติม">' + esc(d.description) + '</textarea>') +
       '</div></section>' +
@@ -6019,7 +6986,7 @@ Pages.new = Pages.edit = (function () {
       (mode === 'edit' ? '<button type="button" class="btn" id="save-btn">บันทึก</button>' +
         (ticket.stage === 'returned' ? '<button type="button" class="btn primary" id="save-resubmit">บันทึกและส่งอีกครั้ง</button>' : '')
         : '<button type="button" class="btn primary submit" id="save-btn">ส่งใบขอราคา</button>') +
-      '</div><div id="upload-progress" style="margin-top:12px"></div></form></div>';
+      '</div><div id="upload-progress" style="margin-top:12px"></div></form>' + historyLists() + '</div>';
   }
 
   function collect(view, d) {
@@ -6030,6 +6997,9 @@ Pages.new = Pages.edit = (function () {
     $all('.item-row', view).forEach(function (row) {
       const it = d.items[Number(row.getAttribute('data-i'))];
       $all('[data-k]', row).forEach(function (el) { it[el.getAttribute('data-k')] = el.value; });
+      const nt = $('[data-notarget]', row);
+      it.no_target = !!(nt && nt.checked);
+      if (it.no_target) it.target_price = '0';
     });
   }
 
@@ -6056,8 +7026,8 @@ Pages.new = Pages.edit = (function () {
       if (!get('packing_size').value.trim()) mark(get('packing_size'), 'กรอกขนาดแพคย่อย');
       if (!get('qty').value || !(Number(get('qty').value) > 0)) mark(get('qty'), 'ปริมาณต้องมากกว่า 0');
       if (!get('uom').value) mark(get('uom'), 'เลือกหน่วย');
-      const tp = get('target_price').value;
-      if (tp === '') mark(get('target_price'), 'กรอกราคาเป้าหมาย (ถ้าไม่มีให้ใส่ 0)');
+      const tp = $('[data-notarget]', row) && $('[data-notarget]', row).checked ? '0' : get('target_price').value;
+      if (tp === '') mark(get('target_price'), 'กรอกราคาเป้าหมาย หรือติ๊ก “ไม่มีราคาเป้าหมาย”');
       else if (Number(tp) < 0) mark(get('target_price'), 'ต้องไม่ติดลบ');
     });
     $('#form-err', view).textContent = errors ? 'ยังกรอกไม่ครบ ' + errors + ' ช่อง (ไฮไลต์สีแดง)' : '';
@@ -6164,7 +7134,27 @@ Pages.new = Pages.edit = (function () {
     });
   }
 
+  function refreshDocChips(view, d) {
+    const cur = String(d.documents_needed || '').split(/\s*,\s*/).map(function (x) { return x.toLowerCase(); });
+    $all('[data-doc]', view).forEach(function (b) {
+      const on = cur.indexOf(b.getAttribute('data-doc').toLowerCase()) !== -1;
+      b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
+      b.textContent = (on ? '✓ ' : '+ ') + b.getAttribute('data-doc');
+    });
+  }
+  function loadHistory(view, d, mode, original) {
+    if (state.salesHistory || state.me.role !== 'sales') return;
+    api('getSalesHistory').then(function (h) {
+      state.salesHistory = h;
+      const host = $('.form-wrap', view);
+      if (!host) return;
+      $all('#cust-list, #prod-list', view).forEach(function (x) { x.remove(); });
+      host.insertAdjacentHTML('beforeend', historyLists());
+    }).catch(function () { /* suggestions are optional */ });
+  }
+
   function mount(view, d, mode, original) {
+    loadHistory(view, d, mode, original);
     view.innerHTML = formHtml(d, mode, original && original.ticket);
     const rerender = function () { collect(view, d); mount(view, d, mode, original); };
     $('#add-item', view).onclick = function () {
@@ -6199,7 +7189,63 @@ Pages.new = Pages.edit = (function () {
         rerender();
       };
     });
-    $('#pr-form', view).addEventListener('input', function () { collect(view, d); });
+    $('#pr-form', view).addEventListener('input', function (e) {
+      collect(view, d);
+      const el = e.target;
+      if (el.id === 'f-due') { d._dueDefault = false; el.classList.remove('auto'); }
+      if (el.id === 'f-docs') refreshDocChips(view, d);
+    });
+    // customer picked from history → documents asked last time (only when still empty)
+    $('#f-customer', view).addEventListener('change', function () {
+      const c = ((state.salesHistory || {}).customers || []).filter(function (x) { return x.name.toLowerCase() === this.value.trim().toLowerCase(); }, this)[0];
+      if (c && c.documents_needed && !$('#f-docs', view).value.trim()) {
+        $('#f-docs', view).value = c.documents_needed;
+        $('#f-docs', view).classList.add('auto');
+        collect(view, d); refreshDocChips(view, d);
+        toast('เติมเอกสารที่ลูกค้านี้ขอครั้งล่าสุดให้แล้ว (แก้ได้)', 'ok');
+      }
+    });
+    // product picked from history → specs used last time (fills empty boxes only)
+    $all('[data-k="product_name"]', view).forEach(function (inpEl) {
+      inpEl.addEventListener('change', function () {
+        const p = ((state.salesHistory || {}).products || []).filter(function (x) { return x.name.toLowerCase() === inpEl.value.trim().toLowerCase(); })[0];
+        if (!p || inpEl.dataset.filledFor === p.name) return;
+        inpEl.dataset.filledFor = p.name;
+        const row = inpEl.closest('.item-row');
+        let filled = 0;
+        ['product_group_code', 'net_weight', 'size', 'packing_size', 'uom'].forEach(function (k) {
+          const el = $('[data-k="' + k + '"]', row);
+          if (!el || !p[k] || (el.value && !(k === 'uom' && el.value === 'กก.'))) return;
+          if (k === 'product_group_code' && p[k] === 'FOOD') return;
+          el.value = p[k]; el.classList.add('auto'); filled++;
+        });
+        collect(view, d);
+        if (filled) toast('เติมสเปกจากครั้งก่อนให้ ' + filled + ' ช่อง (แก้ได้)', 'ok');
+      });
+    });
+    $all('[data-notarget]', view).forEach(function (cb) {
+      cb.onchange = function () {
+        const row = cb.closest('.item-row');
+        const tp = $('[data-k="target_price"]', row);
+        tp.disabled = cb.checked;
+        if (cb.checked) tp.value = '';
+        collect(view, d);
+      };
+    });
+    $all('[data-due]', view).forEach(function (b) {
+      b.onclick = function () { $('#f-due', view).value = workingDaysFromToday(Number(b.getAttribute('data-due'))); d._dueDefault = false; $('#f-due', view).classList.remove('auto'); collect(view, d); };
+    });
+    $all('[data-doc]', view).forEach(function (b) {
+      b.onclick = function () {
+        const name = b.getAttribute('data-doc');
+        const ta = $('#f-docs', view);
+        const parts = ta.value.split(/\s*,\s*/).filter(String);
+        const at = parts.map(function (x) { return x.toLowerCase(); }).indexOf(name.toLowerCase());
+        if (at === -1) parts.push(name); else parts.splice(at, 1);
+        ta.value = parts.join(', ');
+        collect(view, d); refreshDocChips(view, d);
+      };
+    });
     $('#cancel-btn', view).onclick = function () {
       if (mode === 'edit') go({ page: 'ticket', id: original.ticket.ticket_id });
       else { delete state.drafts['new']; go({ page: 'tickets', scope: 'mine' }); }
@@ -6215,6 +7261,27 @@ Pages.new = Pages.edit = (function () {
     render: function (view, route, isCurrent) {
       if (route.page === 'new') {
         if (state.me.role !== 'sales') { view.innerHTML = errorHtml({ error: 'เฉพาะ Sales เท่านั้นที่สร้างใบขอราคาได้' }); return; }
+        if (route.copy) {
+          // "สร้างใบใหม่จากใบนี้": customer + documents + remark + products (no pictures, new dates)
+          view.innerHTML = loadingHtml('กำลังคัดลอกจากใบเดิม...');
+          api('getTicket', route.copy).then(function (o) {
+            if (!isCurrent()) return;
+            const d = newDraft();
+            d.customer_name = o.ticket.customer_name || '';
+            d.documents_needed = o.ticket.documents_needed || '';
+            d.description = '';
+            d.items = o.items.map(function (it) {
+              return Object.assign(blankItem(), { product_group_code: it.product_group_code === 'FOOD' ? '' : it.product_group_code, product_name: it.product_name,
+                net_weight: it.net_weight, size: it.size, packing_size: it.packing_size, qty: it.qty, uom: it.uom,
+                target_price: it.target_price == null ? '' : it.target_price });
+            });
+            state.drafts['new'] = d;
+            google.script.history.replace({ page: 'new' }, { page: 'new' });
+            mount(view, d, 'new', null);
+            toast('คัดลอกจาก ' + o.ticket.ticket_no + ' แล้ว — ตรวจปริมาณและราคาเป้าหมายก่อนส่ง', 'ok', 7000);
+          }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+          return;
+        }
         const d = state.drafts['new'] = state.drafts['new'] || newDraft();
         mount(view, d, 'new', null);
         return;
@@ -6239,6 +7306,248 @@ Pages.new = Pages.edit = (function () {
         };
         mount(view, d, 'edit', o);
       }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+    }
+  };
+})();
+</script>
+
+  <!--
+  File: PageSuppliers.html
+  Supplier master (?page=suppliers) — SR / SR Manager / GM / Admin. Sales never reach it (server refuses too).
+  SupplierForm is shared: the pricing page opens the same form in "quick" mode to add a supplier
+  without leaving the quotation.
+-->
+<script>
+/* ---------- shared form (drawer) ---------- */
+const SupplierForm = (function () {
+  function opt(v, label, cur) { return '<option value="' + esc(v) + '"' + (String(v) === String(cur == null ? '' : cur) ? ' selected' : '') + '>' + esc(label) + '</option>'; }
+  function field(label, html, o) {
+    o = o || {};
+    return '<label class="field' + (o.span ? ' span-' + o.span : '') + '"><span>' + esc(label) + (o.req ? ' <span class="req">*</span>' : '') + '</span>' + html +
+      (o.hint ? '<small class="hint">' + esc(o.hint) + '</small>' : '') + '</label>';
+  }
+  function certRow(c) {
+    return '<div class="cert-row"><input type="text" data-cert-name placeholder="เช่น GMP, HACCP, Halal, อย." value="' + esc(c.name || '') + '">' +
+      '<input type="date" data-cert-exp value="' + esc(c.expiry || '') + '" aria-label="วันหมดอายุ">' +
+      '<button type="button" class="btn sm ghost" data-cert-del aria-label="ลบ">✕</button></div>';
+  }
+
+  /** opts: { supplier?, quick?, name?, readOnly? } → Promise<saved supplier | null> */
+  function open(opts) {
+    const o = opts || {};
+    const s = o.supplier || { name: o.name || '', supplier_type: o.type || '', default_currency: o.currency || '', default_vat_term: '', certs: [], product_groups: [] };
+    const ro = !!o.readOnly;
+    const quick = !!o.quick;
+    const cur = state.ref.currencies;
+    const inco = [{ key: '', label: '— ไม่ระบุ —' }].concat(state.ref.incoterms || []);
+    const groups = state.ref.product_groups.filter(function (g) { return g.parent_code; });
+    return new Promise(function (resolve) {
+      const root = document.createElement('div');
+      root.innerHTML = '<div class="overlay" data-close></div><aside class="drawer sup-form" role="dialog" aria-label="Supplier">' +
+        '<header><h3>' + (s.vendor_id ? esc(s.name) + ' <span class="small muted">' + esc(s.vendor_id) + '</span>' : (quick ? 'เพิ่ม Supplier ใหม่ (แบบย่อ)' : 'เพิ่ม Supplier')) + '</h3>' +
+        '<button class="btn sm ghost" data-close aria-label="ปิด">✕</button></header><div class="adv-body"><fieldset' + (ro ? ' disabled' : '') + '>' +
+        '<div class="sec-label">ข้อมูลหลัก</div><div class="fgrid two">' +
+        field('ชื่อบริษัท', '<input type="text" id="s-name" maxlength="200" value="' + esc(s.name) + '">', { req: true, span: 2 }) +
+        field('ประเภท', '<select id="s-type">' + opt('', '— เลือก —', s.supplier_type) + state.ref.supplier_types.map(function (t) { return opt(t.key, t.label, s.supplier_type); }).join('') + '</select>', { req: true }) +
+        field('ประเทศต้นทาง', '<input type="text" id="s-country" maxlength="60" list="origin-list" value="' + esc(s.country) + '">') +
+        field('สกุลเงิน', '<select id="s-cur">' + opt('', '— เลือก —', s.default_currency) + cur.map(function (c) { return opt(c, c, s.default_currency); }).join('') + '</select>', { req: true }) +
+        field('VAT', '<select id="s-vat">' + opt('', '— เลือก —', s.default_vat_term) + state.ref.vat_terms.map(function (v) { return opt(v.key, v.label, s.default_vat_term); }).join('') + '</select>', { req: true }) +
+        '</div>' +
+        (quick ? '<p class="small muted">ข้อมูลอื่น (เงื่อนไขการค้า ผู้ติดต่อ ใบรับรอง) เพิ่มทีหลังได้ที่เมนู Supplier</p>' :
+        '<div class="sec-label">ชื่อเรียก / ค้นหา</div><div class="fgrid two">' +
+        field('ชื่อเรียก / คำค้น', '<input type="text" id="s-short" maxlength="200" value="' + esc(s.short_name) + '">', { hint: 'เช่น ชื่อย่อ ชื่อภาษาไทย/อังกฤษ' }) +
+        field('เลขผู้เสียภาษี', '<input type="text" id="s-tax" maxlength="30" inputmode="numeric" value="' + esc(s.tax_id) + '">', { hint: 'ระบบไม่ให้ซ้ำกับ Supplier อื่น' }) +
+        '</div><div class="sec-label">เงื่อนไขการค้า (ใช้เติมใบเสนอราคาอัตโนมัติ)</div><div class="fgrid two">' +
+        field('เงื่อนไขชำระเงิน', '<input type="text" id="s-pay" maxlength="100" list="pay-list" value="' + esc(s.payment_term) + '">') +
+        field('Incoterm', '<select id="s-inco">' + inco.map(function (x) { return opt(x.key, x.label, s.incoterm); }).join('') + '</select>') +
+        field('Lead time (วัน)', '<input type="number" id="s-lead" min="0" value="' + esc(s.lead_time_days == null ? '' : s.lead_time_days) + '">') +
+        field('MOQ', '<input type="number" id="s-moq" min="0" step="any" value="' + esc(s.moq == null ? '' : s.moq) + '">') +
+        field('ยืนราคา (วัน)', '<input type="number" id="s-valid" min="0" value="' + esc(s.validity_days == null ? '' : s.validity_days) + '">', { hint: 'ว่าง = ' + esc(state.ref.default_validity_days || 30) + ' วัน' }) +
+        field('ค่าเคลียร์ประมาณการ (บาท/กก.)', '<input type="number" id="s-clr" min="0" step="any" value="' + esc(s.clearance_per_kg == null ? '' : s.clearance_per_kg) + '">', { hint: 'ใช้กับ Supplier นำเข้า' }) +
+        field('แบรนด์', '<input type="text" id="s-brands" maxlength="300" value="' + esc(s.brands) + '">', { span: 2 }) +
+        '</div><div class="field"><span>กลุ่มสินค้าที่ขาย</span><div class="pg-pick">' + groups.map(function (g) {
+          return '<label class="pg-opt"><input type="checkbox" data-pg value="' + esc(g.code) + '"' + (s.product_groups.indexOf(g.code) !== -1 ? ' checked' : '') + '> ' + esc(g.name) + '</label>';
+        }).join('') + '</div><small class="hint">ใช้เรียง Supplier ที่ขายสินค้ากลุ่มนั้นขึ้นก่อนตอนค้นหา</small></div>' +
+        '<div class="sec-label">ผู้ติดต่อ</div><div class="fgrid two">' +
+        field('ชื่อผู้ติดต่อ', '<input type="text" id="s-contact" maxlength="100" value="' + esc(s.contact_name) + '">') +
+        field('โทร', '<input type="tel" id="s-phone" maxlength="50" value="' + esc(s.phone) + '">') +
+        field('อีเมล', '<input type="email" id="s-email" maxlength="120" value="' + esc(s.email) + '">') +
+        field('Line / WeChat', '<input type="text" id="s-chat" maxlength="100" value="' + esc(s.chat_id) + '">') +
+        '</div><div class="sec-label">คุณภาพ (QC)</div><div class="field"><span>ใบรับรอง + วันหมดอายุ</span><div id="s-certs">' +
+        (s.certs || []).map(certRow).join('') + '</div><button type="button" class="btn sm" id="s-cert-add">+ เพิ่มใบรับรอง</button></div>' +
+        field('หมายเหตุคุณภาพ', '<textarea id="s-qnote" maxlength="1000" rows="2">' + esc(s.quality_note) + '</textarea>') +
+        field('หมายเหตุ', '<textarea id="s-note" maxlength="1000" rows="2">' + esc(s.note) + '</textarea>')) +
+        '</fieldset><div class="err-text" id="s-err"></div></div>' +
+        '<footer class="adv-foot">' + (s.vendor_id && !quick ? '<button class="btn sm ghost" id="s-log">ประวัติการแก้ไข</button>' : '') + '<span class="sep"></span>' +
+        '<button class="btn" data-close>' + (ro ? 'ปิด' : 'ยกเลิก') + '</button>' + (ro ? '' : '<button class="btn primary" id="s-save">' + (quick ? 'บันทึกและใช้ในใบนี้' : 'บันทึก') + '</button>') +
+        '</footer></aside>';
+      $('#modal-root').appendChild(root);
+      const close = function (val) { root.remove(); document.removeEventListener('keydown', onKey); resolve(val || null); };
+      const onKey = function (e) { if (e.key === 'Escape') close(null); };
+      document.addEventListener('keydown', onKey);
+      $all('[data-close]', root).forEach(function (b) { b.onclick = function () { close(null); }; });
+      const v = function (id) { const el = $('#' + id, root); return el ? el.value : undefined; };
+      if ($('#s-cert-add', root)) $('#s-cert-add', root).onclick = function () { $('#s-certs', root).insertAdjacentHTML('beforeend', certRow({})); };
+      root.addEventListener('click', function (e) { const d = e.target.closest('[data-cert-del]'); if (d) d.closest('.cert-row').remove(); });
+      if ($('#s-log', root)) $('#s-log', root).onclick = function () { showLog(s); };
+      const payload = function () {
+        const p = { vendor_id: s.vendor_id || '', expected_version: s.version, name: v('s-name'), supplier_type: v('s-type'), country: v('s-country'),
+          default_currency: v('s-cur'), default_vat_term: v('s-vat') };
+        if (quick) return p;
+        Object.assign(p, { short_name: v('s-short'), tax_id: v('s-tax'), payment_term: v('s-pay'), incoterm: v('s-inco'), lead_time_days: v('s-lead'),
+          moq: v('s-moq'), validity_days: v('s-valid'), clearance_per_kg: v('s-clr'), brands: v('s-brands'),
+          product_groups: $all('[data-pg]:checked', root).map(function (c) { return c.value; }),
+          contact_name: v('s-contact'), phone: v('s-phone'), email: v('s-email'), chat_id: v('s-chat'),
+          certs: $all('.cert-row', root).map(function (r) { return { name: $('[data-cert-name]', r).value, expiry: $('[data-cert-exp]', r).value }; }),
+          quality_note: v('s-qnote'), note: v('s-note') });
+        return p;
+      };
+      const send = function (p) {
+        const btn = $('#s-save', root);
+        btn.disabled = true;
+        $('#s-err', root).textContent = '';
+        api('saveSupplier', p).then(function (r) {
+          toast('บันทึก Supplier ' + r.supplier.name + ' แล้ว', 'ok');
+          close(r.supplier);
+        }).catch(function (e) {
+          btn.disabled = false;
+          if (e.code === 'SIMILAR') {
+            dialog({ title: 'ชื่อคล้าย Supplier ที่มีอยู่', message: e.error, confirmText: 'บันทึกต่อ (คนละบริษัท)' }).then(function (ok) {
+              if (ok) send(Object.assign(p, { allow_similar: true }));
+            });
+            return;
+          }
+          $('#s-err', root).textContent = e.error;
+          const fld = e.details && e.details.field;
+          const map = { name: 's-name', tax_id: 's-tax', supplier_type: 's-type', default_currency: 's-cur', default_vat_term: 's-vat', email: 's-email' };
+          if (fld && map[fld] && $('#' + map[fld], root)) $('#' + map[fld], root).focus();
+        });
+      };
+      if ($('#s-save', root)) $('#s-save', root).onclick = function () {
+        const p = payload();
+        if (!String(p.name || '').trim()) { $('#s-err', root).textContent = 'กรุณากรอกชื่อบริษัท'; $('#s-name', root).focus(); return; }
+        send(p);
+      };
+      const first = $('#s-name', root);
+      if (first && !ro) first.focus();
+    });
+  }
+
+  function showLog(s) {
+    api('getSupplierLog', s.vendor_id).then(function (rows) {
+      const LABEL = { created: 'เพิ่ม', updated: 'แก้ไข', activated: 'เปิดใช้งาน', deactivated: 'ปิดใช้งาน', merged: 'รวมเข้ากับรายการอื่น', merged_in: 'รับรายการที่รวมเข้ามา' };
+      dialog({ title: 'ประวัติ ' + s.name, confirmText: 'ปิด', html: rows.length ? '<ul class="sup-log">' + rows.map(function (l) {
+        return '<li><b>' + esc(LABEL[l.action] || l.action) + '</b> · ' + esc(l.actor_name) + ' · <span class="muted">' + esc(fmtDateTime(l.ts)) + '</span>' +
+          Object.keys(l.diff).map(function (k) { return '<div class="small">' + esc(k) + ': ' + esc(l.diff[k].old || '(ว่าง)') + ' → <b>' + esc(l.diff[k]['new'] || '(ว่าง)') + '</b></div>'; }).join('') + '</li>';
+      }).join('') + '</ul>' : '<p class="muted">ยังไม่มีประวัติ</p>' });
+    }).catch(function (e) { toast(e.error, 'err'); });
+  }
+
+  return { open: open };
+})();
+
+/* ---------- Supplier page ---------- */
+Pages.suppliers = (function () {
+  let data = null;
+  const f = { q: '', type: '', group: '', inactive: false };
+
+  function matches(s) {
+    if (!f.inactive && !s.is_active) return false;
+    if (f.type && s.supplier_type !== f.type) return false;
+    if (f.group && s.product_groups.indexOf(f.group) === -1) return false;
+    if (f.q) {
+      const hay = (s.name + ' ' + s.short_name + ' ' + s.vendor_id + ' ' + s.tax_id + ' ' + s.country + ' ' + s.brands).toLowerCase();
+      if (!f.q.toLowerCase().split(/\s+/).filter(String).every(function (w) { return hay.indexOf(w) !== -1; })) return false;
+    }
+    return true;
+  }
+  function vatLabel(k) { const x = state.ref.vat_terms.filter(function (v) { return v.key === k; })[0]; return x ? x.label : k; }
+  function typeLabel(k) { const x = state.ref.supplier_types.filter(function (v) { return v.key === k; })[0]; return x ? x.label : '–'; }
+
+  function table(list) {
+    if (!list.length) return '<div class="card empty">ไม่พบ Supplier' + (data.can_edit ? '<p><button class="btn primary" data-add>+ เพิ่ม Supplier</button></p>' : '') + '</div>';
+    return '<p class="small list-sum"><b>' + fmtInt(list.length) + '</b> ราย</p><div class="card" style="padding:0"><div class="tbl-wrap"><table class="tbl stack slist"><thead><tr>' +
+      '<th>Supplier</th><th>ประเภท</th><th>สกุลเงิน · VAT</th><th>เงื่อนไข</th><th class="num">เสนอ / ชนะ</th><th>ใบรับรอง</th></tr></thead><tbody>' +
+      list.map(function (s) {
+        const warn = s.cert_warnings.map(function (w) { return '<span class="sla ' + (w.level === 'expired' ? 'breach' : 'warning') + '">' + esc(w.name) + (w.level === 'expired' ? ' หมดอายุ' : ' ใกล้หมด') + '</span>'; }).join(' ');
+        return '<tr class="click' + (s.is_active ? '' : ' off') + '" data-vid="' + esc(s.vendor_id) + '" tabindex="0"><td class="main"><b>' + esc(s.name) + '</b>' +
+          (s.is_active ? '' : ' <span class="badge">ปิดใช้งาน</span>') + '<div class="small muted">' + esc([s.vendor_id, s.short_name].filter(Boolean).join(' · ')) + '</div></td>' +
+          '<td data-label="ประเภท">' + esc(typeLabel(s.supplier_type)) + (s.country ? '<div class="small muted">' + esc(s.country) + '</div>' : '') + '</td>' +
+          '<td data-label="สกุลเงิน · VAT">' + esc(s.default_currency) + '<div class="small muted">' + esc(vatLabel(s.default_vat_term)) + '</div></td>' +
+          '<td data-label="เงื่อนไข" class="small">' + esc([s.payment_term, s.incoterm, s.lead_time_days != null ? 'Lead ' + s.lead_time_days + ' วัน' : '', s.moq != null ? 'MOQ ' + fmtNum(s.moq) : ''].filter(Boolean).join(' · ') || '–') + '</td>' +
+          '<td data-label="เสนอ / ชนะ" class="num">' + s.quote_count + ' / ' + s.win_count + (s.last_used_at ? '<div class="small muted">ล่าสุด ' + esc(fmtDate(s.last_used_at)) + '</div>' : '') + '</td>' +
+          '<td data-label="ใบรับรอง">' + (warn || (s.certs.length ? '<span class="small muted">' + esc(s.certs.map(function (c) { return c.name; }).join(', ')) + '</span>' : '–')) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+  }
+
+  function openOne(view, s) {
+    SupplierForm.open({ supplier: s, readOnly: !data.can_edit }).then(function (saved) { if (saved) load(view); });
+    // manager tools under the drawer footer
+    if (data.can_manage) {
+      const foot = $('.sup-form .adv-foot');
+      if (foot) {
+        foot.insertAdjacentHTML('afterbegin', '<button class="btn sm" id="s-toggle">' + (s.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน') + '</button>' +
+          '<button class="btn sm" id="s-merge">รวมเข้ากับ…</button>');
+        $('#s-toggle').onclick = function () {
+          api('setSupplierActive', s.vendor_id, !s.is_active, s.version).then(function () {
+            toast(s.is_active ? 'ปิดใช้งานแล้ว — ไม่แสดงในการค้นหา' : 'เปิดใช้งานแล้ว', 'ok');
+            $('.sup-form [data-close]').click(); load(view);
+          }).catch(function (e) { toast(e.error, 'err'); });
+        };
+        $('#s-merge').onclick = function () {
+          const others = data.suppliers.filter(function (x) { return x.vendor_id !== s.vendor_id && x.is_active; });
+          dialog({ title: 'รวม ' + s.name + ' เข้ากับ…', html: '<p class="small">ใบเสนอราคาเดิมของรายการนี้จะย้ายไปผูกกับ Supplier ที่เลือก แล้วรายการนี้จะถูกปิดใช้งาน</p>' +
+            '<label class="field"><span>รวมเข้ากับ</span><select id="m-into">' + others.map(function (x) { return '<option value="' + esc(x.vendor_id) + '">' + esc(x.name) + '</option>'; }).join('') + '</select></label>',
+            confirmText: 'รวมรายการ', onOpen: function (r) { r._into = $('#m-into', r); } }).then(function (res) {
+            if (!res) return;
+            api('mergeSuppliers', s.vendor_id, $('#m-into', res.root).value).then(function (m) {
+              toast('รวมแล้ว · ย้ายใบเสนอราคา ' + m.moved_quotations + ' รายการ', 'ok');
+              $('.sup-form [data-close]').click(); load(view);
+            }).catch(function (e) { toast(e.error, 'err'); });
+          });
+        };
+      }
+    }
+  }
+
+  function draw(view) {
+    const list = data.suppliers.filter(matches);
+    $('#s-results', view).innerHTML = table(list);
+  }
+  function load(view) {
+    return api('listSuppliers').then(function (d) {
+      data = d;
+      // keep the pricing-page search list fresh too
+      state.ref.vendors = d.suppliers.filter(function (s) { return s.is_active; });
+      if ($('#s-results', view)) draw(view);
+    }).catch(function (e) { const r = $('#s-results', view); if (r) r.innerHTML = errorHtml(e, 'App.reload()'); });
+  }
+
+  return {
+    render: function (view) {
+      if (['sr', 'sr_manager', 'gm', 'admin'].indexOf(state.me.role) === -1) { go({ page: 'home' }, true); return; }
+      view.innerHTML = '<div class="sup-page"><div class="page-head"><h1>Supplier</h1><span class="small muted">ฐานข้อมูลผู้ขาย · ใช้เติมข้อมูลในใบเสนอราคาอัตโนมัติ</span><span class="sep"></span>' +
+        (['sr', 'sr_manager', 'admin'].indexOf(state.me.role) !== -1 ? '<button class="btn primary" data-add>+ เพิ่ม Supplier</button>' : '') + '</div>' +
+        '<div class="card list-bar"><div class="list-tools"><input type="search" id="s-q" placeholder="ค้นหา ชื่อ / ชื่อเรียก / รหัส / เลขผู้เสียภาษี / แบรนด์" value="' + esc(f.q) + '">' +
+        '<select id="s-ftype" aria-label="ประเภท"><option value="">ทุกประเภท</option>' + state.ref.supplier_types.map(function (t) { return '<option value="' + t.key + '"' + (f.type === t.key ? ' selected' : '') + '>' + esc(t.label) + '</option>'; }).join('') + '</select>' +
+        '<select id="s-fgroup" aria-label="กลุ่มสินค้า">' + groupOptions(f.group, true) + '</select>' +
+        '<label class="chk-inline"><input type="checkbox" id="s-finactive"' + (f.inactive ? ' checked' : '') + '> แสดงที่ปิดใช้งาน</label></div></div>' +
+        '<div id="s-results">' + loadingHtml() + '</div>' +
+        '<datalist id="origin-list"><option value="ไทย"><option value="นอร์เวย์"><option value="ชิลี"><option value="เวียดนาม"><option value="อินเดีย"><option value="จีน"><option value="ญี่ปุ่น"><option value="ออสเตรเลีย"></datalist>' +
+        '<datalist id="pay-list"><option value="เงินสด"><option value="Credit 30 วัน"><option value="Credit 60 วัน"><option value="T/T 30% deposit"><option value="L/C at sight"></datalist></div>';
+      const pg = view.firstChild;
+      pg.addEventListener('click', function (e) {
+        const add = e.target.closest('[data-add]');
+        if (add) { SupplierForm.open({}).then(function (s) { if (s) load(view); }); return; }
+        const tr = e.target.closest('tr.click');
+        if (tr) openOne(view, data.suppliers.filter(function (x) { return x.vendor_id === tr.getAttribute('data-vid'); })[0]);
+      });
+      pg.addEventListener('keydown', function (e) { const tr = e.target.closest('tr.click'); if (tr && e.key === 'Enter') tr.click(); });
+      $('#s-q', pg).addEventListener('input', debounce(function () { f.q = $('#s-q', pg).value.trim(); if (data) draw(view); }, 120));
+      $('#s-ftype', pg).onchange = function () { f.type = this.value; if (data) draw(view); };
+      $('#s-fgroup', pg).onchange = function () { f.group = this.value; if (data) draw(view); };
+      $('#s-finactive', pg).onchange = function () { f.inactive = this.checked; if (data) draw(view); };
+      load(view);
     }
   };
 })();
@@ -6415,6 +7724,106 @@ Pages.pricing = (function () {
     return '<input type="' + (type || 'text') + '" data-f="' + name + '" value="' + esc(value == null ? '' : value) + '"' + (extra || '') + (disabled ? ' disabled' : '') + '>';
   }
 
+  /* ---------- Supplier search (pick from the Supplier master; terms are filled, the price never is) ---------- */
+  function supplierById(id) { return (state.ref.vendors || []).filter(function (v) { return v.vendor_id === id; })[0]; }
+  function typeLabel(k) { const x = (state.ref.supplier_types || []).filter(function (t) { return t.key === k; })[0]; return x ? x.label : ''; }
+  function certBadges(s) {
+    return (s && s.cert_warnings || []).map(function (w) {
+      return '<span class="sla ' + (w.level === 'expired' ? 'breach' : 'warning') + '">⚠ ' + esc(w.name) + (w.level === 'expired' ? ' หมดอายุ' : ' ใกล้หมดอายุ') + '</span>';
+    }).join(' ');
+  }
+  function hintFor(it, vid) { return ctx.hints && ctx.hints[it.item_id] ? ctx.hints[it.item_id][vid] : null; }
+  function hintText(h) {
+    if (!h) return '';
+    return 'ครั้งก่อน ' + fmtNum(h.unit_price) + ' ' + esc(h.currency) + ' · ' + esc(fmtDate(h.at)) + (h.ticket_no ? ' · ' + esc(h.ticket_no) : '') +
+      (h.match === 'group' ? ' (สินค้าในกลุ่มเดียวกัน: ' + esc(h.product_name) + ')' : '');
+  }
+  function supplierField(it, q, ro) {
+    const s = q.vendor_id ? supplierById(q.vendor_id) : null;
+    if (q.vendor_name) {
+      return '<div class="field sup-pick"><span>Supplier <span class="req">*</span></span><div class="sup-chosen"><div><b>' + esc(q.vendor_name) + '</b>' +
+        (s ? '<div class="small muted">' + esc([typeLabel(s.supplier_type), s.country, s.default_currency].filter(Boolean).join(' · ')) + '</div>' + certBadges(s) :
+          (q.vendor_id ? '' : '<div class="small muted">ยังไม่ผูกกับฐานข้อมูล Supplier</div>')) +
+        (q._auto && Object.keys(q._auto).length ? '<div class="small auto-note">ช่องพื้นเส้นประ = ระบบเติมให้จาก Supplier · แก้ได้</div>' : '') + '</div>' +
+        (ro ? '' : '<div class="sup-acts"><button type="button" class="btn sm ghost" data-sup-change>เปลี่ยน</button>' +
+          (s ? '<button type="button" class="btn sm ghost" data-sup-savedef title="บันทึกสกุลเงิน VAT เงื่อนไขชำระ Incoterm MOQ Lead time ของใบนี้เป็นค่าเริ่มต้นของ Supplier">↺ ตั้งเป็นค่าเริ่มต้น</button>' : '') + '</div>') +
+        '</div></div>';
+    }
+    return '<div class="field sup-pick"><span>Supplier <span class="req">*</span></span><div class="sup-combo">' +
+      '<input type="search" data-sup-search role="combobox" aria-expanded="false" aria-autocomplete="list" placeholder="พิมพ์ชื่อ / ชื่อย่อ / รหัส Supplier"' + (ro ? ' disabled' : '') + '>' +
+      '<div class="sup-results" role="listbox" hidden></div></div></div>';
+  }
+  function supplierMatches(it, text) {
+    const words = String(text || '').toLowerCase().split(/\s+/).filter(String);
+    return (state.ref.vendors || []).filter(function (s) {
+      const hay = (s.name + ' ' + s.short_name + ' ' + s.vendor_id + ' ' + s.tax_id + ' ' + s.brands).toLowerCase();
+      return words.every(function (w) { return hay.indexOf(w) !== -1; });
+    }).map(function (s) {
+      const h = hintFor(it, s.vendor_id);
+      const score = (h && h.match === 'product' ? 4 : h ? 2 : 0) + (s.product_groups.indexOf(it.product_group_code) !== -1 ? 1 : 0);
+      return { s: s, h: h, score: score };
+    }).sort(function (a, b) { return (b.score - a.score) || a.s.name.localeCompare(b.s.name, 'th'); }).slice(0, 8);
+  }
+  function supplierResultsHtml(it, text) {
+    const list = supplierMatches(it, text);
+    return list.map(function (x, i) {
+      return '<button type="button" class="sup-opt' + (i === 0 ? ' active' : '') + '" role="option" data-sup-pick="' + esc(x.s.vendor_id) + '"><b>' + esc(x.s.name) + '</b>' +
+        '<span class="small muted">' + esc([typeLabel(x.s.supplier_type), x.s.country, x.s.default_currency].filter(Boolean).join(' · ')) + '</span>' +
+        (x.h ? '<span class="small">' + hintText(x.h) + '</span>' : '') + certBadges(x.s) + '</button>';
+    }).join('') + (list.length ? '' : '<div class="sup-none small muted">ไม่พบในฐานข้อมูล</div>') +
+      '<button type="button" class="sup-opt sup-new" data-sup-new>＋ เพิ่ม Supplier ใหม่' + (text ? ' “' + esc(text) + '”' : '') + '</button>';
+  }
+  /** Fill the quote from the supplier (+ the last quote for this product). Never the unit price. */
+  function applySupplier(it, q, s) {
+    const h = hintFor(it, s.vendor_id);
+    const fill = {
+      currency: s.default_currency || 'THB', vat_term: s.default_vat_term || q.vat_term,
+      payment_term: s.payment_term, incoterm: s.incoterm,
+      lead_time_days: s.lead_time_days == null ? '' : s.lead_time_days, moq: s.moq == null ? '' : s.moq,
+      valid_until: todayYmd(s.validity_days || state.ref.default_validity_days || 30),
+      origin_country: (h && h.origin_country) || s.country,
+      brand: (h && h.brand) || (s.brands && s.brands.indexOf(',') === -1 ? s.brands : ''),
+      packing: h ? h.packing : '', shelf_life: h ? h.shelf_life : '',
+      clearance_thb: s.clearance_per_kg != null && /^(กก\.|kg)$/i.test(it.uom) ? s.clearance_per_kg : ''
+    };
+    const fx = fill.currency === 'THB' ? 1 : (state.ref.fx_defaults || {})[fill.currency];
+    fill.fx_rate = fx == null ? '' : fx;
+    const conflicts = Object.keys(fill).filter(function (k) {
+      return q._edited && q._edited[k] && String(q[k] == null ? '' : q[k]) !== '' && String(q[k]) !== String(fill[k] == null ? '' : fill[k]) && String(fill[k] == null ? '' : fill[k]) !== '';
+    });
+    const go = function (overwrite) {
+      q.vendor_id = s.vendor_id;
+      q.vendor_name = s.name;
+      q._auto = q._auto || {};
+      Object.keys(fill).forEach(function (k) {
+        const v = fill[k] == null ? '' : fill[k];
+        if (v === '' ) return;
+        if (!overwrite && conflicts.indexOf(k) !== -1) return;
+        q[k] = v;
+        q._auto[k] = true;
+        if (q._edited) delete q._edited[k];
+      });
+      if (q.currency === 'THB') { q.fx_rate = 1; delete q._auto.fx_rate; }
+    };
+    if (!conflicts.length) { go(true); return Promise.resolve(); }
+    return dialog({ title: 'แทนที่ช่องที่คุณแก้เองหรือไม่?', message: 'ช่องที่คุณกรอกไว้เองต่างจากค่าของ ' + s.name + ': ' + conflicts.join(', '),
+      confirmText: 'ใช้ค่าของ Supplier' }).then(function (ok) { go(!!ok); });
+  }
+  function saveSupplierDefaults(q) {
+    const s = supplierById(q.vendor_id);
+    if (!s) return;
+    const p = Object.assign({}, s, { expected_version: s.version, default_currency: q.currency, default_vat_term: q.vat_term, payment_term: q.payment_term,
+      incoterm: q.incoterm, lead_time_days: q.lead_time_days, moq: q.moq });
+    dialog({ title: 'ตั้งเป็นค่าเริ่มต้นของ ' + s.name + '?', message: 'สกุลเงิน ' + q.currency + ' · VAT · เงื่อนไขชำระ “' + (q.payment_term || '-') + '” · Incoterm · MOQ · Lead time ' +
+      'จากใบนี้ จะถูกใช้เติมให้อัตโนมัติครั้งต่อไป (ใบเสนอราคาเก่าไม่เปลี่ยน)', confirmText: 'บันทึกค่าเริ่มต้น' }).then(function (ok) {
+      if (!ok) return;
+      api('saveSupplier', p).then(function (r) {
+        state.ref.vendors = state.ref.vendors.map(function (v) { return v.vendor_id === r.supplier.vendor_id ? Object.assign(r.supplier, { cert_warnings: v.cert_warnings }) : v; });
+        toast('บันทึกค่าเริ่มต้นของ ' + r.supplier.name + ' แล้ว', 'ok');
+      }).catch(function (e) { toast(e.error, 'err', 9000); });
+    });
+  }
+
   function vendorCol(it, mi, q, qi, editable, isFood) {
     const ro = !editable;
     const cur = state.ref.currencies.map(function (c) { return { key: c, label: c }; });
@@ -6426,8 +7835,9 @@ Pages.pricing = (function () {
       '<div class="vhead"><label class="win"><input type="radio" name="win-' + esc(it.item_id) + '" value="' + esc(q.quote_id) + '"' +
       (mi.winner === q.quote_id ? ' checked' : '') + (ro ? ' disabled' : '') + '> เลือกเจ้านี้</label>' +
       '<span class="vtags"></span>' + (editable ? '<button type="button" class="btn sm ghost" data-delq="' + qi + '" aria-label="ลบ vendor">✕ ลบ</button>' : '') + '</div>' +
-      f('Vendor', inp('vendor_name', q.vendor_name, 'text', ' list="vendor-list" maxlength="200" placeholder="ชื่อผู้ขาย"', ro), true) +
-      '<div class="row tight">' + f('ราคา/หน่วย', inp('unit_price', q.unit_price, 'number', ' inputmode="decimal" min="0" step="any"', ro), true) +
+      supplierField(it, q, ro) +
+      '<div class="row tight">' + f('ราคา/หน่วย', inp('unit_price', q.unit_price, 'number', ' inputmode="decimal" min="0" step="any"', ro) +
+        '<small class="hint price-hint" data-hint></small>', true) +
       f('สกุลเงิน', sel('currency', cur, q.currency, ro)) + '</div>' +
       '<div class="row tight">' + f('อัตราแลกเปลี่ยน → THB', inp('fx_rate', q.currency === 'THB' ? 1 : q.fx_rate, 'number', ' inputmode="decimal" min="0" step="any"', ro || q.currency === 'THB'), q.currency !== 'THB') +
       f('VAT', sel('vat_term', state.ref.vat_terms, q.vat_term, ro), true) + '</div>' +
@@ -6511,7 +7921,6 @@ Pages.pricing = (function () {
       (docPhase && d.items.every(function (it) { return !it.quotations.length; }) ?
         '<div class="notice">ติ๊กเอกสารให้ครบแล้วกด “ยืนยันเอกสารครบ” ก่อน จึงจะกรอกราคา vendor ได้ หรือกด “ขอข้อมูลเพิ่มจาก Sales” ถ้าเอกสารไม่พอ</div>' :
         d.items.map(itemCard).join('') + '<div class="card" id="pp-summary"></div>') +
-      '<datalist id="vendor-list">' + state.ref.vendors.map(function (v) { return '<option value="' + esc(v.name) + '">'; }).join('') + '</datalist>' +
       '<datalist id="pay-list"><option value="เงินสด"><option value="Credit 30 วัน"><option value="Credit 60 วัน"><option value="T/T 30% deposit"><option value="L/C at sight"></datalist>' +
       '<datalist id="origin-list"><option value="ไทย"><option value="นอร์เวย์"><option value="ชิลี"><option value="เวียดนาม"><option value="อินเดีย"><option value="จีน"><option value="ญี่ปุ่น"><option value="ออสเตรเลีย"></datalist>' +
       (d.permissions.can_edit_quotes ? '<div class="savebar"><div class="sum" id="pp-sum"></div><span class="sep"></span>' +
@@ -6532,6 +7941,13 @@ Pages.pricing = (function () {
     calc.rows.forEach(function (r, qi) {
       const col = $('.vcol[data-q="' + qi + '"]', card);
       if (!col) return;
+      const q = mi.quotes[qi];
+      const hint = $('[data-hint]', col);
+      if (hint) hint.innerHTML = q && q.vendor_id ? hintText(hintFor(it, q.vendor_id)) : '';
+      $all('[data-f]', col).forEach(function (el) {
+        const k = el.getAttribute('data-f');
+        el.classList.toggle('auto', !!(q && ((q._auto && q._auto[k]) || (k === 'fx_rate' && q._fxDefault))));
+      });
       $('.calc', col).innerHTML = r.c ?
         '<div class="kvs"><span>ต้นทุนสินค้า/' + esc(it.uom) + '</span><span>฿' + fmtMoney(r.c.net_thb) + '</span>' +
         '<span>+ ค่าเคลียร์ของ</span><span>฿' + fmtMoney(r.c.clearance) + '</span>' +
@@ -6699,6 +8115,13 @@ Pages.pricing = (function () {
     const mi = ctx.model.items[idx];
     card.addEventListener('input', function (e) {
       const el = e.target;
+      if (el.hasAttribute('data-sup-search')) {
+        const box = el.parentNode.querySelector('.sup-results');
+        box.innerHTML = supplierResultsHtml(ctx.d.items[idx], el.value.trim());
+        box.hidden = false;
+        el.setAttribute('aria-expanded', 'true');
+        return;
+      }
       if (el.hasAttribute('data-reason')) { mi.reason = el.value; markDirty(); refreshItem(idx); return; }
       if (el.hasAttribute('data-gp')) { mi.gp = el.value; markDirty(); refreshItem(idx); return; }
       const col = el.closest('.vcol');
@@ -6706,23 +8129,82 @@ Pages.pricing = (function () {
       const q = mi.quotes[Number(col.getAttribute('data-q'))];
       const f = el.getAttribute('data-f');
       q[f] = el.value;
-      if (f === 'vendor_name') {
-        const v = state.ref.vendors.filter(function (x) { return x.name.toLowerCase() === el.value.trim().toLowerCase(); })[0];
-        q.vendor_id = v ? v.vendor_id : '';
-        if (v && !q._defaulted) {   // fill vendor defaults once
-          q._defaulted = true;
-          q.currency = v.default_currency || q.currency;
-          if (v.default_vat_term) q.vat_term = v.default_vat_term;
-          $('[data-f="currency"]', col).value = q.currency;
-          $('[data-f="vat_term"]', col).value = q.vat_term;
-        }
+      (q._edited = q._edited || {})[f] = true;
+      if (q._auto && q._auto[f]) { delete q._auto[f]; el.classList.remove('auto'); }
+      if (f === 'currency' && el.value !== 'THB' && (!String(q.fx_rate || '').trim() || (q._auto && q._auto.fx_rate) || q._fxDefault)) {
+        const fx = (state.ref.fx_defaults || {})[el.value];
+        q.fx_rate = fx == null ? '' : fx;
+        q._fxDefault = fx != null;
+        const fxEl = $('[data-f="fx_rate"]', col);
+        if (fxEl) { fxEl.value = q.fx_rate; fxEl.disabled = false; fxEl.classList.toggle('auto', fx != null); }
       }
+      if (f === 'fx_rate') q._fxDefault = false;
       if (f === 'currency' && q.currency === 'THB') q.fx_rate = 1;
       markDirty();
       refreshItem(idx);
     });
     card.addEventListener('change', function (e) {
       if (e.target.type === 'radio') { mi.winner = e.target.value; markDirty(); refreshItem(idx); }
+    });
+    card.addEventListener('focusin', function (e) {
+      if (e.target.hasAttribute && e.target.hasAttribute('data-sup-search')) {
+        const box = e.target.parentNode.querySelector('.sup-results');
+        box.innerHTML = supplierResultsHtml(ctx.d.items[idx], e.target.value.trim());
+        box.hidden = false;
+      }
+    });
+    card.addEventListener('keydown', function (e) {
+      const el = e.target;
+      if (!el.hasAttribute || !el.hasAttribute('data-sup-search')) return;
+      const box = el.parentNode.querySelector('.sup-results');
+      const opts = $all('.sup-opt', box);
+      let i = opts.findIndex(function (o) { return o.classList.contains('active'); });
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (box.hidden) { box.hidden = false; return; }
+        i = e.key === 'ArrowDown' ? Math.min(i + 1, opts.length - 1) : Math.max(i - 1, 0);
+        opts.forEach(function (o, k) { o.classList.toggle('active', k === i); });
+        if (opts[i]) opts[i].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (opts[i]) opts[i].click();
+      } else if (e.key === 'Escape') {
+        box.hidden = true; el.setAttribute('aria-expanded', 'false');
+      }
+    });
+    card.addEventListener('click', function (e) {
+      const col = e.target.closest('.vcol');
+      if (!col) return;
+      const q = mi.quotes[Number(col.getAttribute('data-q'))];
+      const it = ctx.d.items[idx];
+      const pick = e.target.closest('[data-sup-pick]');
+      if (pick) {
+        const s = supplierById(pick.getAttribute('data-sup-pick'));
+        applySupplier(it, q, s).then(function () { markDirty(); rerenderItem(idx); focusPrice(idx, col.getAttribute('data-q')); });
+        return;
+      }
+      if (e.target.closest('[data-sup-new]')) {
+        const text = ($('[data-sup-search]', col) || {}).value || '';
+        SupplierForm.open({ quick: true, name: text.trim() }).then(function (s) {
+          if (!s) return;
+          s.cert_warnings = [];
+          state.ref.vendors = (state.ref.vendors || []).concat([s]);
+          return applySupplier(it, q, s).then(function () { markDirty(); rerenderItem(idx); focusPrice(idx, col.getAttribute('data-q')); });
+        });
+        return;
+      }
+      if (e.target.closest('[data-sup-change]')) {
+        q.vendor_id = ''; q.vendor_name = '';
+        markDirty(); rerenderItem(idx);
+        const inpEl = $('.vcol[data-q="' + col.getAttribute('data-q') + '"] [data-sup-search]', $('.card.item[data-item="' + idx + '"]', ctx.view));
+        if (inpEl) inpEl.focus();
+        return;
+      }
+      if (e.target.closest('[data-sup-savedef]')) saveSupplierDefaults(q);
+    });
+    document.addEventListener('click', function (e) {
+      if (!card.isConnected) return;
+      $all('.sup-results', card).forEach(function (box) { if (!box.parentNode.contains(e.target)) box.hidden = true; });
     });
     const add = $('[data-addq]', card);
     if (add) add.onclick = function () {
@@ -6748,6 +8230,11 @@ Pages.pricing = (function () {
     });
   }
 
+  function focusPrice(idx, qi) {
+    const el = $('.card.item[data-item="' + idx + '"] .vcol[data-q="' + qi + '"] [data-f="unit_price"]', ctx.view);
+    if (el) el.focus();
+  }
+
   function rerenderItem(idx, focusLast) {
     const old = $('.card.item[data-item="' + idx + '"]', ctx.view);
     const tmp = document.createElement('div');
@@ -6759,8 +8246,8 @@ Pages.pricing = (function () {
     refreshItem(idx);
     refreshSummary();
     if (focusLast) {
-      const cols = $all('.vcol', fresh);
-      const inpEl = cols.length && $('[data-f="vendor_name"]', cols[cols.length - 1]);
+      const cols = $all('.vcol[data-q]', fresh);
+      const inpEl = cols.length && $('[data-sup-search]', cols[cols.length - 1]);
       if (inpEl) inpEl.focus();
     }
   }
@@ -6859,7 +8346,7 @@ Pages.pricing = (function () {
     const card = $('.card.item[data-item="' + idx + '"]', ctx.view);
     if (!card) return;
     card.open = true;
-    const col = vendorIndex != null ? $all('.vcol', card).filter(function (c) {
+    const col = vendorIndex != null ? $all('.vcol[data-q]', card).filter(function (c) {
       const q = ctx.model.items[idx].quotes[Number(c.getAttribute('data-q'))];
       return !isBlank(q);
     })[vendorIndex] : null;
@@ -6879,7 +8366,7 @@ Pages.pricing = (function () {
       const calc = itemCalc(mi, it);
       if (!filled.length) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ยังไม่มีราคา vendor' });
       filled.forEach(function (q, k) {
-        if (!String(q.vendor_name).trim()) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ' vendor ที่ ' + (k + 1) + ': ใส่ชื่อ vendor' });
+        if (!String(q.vendor_name).trim()) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ' vendor ที่ ' + (k + 1) + ': เลือก Supplier' });
         if (!costs(q)) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ' vendor ที่ ' + (k + 1) + ': ราคา / อัตราแลกเปลี่ยน / ค่าเคลียร์ของ ไม่ถูกต้อง' });
       });
       if (filled.length && !calc.win) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ยังไม่ได้เลือกผู้ชนะ' });
@@ -6938,8 +8425,17 @@ Pages.pricing = (function () {
         if (!isCurrent()) return;
         // cost page: SR / SR Manager / GM / Admin only — everyone else goes to the ticket page (server sends them no cost anyway)
         if (!d.permissions.can_view_quotes) { go({ page: 'ticket', id: route.id }, true); return; }
-        ctx = { d: d, model: fromDetail(d), dirty: false, view: view };
+        ctx = { d: d, model: fromDetail(d), dirty: false, view: view, hints: null };
         render();
+        // last price per supplier for these products (hint only) — loaded after the page is on screen
+        if (d.permissions.can_edit_quotes) {
+          const mine = ctx;
+          api('supplierHints', d.ticket.ticket_id).then(function (h) {
+            if (ctx !== mine) return;
+            ctx.hints = h.hints;
+            $all('.card.item', ctx.view).forEach(function (card) { refreshItem(Number(card.getAttribute('data-item'))); });
+          }).catch(function () { /* hints are optional */ });
+        }
       }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
     }
   };

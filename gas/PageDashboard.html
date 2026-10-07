@@ -53,7 +53,7 @@ Pages.dashboard = (function () {
   function draw(view, d) {
     const k = d.kpi;
     const listScope = state.me.role === 'sales' || state.me.role === 'sr' ? 'mine' : 'all';
-    let html = '<div class="page-head"><h1>ภาพรวม</h1><div class="actions">' +
+    let html = '<div class="page-head"><h1>รายงาน</h1><div class="actions">' +
       PRESETS.map(function (p) { return '<button class="btn sm' + (range.key === p[0] ? ' primary' : '') + '" data-range="' + p[0] + '">' + p[1] + '</button>'; }).join('') +
       '</div></div><p class="muted small" style="margin-top:-6px">แสดง: <b>' + esc(d.scope_note) + '</b>' +
       (d.range.from ? ' · สร้างระหว่าง ' + esc(fmtDate(d.range.from)) + ' – ' + esc(fmtDate(d.range.to)) : ' · ทุกช่วงเวลา') + ' · แตะตัวเลขเพื่อดูรายการ</p>';
@@ -134,7 +134,9 @@ Pages.dashboard = (function () {
 
   return {
     render: function (view, route, isCurrent) {
-      view.innerHTML = loadingHtml('กำลังสรุปภาพรวม...');
+      // statistics are for managers; everyone else works from the homepage
+      if (['manager', 'sr_manager', 'gm', 'admin'].indexOf(state.me.role) === -1) { go({ page: 'home' }, true); return; }
+      view.innerHTML = loadingHtml('กำลังสรุปรายงาน...');
       api('getDashboard', { from: range.from, to: range.to }).then(function (d) {
         if (isCurrent()) draw(view, d);
       }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });

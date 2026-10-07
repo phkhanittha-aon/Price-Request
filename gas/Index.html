@@ -265,6 +265,33 @@
       .form-actions .sep { flex-basis: 100%; height: 0; } .form-actions .btn { flex: 1 1 auto; }
     }
 
+    /* homepage */
+    .home-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .home-tiles .tile { grid-template-columns: 1fr; grid-template-areas: "v" "l" "p"; }
+    .home-tiles .tile .v { font-size: 2rem; }
+    .home-tiles .t-me { border-left: 4px solid var(--brand); }
+    .home-tiles .t-open { border-left: 4px solid var(--warn); }
+    .home-tiles .t-late { border-left: 4px solid var(--line); }
+    .home-tiles .t-late.bad { border-left-color: var(--danger); }
+    .home-tiles .t-late.bad .v { color: var(--danger-ink); }
+    .quick { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+    .quick .qn { display: inline-block; min-width: 22px; padding: 0 6px; border-radius: 11px; background: rgba(0,0,0,.08); font-size: .8rem; text-align: center; }
+    .quick .btn.primary .qn { background: rgba(255,255,255,.25); }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .card-head h3 { margin: 0; }
+    .tasks { list-style: none; margin: 0; padding: 0; }
+    .tasks a { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--line); text-decoration: none; color: var(--text); min-height: var(--tap); }
+    .tasks li:last-child a { border-bottom: 0; }
+    .tasks a:hover { background: #F6FAFB; }
+    .tasks .tmain { flex: 1; min-width: 0; }
+    .tasks .tmain .small.muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tasks .tside { flex: none; text-align: right; }
+    .tdot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); }
+    .tdot.warning { background: var(--warn); } .tdot.breach { background: var(--danger); } .tdot.none, .tdot.done { background: var(--line); }
+    .health { list-style: none; padding: 0; margin: 0; }
+    .health li { padding: 6px 0; } .health li.bad { color: var(--danger-ink); } .health li.ok { color: var(--ok-ink); }
+    @media (max-width: 720px) { .home-tiles { grid-template-columns: minmax(0, 1fr); } }
+
     /* dashboard (simple) */
     .out-done { background: var(--ok); } .out-open { background: var(--warn); } .out-rej { background: var(--danger); }
     .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 12px; }
@@ -469,6 +496,7 @@
   <div id="tip" role="tooltip"></div>
 
   <?!= include_('App'); ?>
+  <?!= include_('PageHome'); ?>
   <?!= include_('PageDashboard'); ?>
   <?!= include_('PageTickets'); ?>
   <?!= include_('PageTicket'); ?>
