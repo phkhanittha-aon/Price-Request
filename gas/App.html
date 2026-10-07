@@ -199,7 +199,7 @@ const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome'
 function cleanRoute(p) {
   const r = {};
   ROUTE_KEYS.forEach(function (k) { if (p && p[k]) r[k] = String(p[k]); });
-  if (!r.page || ['dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing'].indexOf(r.page) === -1) r.page = 'dashboard';
+  if (!r.page || ['dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'].indexOf(r.page) === -1) r.page = 'dashboard';
   return r;
 }
 function go(route, replace) {
@@ -224,7 +224,7 @@ function render(route) {
   }
 }
 function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || '') + (r.follow || ''); }
-const PAGE_TITLE = { ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
+const PAGE_TITLE = { suppliers: 'Supplier', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
 function renderNav() {
   initShell();
   const cur = state.route;

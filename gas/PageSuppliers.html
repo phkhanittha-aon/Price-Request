@@ -1,0 +1,241 @@
+<!--
+  File: PageSuppliers.html
+  Supplier master (?page=suppliers) — SR / SR Manager / GM / Admin. Sales never reach it (server refuses too).
+  SupplierForm is shared: the pricing page opens the same form in "quick" mode to add a supplier
+  without leaving the quotation.
+-->
+<script>
+/* ---------- shared form (drawer) ---------- */
+const SupplierForm = (function () {
+  function opt(v, label, cur) { return '<option value="' + esc(v) + '"' + (String(v) === String(cur == null ? '' : cur) ? ' selected' : '') + '>' + esc(label) + '</option>'; }
+  function field(label, html, o) {
+    o = o || {};
+    return '<label class="field' + (o.span ? ' span-' + o.span : '') + '"><span>' + esc(label) + (o.req ? ' <span class="req">*</span>' : '') + '</span>' + html +
+      (o.hint ? '<small class="hint">' + esc(o.hint) + '</small>' : '') + '</label>';
+  }
+  function certRow(c) {
+    return '<div class="cert-row"><input type="text" data-cert-name placeholder="เช่น GMP, HACCP, Halal, อย." value="' + esc(c.name || '') + '">' +
+      '<input type="date" data-cert-exp value="' + esc(c.expiry || '') + '" aria-label="วันหมดอายุ">' +
+      '<button type="button" class="btn sm ghost" data-cert-del aria-label="ลบ">✕</button></div>';
+  }
+
+  /** opts: { supplier?, quick?, name?, readOnly? } → Promise<saved supplier | null> */
+  function open(opts) {
+    const o = opts || {};
+    const s = o.supplier || { name: o.name || '', supplier_type: o.type || '', default_currency: o.currency || '', default_vat_term: '', certs: [], product_groups: [] };
+    const ro = !!o.readOnly;
+    const quick = !!o.quick;
+    const cur = state.ref.currencies;
+    const inco = [{ key: '', label: '— ไม่ระบุ —' }].concat(state.ref.incoterms || []);
+    const groups = state.ref.product_groups.filter(function (g) { return g.parent_code; });
+    return new Promise(function (resolve) {
+      const root = document.createElement('div');
+      root.innerHTML = '<div class="overlay" data-close></div><aside class="drawer sup-form" role="dialog" aria-label="Supplier">' +
+        '<header><h3>' + (s.vendor_id ? esc(s.name) + ' <span class="small muted">' + esc(s.vendor_id) + '</span>' : (quick ? 'เพิ่ม Supplier ใหม่ (แบบย่อ)' : 'เพิ่ม Supplier')) + '</h3>' +
+        '<button class="btn sm ghost" data-close aria-label="ปิด">✕</button></header><div class="adv-body"><fieldset' + (ro ? ' disabled' : '') + '>' +
+        '<div class="sec-label">ข้อมูลหลัก</div><div class="fgrid two">' +
+        field('ชื่อบริษัท', '<input type="text" id="s-name" maxlength="200" value="' + esc(s.name) + '">', { req: true, span: 2 }) +
+        field('ประเภท', '<select id="s-type">' + opt('', '— เลือก —', s.supplier_type) + state.ref.supplier_types.map(function (t) { return opt(t.key, t.label, s.supplier_type); }).join('') + '</select>', { req: true }) +
+        field('ประเทศต้นทาง', '<input type="text" id="s-country" maxlength="60" list="origin-list" value="' + esc(s.country) + '">') +
+        field('สกุลเงิน', '<select id="s-cur">' + opt('', '— เลือก —', s.default_currency) + cur.map(function (c) { return opt(c, c, s.default_currency); }).join('') + '</select>', { req: true }) +
+        field('VAT', '<select id="s-vat">' + opt('', '— เลือก —', s.default_vat_term) + state.ref.vat_terms.map(function (v) { return opt(v.key, v.label, s.default_vat_term); }).join('') + '</select>', { req: true }) +
+        '</div>' +
+        (quick ? '<p class="small muted">ข้อมูลอื่น (เงื่อนไขการค้า ผู้ติดต่อ ใบรับรอง) เพิ่มทีหลังได้ที่เมนู Supplier</p>' :
+        '<div class="sec-label">ชื่อเรียก / ค้นหา</div><div class="fgrid two">' +
+        field('ชื่อเรียก / คำค้น', '<input type="text" id="s-short" maxlength="200" value="' + esc(s.short_name) + '">', { hint: 'เช่น ชื่อย่อ ชื่อภาษาไทย/อังกฤษ' }) +
+        field('เลขผู้เสียภาษี', '<input type="text" id="s-tax" maxlength="30" inputmode="numeric" value="' + esc(s.tax_id) + '">', { hint: 'ระบบไม่ให้ซ้ำกับ Supplier อื่น' }) +
+        '</div><div class="sec-label">เงื่อนไขการค้า (ใช้เติมใบเสนอราคาอัตโนมัติ)</div><div class="fgrid two">' +
+        field('เงื่อนไขชำระเงิน', '<input type="text" id="s-pay" maxlength="100" list="pay-list" value="' + esc(s.payment_term) + '">') +
+        field('Incoterm', '<select id="s-inco">' + inco.map(function (x) { return opt(x.key, x.label, s.incoterm); }).join('') + '</select>') +
+        field('Lead time (วัน)', '<input type="number" id="s-lead" min="0" value="' + esc(s.lead_time_days == null ? '' : s.lead_time_days) + '">') +
+        field('MOQ', '<input type="number" id="s-moq" min="0" step="any" value="' + esc(s.moq == null ? '' : s.moq) + '">') +
+        field('ยืนราคา (วัน)', '<input type="number" id="s-valid" min="0" value="' + esc(s.validity_days == null ? '' : s.validity_days) + '">', { hint: 'ว่าง = ' + esc(state.ref.default_validity_days || 30) + ' วัน' }) +
+        field('ค่าเคลียร์ประมาณการ (บาท/กก.)', '<input type="number" id="s-clr" min="0" step="any" value="' + esc(s.clearance_per_kg == null ? '' : s.clearance_per_kg) + '">', { hint: 'ใช้กับ Supplier นำเข้า' }) +
+        field('แบรนด์', '<input type="text" id="s-brands" maxlength="300" value="' + esc(s.brands) + '">', { span: 2 }) +
+        '</div><div class="field"><span>กลุ่มสินค้าที่ขาย</span><div class="pg-pick">' + groups.map(function (g) {
+          return '<label class="pg-opt"><input type="checkbox" data-pg value="' + esc(g.code) + '"' + (s.product_groups.indexOf(g.code) !== -1 ? ' checked' : '') + '> ' + esc(g.name) + '</label>';
+        }).join('') + '</div><small class="hint">ใช้เรียง Supplier ที่ขายสินค้ากลุ่มนั้นขึ้นก่อนตอนค้นหา</small></div>' +
+        '<div class="sec-label">ผู้ติดต่อ</div><div class="fgrid two">' +
+        field('ชื่อผู้ติดต่อ', '<input type="text" id="s-contact" maxlength="100" value="' + esc(s.contact_name) + '">') +
+        field('โทร', '<input type="tel" id="s-phone" maxlength="50" value="' + esc(s.phone) + '">') +
+        field('อีเมล', '<input type="email" id="s-email" maxlength="120" value="' + esc(s.email) + '">') +
+        field('Line / WeChat', '<input type="text" id="s-chat" maxlength="100" value="' + esc(s.chat_id) + '">') +
+        '</div><div class="sec-label">คุณภาพ (QC)</div><div class="field"><span>ใบรับรอง + วันหมดอายุ</span><div id="s-certs">' +
+        (s.certs || []).map(certRow).join('') + '</div><button type="button" class="btn sm" id="s-cert-add">+ เพิ่มใบรับรอง</button></div>' +
+        field('หมายเหตุคุณภาพ', '<textarea id="s-qnote" maxlength="1000" rows="2">' + esc(s.quality_note) + '</textarea>') +
+        field('หมายเหตุ', '<textarea id="s-note" maxlength="1000" rows="2">' + esc(s.note) + '</textarea>')) +
+        '</fieldset><div class="err-text" id="s-err"></div></div>' +
+        '<footer class="adv-foot">' + (s.vendor_id && !quick ? '<button class="btn sm ghost" id="s-log">ประวัติการแก้ไข</button>' : '') + '<span class="sep"></span>' +
+        '<button class="btn" data-close>' + (ro ? 'ปิด' : 'ยกเลิก') + '</button>' + (ro ? '' : '<button class="btn primary" id="s-save">' + (quick ? 'บันทึกและใช้ในใบนี้' : 'บันทึก') + '</button>') +
+        '</footer></aside>';
+      $('#modal-root').appendChild(root);
+      const close = function (val) { root.remove(); document.removeEventListener('keydown', onKey); resolve(val || null); };
+      const onKey = function (e) { if (e.key === 'Escape') close(null); };
+      document.addEventListener('keydown', onKey);
+      $all('[data-close]', root).forEach(function (b) { b.onclick = function () { close(null); }; });
+      const v = function (id) { const el = $('#' + id, root); return el ? el.value : undefined; };
+      if ($('#s-cert-add', root)) $('#s-cert-add', root).onclick = function () { $('#s-certs', root).insertAdjacentHTML('beforeend', certRow({})); };
+      root.addEventListener('click', function (e) { const d = e.target.closest('[data-cert-del]'); if (d) d.closest('.cert-row').remove(); });
+      if ($('#s-log', root)) $('#s-log', root).onclick = function () { showLog(s); };
+      const payload = function () {
+        const p = { vendor_id: s.vendor_id || '', expected_version: s.version, name: v('s-name'), supplier_type: v('s-type'), country: v('s-country'),
+          default_currency: v('s-cur'), default_vat_term: v('s-vat') };
+        if (quick) return p;
+        Object.assign(p, { short_name: v('s-short'), tax_id: v('s-tax'), payment_term: v('s-pay'), incoterm: v('s-inco'), lead_time_days: v('s-lead'),
+          moq: v('s-moq'), validity_days: v('s-valid'), clearance_per_kg: v('s-clr'), brands: v('s-brands'),
+          product_groups: $all('[data-pg]:checked', root).map(function (c) { return c.value; }),
+          contact_name: v('s-contact'), phone: v('s-phone'), email: v('s-email'), chat_id: v('s-chat'),
+          certs: $all('.cert-row', root).map(function (r) { return { name: $('[data-cert-name]', r).value, expiry: $('[data-cert-exp]', r).value }; }),
+          quality_note: v('s-qnote'), note: v('s-note') });
+        return p;
+      };
+      const send = function (p) {
+        const btn = $('#s-save', root);
+        btn.disabled = true;
+        $('#s-err', root).textContent = '';
+        api('saveSupplier', p).then(function (r) {
+          toast('บันทึก Supplier ' + r.supplier.name + ' แล้ว', 'ok');
+          close(r.supplier);
+        }).catch(function (e) {
+          btn.disabled = false;
+          if (e.code === 'SIMILAR') {
+            dialog({ title: 'ชื่อคล้าย Supplier ที่มีอยู่', message: e.error, confirmText: 'บันทึกต่อ (คนละบริษัท)' }).then(function (ok) {
+              if (ok) send(Object.assign(p, { allow_similar: true }));
+            });
+            return;
+          }
+          $('#s-err', root).textContent = e.error;
+          const fld = e.details && e.details.field;
+          const map = { name: 's-name', tax_id: 's-tax', supplier_type: 's-type', default_currency: 's-cur', default_vat_term: 's-vat', email: 's-email' };
+          if (fld && map[fld] && $('#' + map[fld], root)) $('#' + map[fld], root).focus();
+        });
+      };
+      if ($('#s-save', root)) $('#s-save', root).onclick = function () {
+        const p = payload();
+        if (!String(p.name || '').trim()) { $('#s-err', root).textContent = 'กรุณากรอกชื่อบริษัท'; $('#s-name', root).focus(); return; }
+        send(p);
+      };
+      const first = $('#s-name', root);
+      if (first && !ro) first.focus();
+    });
+  }
+
+  function showLog(s) {
+    api('getSupplierLog', s.vendor_id).then(function (rows) {
+      const LABEL = { created: 'เพิ่ม', updated: 'แก้ไข', activated: 'เปิดใช้งาน', deactivated: 'ปิดใช้งาน', merged: 'รวมเข้ากับรายการอื่น', merged_in: 'รับรายการที่รวมเข้ามา' };
+      dialog({ title: 'ประวัติ ' + s.name, confirmText: 'ปิด', html: rows.length ? '<ul class="sup-log">' + rows.map(function (l) {
+        return '<li><b>' + esc(LABEL[l.action] || l.action) + '</b> · ' + esc(l.actor_name) + ' · <span class="muted">' + esc(fmtDateTime(l.ts)) + '</span>' +
+          Object.keys(l.diff).map(function (k) { return '<div class="small">' + esc(k) + ': ' + esc(l.diff[k].old || '(ว่าง)') + ' → <b>' + esc(l.diff[k]['new'] || '(ว่าง)') + '</b></div>'; }).join('') + '</li>';
+      }).join('') + '</ul>' : '<p class="muted">ยังไม่มีประวัติ</p>' });
+    }).catch(function (e) { toast(e.error, 'err'); });
+  }
+
+  return { open: open };
+})();
+
+/* ---------- Supplier page ---------- */
+Pages.suppliers = (function () {
+  let data = null;
+  const f = { q: '', type: '', group: '', inactive: false };
+
+  function matches(s) {
+    if (!f.inactive && !s.is_active) return false;
+    if (f.type && s.supplier_type !== f.type) return false;
+    if (f.group && s.product_groups.indexOf(f.group) === -1) return false;
+    if (f.q) {
+      const hay = (s.name + ' ' + s.short_name + ' ' + s.vendor_id + ' ' + s.tax_id + ' ' + s.country + ' ' + s.brands).toLowerCase();
+      if (!f.q.toLowerCase().split(/\s+/).filter(String).every(function (w) { return hay.indexOf(w) !== -1; })) return false;
+    }
+    return true;
+  }
+  function vatLabel(k) { const x = state.ref.vat_terms.filter(function (v) { return v.key === k; })[0]; return x ? x.label : k; }
+  function typeLabel(k) { const x = state.ref.supplier_types.filter(function (v) { return v.key === k; })[0]; return x ? x.label : '–'; }
+
+  function table(list) {
+    if (!list.length) return '<div class="card empty">ไม่พบ Supplier' + (data.can_edit ? '<p><button class="btn primary" data-add>+ เพิ่ม Supplier</button></p>' : '') + '</div>';
+    return '<p class="small list-sum"><b>' + fmtInt(list.length) + '</b> ราย</p><div class="card" style="padding:0"><div class="tbl-wrap"><table class="tbl stack slist"><thead><tr>' +
+      '<th>Supplier</th><th>ประเภท</th><th>สกุลเงิน · VAT</th><th>เงื่อนไข</th><th class="num">เสนอ / ชนะ</th><th>ใบรับรอง</th></tr></thead><tbody>' +
+      list.map(function (s) {
+        const warn = s.cert_warnings.map(function (w) { return '<span class="sla ' + (w.level === 'expired' ? 'breach' : 'warning') + '">' + esc(w.name) + (w.level === 'expired' ? ' หมดอายุ' : ' ใกล้หมด') + '</span>'; }).join(' ');
+        return '<tr class="click' + (s.is_active ? '' : ' off') + '" data-vid="' + esc(s.vendor_id) + '" tabindex="0"><td class="main"><b>' + esc(s.name) + '</b>' +
+          (s.is_active ? '' : ' <span class="badge">ปิดใช้งาน</span>') + '<div class="small muted">' + esc([s.vendor_id, s.short_name].filter(Boolean).join(' · ')) + '</div></td>' +
+          '<td data-label="ประเภท">' + esc(typeLabel(s.supplier_type)) + (s.country ? '<div class="small muted">' + esc(s.country) + '</div>' : '') + '</td>' +
+          '<td data-label="สกุลเงิน · VAT">' + esc(s.default_currency) + '<div class="small muted">' + esc(vatLabel(s.default_vat_term)) + '</div></td>' +
+          '<td data-label="เงื่อนไข" class="small">' + esc([s.payment_term, s.incoterm, s.lead_time_days != null ? 'Lead ' + s.lead_time_days + ' วัน' : '', s.moq != null ? 'MOQ ' + fmtNum(s.moq) : ''].filter(Boolean).join(' · ') || '–') + '</td>' +
+          '<td data-label="เสนอ / ชนะ" class="num">' + s.quote_count + ' / ' + s.win_count + (s.last_used_at ? '<div class="small muted">ล่าสุด ' + esc(fmtDate(s.last_used_at)) + '</div>' : '') + '</td>' +
+          '<td data-label="ใบรับรอง">' + (warn || (s.certs.length ? '<span class="small muted">' + esc(s.certs.map(function (c) { return c.name; }).join(', ')) + '</span>' : '–')) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+  }
+
+  function openOne(view, s) {
+    SupplierForm.open({ supplier: s, readOnly: !data.can_edit }).then(function (saved) { if (saved) load(view); });
+    // manager tools under the drawer footer
+    if (data.can_manage) {
+      const foot = $('.sup-form .adv-foot');
+      if (foot) {
+        foot.insertAdjacentHTML('afterbegin', '<button class="btn sm" id="s-toggle">' + (s.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน') + '</button>' +
+          '<button class="btn sm" id="s-merge">รวมเข้ากับ…</button>');
+        $('#s-toggle').onclick = function () {
+          api('setSupplierActive', s.vendor_id, !s.is_active, s.version).then(function () {
+            toast(s.is_active ? 'ปิดใช้งานแล้ว — ไม่แสดงในการค้นหา' : 'เปิดใช้งานแล้ว', 'ok');
+            $('.sup-form [data-close]').click(); load(view);
+          }).catch(function (e) { toast(e.error, 'err'); });
+        };
+        $('#s-merge').onclick = function () {
+          const others = data.suppliers.filter(function (x) { return x.vendor_id !== s.vendor_id && x.is_active; });
+          dialog({ title: 'รวม ' + s.name + ' เข้ากับ…', html: '<p class="small">ใบเสนอราคาเดิมของรายการนี้จะย้ายไปผูกกับ Supplier ที่เลือก แล้วรายการนี้จะถูกปิดใช้งาน</p>' +
+            '<label class="field"><span>รวมเข้ากับ</span><select id="m-into">' + others.map(function (x) { return '<option value="' + esc(x.vendor_id) + '">' + esc(x.name) + '</option>'; }).join('') + '</select></label>',
+            confirmText: 'รวมรายการ', onOpen: function (r) { r._into = $('#m-into', r); } }).then(function (res) {
+            if (!res) return;
+            api('mergeSuppliers', s.vendor_id, $('#m-into', res.root).value).then(function (m) {
+              toast('รวมแล้ว · ย้ายใบเสนอราคา ' + m.moved_quotations + ' รายการ', 'ok');
+              $('.sup-form [data-close]').click(); load(view);
+            }).catch(function (e) { toast(e.error, 'err'); });
+          });
+        };
+      }
+    }
+  }
+
+  function draw(view) {
+    const list = data.suppliers.filter(matches);
+    $('#s-results', view).innerHTML = table(list);
+  }
+  function load(view) {
+    return api('listSuppliers').then(function (d) {
+      data = d;
+      // keep the pricing-page search list fresh too
+      state.ref.vendors = d.suppliers.filter(function (s) { return s.is_active; });
+      if ($('#s-results', view)) draw(view);
+    }).catch(function (e) { const r = $('#s-results', view); if (r) r.innerHTML = errorHtml(e, 'App.reload()'); });
+  }
+
+  return {
+    render: function (view) {
+      if (['sr', 'sr_manager', 'gm', 'admin'].indexOf(state.me.role) === -1) { go({ page: 'dashboard' }, true); return; }
+      view.innerHTML = '<div class="sup-page"><div class="page-head"><h1>Supplier</h1><span class="small muted">ฐานข้อมูลผู้ขาย · ใช้เติมข้อมูลในใบเสนอราคาอัตโนมัติ</span><span class="sep"></span>' +
+        (['sr', 'sr_manager', 'admin'].indexOf(state.me.role) !== -1 ? '<button class="btn primary" data-add>+ เพิ่ม Supplier</button>' : '') + '</div>' +
+        '<div class="card list-bar"><div class="list-tools"><input type="search" id="s-q" placeholder="ค้นหา ชื่อ / ชื่อเรียก / รหัส / เลขผู้เสียภาษี / แบรนด์" value="' + esc(f.q) + '">' +
+        '<select id="s-ftype" aria-label="ประเภท"><option value="">ทุกประเภท</option>' + state.ref.supplier_types.map(function (t) { return '<option value="' + t.key + '"' + (f.type === t.key ? ' selected' : '') + '>' + esc(t.label) + '</option>'; }).join('') + '</select>' +
+        '<select id="s-fgroup" aria-label="กลุ่มสินค้า">' + groupOptions(f.group, true) + '</select>' +
+        '<label class="chk-inline"><input type="checkbox" id="s-finactive"' + (f.inactive ? ' checked' : '') + '> แสดงที่ปิดใช้งาน</label></div></div>' +
+        '<div id="s-results">' + loadingHtml() + '</div>' +
+        '<datalist id="origin-list"><option value="ไทย"><option value="นอร์เวย์"><option value="ชิลี"><option value="เวียดนาม"><option value="อินเดีย"><option value="จีน"><option value="ญี่ปุ่น"><option value="ออสเตรเลีย"></datalist>' +
+        '<datalist id="pay-list"><option value="เงินสด"><option value="Credit 30 วัน"><option value="Credit 60 วัน"><option value="T/T 30% deposit"><option value="L/C at sight"></datalist></div>';
+      const pg = view.firstChild;
+      pg.addEventListener('click', function (e) {
+        const add = e.target.closest('[data-add]');
+        if (add) { SupplierForm.open({}).then(function (s) { if (s) load(view); }); return; }
+        const tr = e.target.closest('tr.click');
+        if (tr) openOne(view, data.suppliers.filter(function (x) { return x.vendor_id === tr.getAttribute('data-vid'); })[0]);
+      });
+      pg.addEventListener('keydown', function (e) { const tr = e.target.closest('tr.click'); if (tr && e.key === 'Enter') tr.click(); });
+      $('#s-q', pg).addEventListener('input', debounce(function () { f.q = $('#s-q', pg).value.trim(); if (data) draw(view); }, 120));
+      $('#s-ftype', pg).onchange = function () { f.type = this.value; if (data) draw(view); };
+      $('#s-fgroup', pg).onchange = function () { f.group = this.value; if (data) draw(view); };
+      $('#s-finactive', pg).onchange = function () { f.inactive = this.checked; if (data) draw(view); };
+      load(view);
+    }
+  };
+})();
+</script>

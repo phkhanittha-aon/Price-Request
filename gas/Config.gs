@@ -7,7 +7,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.08-1';
+const APP_VERSION = '2026.10.08-2';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -35,6 +35,7 @@ const TAB = {
   DEPARTMENTS: 'Departments',
   PRODUCT_GROUPS: 'ProductGroups',
   VENDORS: 'Vendors',
+  SUPPLIER_LOGS: 'SupplierLogs',
   SETTINGS: 'Settings',
   COUNTERS: 'Counters',
   TICKETS: 'Tickets',
@@ -72,7 +73,14 @@ const SCHEMA = {
   Vendors: {
     key: 'vendor_id',
     cols: ['vendor_id', 'name', 'tax_id', 'country', 'default_currency', 'default_vat_term',
-           'contact_name', 'phone', 'email', 'note', 'is_active', 'created_by', 'created_at', 'updated_at']
+           'contact_name', 'phone', 'email', 'note', 'is_active', 'created_by', 'created_at', 'updated_at',
+           // Supplier master (appended v2026.10.08-2): search names, trade terms used to pre-fill quotations, QC info
+           'short_name', 'supplier_type', 'payment_term', 'incoterm', 'lead_time_days', 'moq', 'validity_days',
+           'clearance_per_kg', 'brands', 'product_groups', 'chat_id', 'certs_json', 'quality_note', 'updated_by', 'version']
+  },
+  SupplierLogs: {
+    key: 'log_id',
+    cols: ['log_id', 'ts', 'vendor_id', 'actor_email', 'actor_role', 'action', 'diff_json']
   },
   Settings: {
     key: 'key',
@@ -218,6 +226,10 @@ const DEFAULT_SETTINGS = [
   ['currencies', JSON.stringify(['THB', 'USD', 'CNY', 'EUR', 'JPY', 'SGD']), 'สกุลเงินใน dropdown'],
   ['max_upload_mb', '20', 'ขนาดไฟล์แนบสูงสุดต่อไฟล์ (MB)'],
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
+  ['fx_defaults', JSON.stringify({ USD: 35 }), 'อัตราแลกเปลี่ยนเริ่มต้น (บาทต่อ 1 หน่วย) ที่เติมให้ในหน้าใบเสนอราคา · SR แก้ได้ทุกใบ · สกุลที่ไม่มีในนี้ SR กรอกเอง'],
+  ['default_validity_days', '30', 'จำนวนวันยืนราคาเริ่มต้น เมื่อ Supplier ไม่ได้ระบุ'],
+  ['default_due_working_days', '3', 'วันที่ต้องการราคาเริ่มต้นในฟอร์ม Sales = วันนี้ + วันทำการ'],
+  ['document_options', JSON.stringify(['COA', 'Health Certificate', 'Halal', 'Spec sheet', 'ใบวิเคราะห์จุลินทรีย์', 'GMP / HACCP']), 'ตัวเลือกเอกสารในฟอร์มขอราคา'],
   ['allowed_mime_types', JSON.stringify([
     'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic',
     'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv'

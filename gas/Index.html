@@ -129,7 +129,7 @@
     label.field { display: block; margin-bottom: 12px; }
     label.field > span { display: block; margin-bottom: 4px; font-weight: 600; font-size: .92rem; }
     label.field > span .req { color: var(--danger-ink); }
-    input[type=text], input[type=number], input[type=date], input[type=search], select, textarea {
+    input[type=text], input[type=number], input[type=date], input[type=search], input[type=tel], input[type=email], select, textarea {
       width: 100%; min-height: var(--tap); padding: 8px 10px; border: 1px solid #B8C7CC; border-radius: 8px; background: #fff; }
     textarea { min-height: 88px; resize: vertical; }
     input:focus, select:focus, textarea:focus { outline: 3px solid var(--brand-soft); border-color: var(--brand); }
@@ -373,6 +373,21 @@
     .adv-body { padding: 16px; overflow-y: auto; flex: 1; }
     .adv-foot { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
     .adv-foot .sep { flex: 1; }
+    /* supplier page + form */
+    .sup-page .page-head .sep { flex: 1; }
+    .drawer.sup-form { width: min(640px, 100%); display: flex; flex-direction: column; }
+    .sup-form fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+    .sup-form .sec-label { margin: 14px 0 8px; }
+    .sup-form .sec-label:first-child { margin-top: 0; }
+    .cert-row { display: grid; grid-template-columns: 1fr 160px auto; gap: 8px; margin-bottom: 6px; }
+    .pg-pick { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+    .pg-opt { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; font-size: .9rem; }
+    .chk-inline { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: .9rem; }
+    .list-tools select { width: auto; min-width: 130px; }
+    .slist tr.off td { opacity: .55; }
+    .sup-log { list-style: none; padding: 0; margin: 0; max-height: 50vh; overflow-y: auto; }
+    .sup-log li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+    @media (max-width: 720px) { .list-tools { flex-wrap: wrap; } .list-tools input { flex-basis: 100%; } }
     .tag-follow { background: #FFF4DB; border-color: #F3D08A; color: var(--warn-ink); }
     .istat { margin-top: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
     .istat.follow { border-left: 4px solid var(--warn); background: #FFFBF0; }
@@ -437,6 +452,7 @@
   <?!= include_('PageTickets'); ?>
   <?!= include_('PageTicket'); ?>
   <?!= include_('PageForm'); ?>
+  <?!= include_('PageSuppliers'); ?>
   <?!= include_('PagePricing'); ?>
   <script>App.start();</script>
 </body>

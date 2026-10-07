@@ -28,6 +28,7 @@ function runAcceptanceTests() {
     runSellPriceCases_(results);
     runFollowUpCases_(results);
     runBoardCases_(results);
+    runSupplierCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -1106,5 +1107,80 @@ function runBoardCases_(results) {
       'After a change the board is rebuilt (no stale stage)');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: BOARD — ' + e.message + '\n' + e.stack);
+  }
+}
+
+// =============================================================================
+// Supplier master
+// =============================================================================
+function runSupplierCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const base = { name: 'Siam Frozen Foods Co., Ltd.', supplier_type: 'local', default_currency: 'THB', default_vat_term: 'ex_vat',
+    payment_term: 'Credit 30 วัน', lead_time_days: 5, moq: 100, product_groups: ['FOOD-SHRIMP'], tax_id: '0105559999999',
+    certs: [{ name: 'GMP', expiry: fmtDate_(new Date(Date.now() - 86400000)) }, { name: 'Halal', expiry: fmtDate_(new Date(Date.now() + 400 * 86400000)) }] };
+  try {
+    expectErr(as(U.salesFood1, function () { return listSuppliers(); }), 'FORBIDDEN', 'Sales cannot list suppliers');
+    expectErr(as(U.salesFood1, function () { return saveSupplier(base); }), 'FORBIDDEN', 'Sales cannot add a supplier');
+    expectErr(as(U.mgrFood, function () { return listSuppliers(); }), 'FORBIDDEN', 'Sales Manager cannot list suppliers');
+    ok(as(U.salesFood1, function () { return must(getBootstrap()); }).ref.vendors.length === 0 &&
+      as(U.sr1, function () { return must(getBootstrap()); }).ref.vendors.length > 0, 'Bootstrap sends supplier names to cost roles only');
+    expectErr(as(U.gm, function () { return saveSupplier(base); }), 'FORBIDDEN', 'GM reads suppliers but cannot edit');
+    expectErr(as(U.sr1, function () { return saveSupplier(Object.assign({}, base, { supplier_type: '' })); }), 'VALIDATION', 'Supplier type is required');
+
+    const s1 = must(as(U.sr1, function () { return saveSupplier(base); })).supplier;
+    ok(/^SUP-\d{4,}$/.test(s1.vendor_id) && s1.is_active && s1.version === 1, 'SR adds a supplier — usable at once (' + s1.vendor_id + ', no approval)');
+    ok(as(U.sr2, function () { return must(getBootstrap()); }).ref.vendors.some(function (v) { return v.vendor_id === s1.vendor_id; }),
+      'New supplier appears in every SR search list right away');
+    expectErr(as(U.sr2, function () { return saveSupplier(Object.assign({}, base, { name: 'SIAM FROZEN FOODS LIMITED', tax_id: '' })); }), 'DUPLICATE',
+      'Same company with different legal words is a duplicate');
+    expectErr(as(U.sr2, function () { return saveSupplier(Object.assign({}, base, { name: 'Another Co' })); }), 'DUPLICATE', 'Tax id cannot repeat');
+    expectErr(as(U.sr2, function () { return saveSupplier(Object.assign({}, base, { name: 'Siam Frozen Foods Export', tax_id: '' })); }), 'SIMILAR',
+      'Similar name asks for confirmation');
+    const s2 = must(as(U.sr2, function () { return saveSupplier(Object.assign({}, base, { name: 'Siam Frozen Foods Export', tax_id: '', allow_similar: true })); })).supplier;
+    ok(s2.vendor_id !== s1.vendor_id, 'Similar name saved after confirmation');
+    const listed = must(as(U.gm, function () { return listSuppliers(); }));
+    const l1 = listed.suppliers.filter(function (x) { return x.vendor_id === s1.vendor_id; })[0];
+    ok(l1.cert_warnings.length === 1 && l1.cert_warnings[0].name === 'GMP' && l1.cert_warnings[0].level === 'expired' && !listed.can_edit,
+      'Expired certificate flagged (warning only); GM list is read-only');
+
+    expectErr(as(U.sr1, function () { return saveSupplier(Object.assign({}, base, { vendor_id: s1.vendor_id, expected_version: 0 })); }), 'VERSION_CONFLICT',
+      'Supplier edits use optimistic locking');
+    const s1b = must(as(U.sr1, function () { return saveSupplier(Object.assign({}, base, { vendor_id: s1.vendor_id, expected_version: 1, lead_time_days: 7 })); })).supplier;
+    ok(s1b.version === 2 && s1b.lead_time_days === 7, 'Supplier edit saved (version 2)');
+    const log = must(as(U.sr1, function () { return getSupplierLog(s1.vendor_id); }));
+    ok(log.length === 2 && log[0].action === 'updated' && log[0].diff.lead_time_days['new'] === '7', 'Every change logged with old → new');
+
+    expectErr(as(U.sr1, function () { return setSupplierActive(s2.vendor_id, false, 1); }), 'FORBIDDEN', 'SR cannot deactivate a supplier');
+    must(as(U.srManager, function () { return setSupplierActive(s2.vendor_id, false, 1); }));
+    ok(!as(U.sr1, function () { return must(getBootstrap()); }).ref.vendors.some(function (v) { return v.vendor_id === s2.vendor_id; }),
+      'Deactivated supplier is hidden from search');
+
+    // quotation link + hints + merge + migration
+    const q = rows_(TAB.QUOTATIONS).filter(function (x) { return !toBool_(x.is_deleted) && x.vendor_id; })[0];
+    const hintTicket = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return t.ticket_id !== String(q.ticket_id) && t.sr_email; })[0];
+    const hints = must(as(U.srManager, function () { return supplierHints(hintTicket.ticket_id); })).hints;
+    ok(typeof hints === 'object', 'Supplier hints load for the pricing page');
+    expectErr(as(U.salesFood1, function () { return supplierHints(hintTicket.ticket_id); }), 'FORBIDDEN', 'Sales cannot load supplier hints');
+    const fromId = String(q.vendor_id);
+    const moved = must(as(U.srManager, function () { return mergeSuppliers(fromId, s1.vendor_id); })).moved_quotations;
+    ok(moved > 0 && String(findOne_(TAB.QUOTATIONS, 'quote_id', q.quote_id).vendor_id) === s1.vendor_id &&
+      !toBool_(findOne_(TAB.VENDORS, 'vendor_id', fromId).is_active), 'Merge re-points quotations and turns the duplicate off');
+    updateRow_(TAB.QUOTATIONS, q.quote_id, { vendor_id: '', vendor_name: 'บริษัท ทดสอบ มิเกรต จำกัด' });
+    const mig = withIdentity_(U.admin, function () { return migrateSuppliers(); });
+    ok(mig.created >= 1 && mig.linked >= 1 && String(findOne_(TAB.QUOTATIONS, 'quote_id', q.quote_id).vendor_id).indexOf('SUP-') === 0,
+      'Migration creates suppliers from old quotation names and links them');
+    ok(withIdentity_(U.admin, function () { return migrateSuppliers(); }).created === 0, 'Migration is safe to re-run');
+  } catch (e) {
+    results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: SUPPLIER — ' + e.message + '\n' + e.stack);
   }
 }

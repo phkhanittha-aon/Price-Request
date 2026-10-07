@@ -16,7 +16,7 @@ const path = require('path');
 const out = process.argv[2];
 if (!out) { console.error('usage: node dev/build-prototype.js <output.html>'); process.exit(2); }
 const gasDir = path.join(__dirname, '..', 'gas');
-const FILE_ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify', 'Workflow', 'Editing',
+const FILE_ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify', 'Workflow', 'Editing', 'Suppliers',
   'Api', 'Files', 'Lark', 'Jobs', 'Code', 'Setup', 'Tests'];
 
 const read = (f) => fs.readFileSync(path.join(gasDir, f), 'utf8');

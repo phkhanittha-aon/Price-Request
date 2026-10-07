@@ -42,6 +42,8 @@ function setupDatabase() {
     props.setProperty(CFG.PROP.DRIVE_ROOT_ID, folder.getId());
     report.push('Created Drive folder ' + folder.getId());
   }
+  const mig = withLock_(function () { return migrateSuppliersCore_(); });
+  report.push('Suppliers from old quotations: +' + mig.created + ' created, ' + mig.linked + ' quotations linked');
   console.log(report.join('\n'));
   console.log('Database URL: ' + ss.getUrl());
   return report;

@@ -15,7 +15,7 @@
  * Deployment settings: Execute as = Me (owner), Who has access = Anyone within <company domain>.
  */
 
-const PAGES_ = ['dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing'];
+const PAGES_ = ['dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
 const PARTIALS_ = ['App', 'PageDashboard', 'PageTickets', 'PageTicket', 'PageForm', 'PagePricing'];
 
 function doGet(e) {
@@ -43,7 +43,7 @@ function getBootstrap() {
     return {
       me: { email: u.email, full_name: u.full_name, role: u.role, role_label: ROLE_LABEL_TH[u.role], department_code: u.department_code },
       menu: menuFor_(u),
-      ref: referenceData_(),
+      ref: referenceData_(u),
       poll: pollData_(u),
       approval_route: approvalRouteNote_(u),
       app_version: APP_VERSION,
@@ -78,11 +78,14 @@ function menuFor_(u) {
   if (u.role === 'sr') m.push({ key: 'mine', group: G_SRC, icon: '💼', label: 'งานของฉัน (SR)', route: { page: 'tickets', scope: 'mine' } });
   m.push({ key: 'follow', group: G_WORK, icon: '📌', label: 'ส่งตามหลัง (ค้าง)', hint: 'รายการที่ SR แยกไปหาราคาต่อ',
     route: { page: 'tickets', scope: u.role === 'sales' || u.role === 'sr' ? 'mine' : 'all', follow: '1', outcome: 'open' }, badge: 'follow_up' });
+  if (COST_ROLES_.indexOf(u.role) !== -1) {
+    m.push({ key: 'suppliers', group: G_SRC, icon: '🏭', label: 'Supplier', hint: 'ฐานข้อมูลผู้ขาย', route: { page: 'suppliers' } });
+  }
   if (u.role !== 'sales') m.push({ key: 'all', group: G_REQ, icon: '📚', label: 'ใบขอราคาทั้งหมด', route: { page: 'tickets', scope: 'all' } });
   return m;
 }
 
-function referenceData_() {
+function referenceData_(me) {
   const groups = rows_(TAB.PRODUCT_GROUPS)
     .filter(function (g) { return toBool_(g.is_active); })
     .map(function (g) {
@@ -91,12 +94,13 @@ function referenceData_() {
     .sort(function (a, b) { return a.sort_order - b.sort_order; });
   const srs = activeUsersByRole_('sr').map(function (u) { return { email: u.email, full_name: u.full_name }; });
   const salesUsers = activeUsersByRole_('sales').map(function (u) { return { email: u.email, full_name: u.full_name }; });
-  const vendors = rows_(TAB.VENDORS)
-    .filter(function (v) { return toBool_(v.is_active); })
-    .map(function (v) {
-      return { vendor_id: String(v.vendor_id), name: String(v.name), default_currency: String(v.default_currency || 'THB'),
-        default_vat_term: String(v.default_vat_term || '') };
-    });
+  // Suppliers are purchasing-side data: only cost roles receive them (never Sales / Sales Manager)
+  const vendors = me && COST_ROLES_.indexOf(me.role) !== -1
+    ? rows_(TAB.VENDORS).map(normSupplier_).filter(function (v) { return v.is_active; }).map(function (v) {
+      v.cert_warnings = certWarnings_(v);
+      return v;
+    })
+    : [];
   return {
     product_groups: groups,
     sr_users: srs,
@@ -104,6 +108,11 @@ function referenceData_() {
     vendors: vendors,
     currencies: setting_('currencies', ['THB']),
     vat_rate: vatRate_(),
+    fx_defaults: setting_('fx_defaults', { USD: 35 }),
+    default_validity_days: Number(setting_('default_validity_days', 30)),
+    default_due_working_days: Number(setting_('default_due_working_days', 3)),
+    document_options: setting_('document_options', []),
+    supplier_types: SUPPLIER_TYPES.map(function (k) { return { key: k, label: SUPPLIER_TYPE_LABEL[k] }; }),
     default_gp_percent: defaultGp_(),
     vat_terms: VAT_TERMS.map(function (k) { return { key: k, label: VAT_TERM_LABEL[k] }; }),
     incoterms: INCOTERMS.map(function (k) { return { key: k, label: INCOTERM_LABEL[k] }; }),
