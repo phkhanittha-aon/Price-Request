@@ -1,4 +1,4 @@
-# MGS Price Request & Sourcing System
+# MGS Food Price Request
 
 ระบบใบขอราคาและจัดหาสินค้าภายใน M Global Sourcing Ltd. (MGS)
 Workflow: **Sales → Manager → GM → SR (Sourcing) → Sales** พร้อม audit trail แบบ append-only (hash chain),
@@ -13,7 +13,7 @@ Workflow: **Sales → Manager → GM → SR (Sourcing) → Sales** พร้อ�
 | 1 | ฐานข้อมูล Google Sheets + server rules (workflow, สิทธิ์, ราคา, audit log) + seed + acceptance tests | ✅ [docs/phase1-database.md](docs/phase1-database.md) |
 | 2 | Web app (dashboard, รายการใบ, รายละเอียด, ฟอร์ม), Lark Bot DM, triggers, อัปโหลดไฟล์ ≤ 20 MB, deploy | ✅ [docs/phase2-webapp.md](docs/phase2-webapp.md) |
 | 3 | หน้าใบเสนอราคา SR (ฟอนต์ Prompt) + Prototype | ✅ [docs/phase3-pricing.md](docs/phase3-pricing.md) |
-| 4 | ฟอร์มขอราคา Food, Dashboard แบบง่าย, สายอนุมัติ Sales→(Sales Manager)→GM / SR→SR Manager→GM, ราคาขาย (ต้นทุน + ค่าเคลียร์ + GP) ต่อหน่วย, Sales เห็นเฉพาะราคาขาย, แจ้งกลุ่ม Lark, หน้าจอ ERP | ✅ [docs/phase4-food-org.md](docs/phase4-food-org.md) |
+| 4 | ฟอร์มขอราคา Food, Dashboard แบบง่าย, สายอนุมัติ Sales→(Sales Manager)→GM / SR→SR Manager→GM, ราคาขาย (ต้นทุน + ค่าเคลียร์ + GP) ต่อหน่วย, Sales เห็นเฉพาะราคาขายของตัวเอง, GM อนุมัติฝั่งขาย/ฝั่งซื้อ, ไม่เสนอ/ส่งตามหลัง | ✅ [docs/phase4-food-org.md](docs/phase4-food-org.md) |
 
 ## โครงสร้าง
 

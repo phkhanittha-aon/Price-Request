@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   File: Index.html
-  MGS Price Request — web app shell (layout + design tokens + styles).
+  MGS Food Price Request — web app shell (layout + design tokens + styles).
   Page logic lives in App.html (core) and Page*.html (one file per screen), included below.
 -->
 <html lang="th">
@@ -31,7 +31,7 @@
     a { color: var(--brand); }
     button, input, select, textarea { font: inherit; color: inherit; }
 
-    /* ===== 2. Layout — ERP shell: top bar + content + module menu on the RIGHT ===== */
+    /* ===== 2. Layout — app shell: top bar + module menu on the LEFT + content ===== */
     :root { --topbar-h: 60px; --side-w: 252px; --side-mini: 68px;
       --side-bg: #0E2A33; --side-ink: #D5E4E8; --side-muted: #8FA9B0; --side-hover: rgba(255,255,255,.07); --side-active: rgba(92,195,223,.16); --side-accent: #5CC3DF; }
     .topbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 12px; min-height: var(--topbar-h); padding: 8px 16px;
@@ -53,14 +53,17 @@
       background: var(--danger); color: #fff; font-size: .72rem; font-weight: 700; line-height: 20px; }
     #side-toggle { display: none; }
 
-    .shell { display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w); min-height: calc(100vh - var(--topbar-h)); transition: grid-template-columns .18s; }
-    .shell.mini { grid-template-columns: minmax(0, 1fr) var(--side-mini); }
+    .shell { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); min-height: calc(100vh - var(--topbar-h)); transition: grid-template-columns .18s; }
+    .shell.mini { grid-template-columns: var(--side-mini) minmax(0, 1fr); }
+    /* the menu colour runs the full page height even when the page is taller than the screen */
+    .shell { background: linear-gradient(to right, var(--side-bg) var(--side-w), transparent var(--side-w)); }
+    .shell.mini { background: linear-gradient(to right, var(--side-bg) var(--side-mini), transparent var(--side-mini)); }
     .content { min-width: 0; display: flex; flex-direction: column; }
     main { width: 100%; max-width: 1200px; margin: 0 auto; padding: 16px; flex: 1; }
     footer { padding: 16px; text-align: center; color: var(--muted); font-size: .8rem; }
 
     .side { position: sticky; top: var(--topbar-h); height: calc(100vh - var(--topbar-h)); display: flex; flex-direction: column;
-      background: var(--side-bg); color: var(--side-ink); border-left: 1px solid #0A2027; overflow: hidden; }
+      background: var(--side-bg); color: var(--side-ink); border-right: 1px solid #0A2027; overflow: hidden; }
     .side-head { display: flex; align-items: center; gap: 8px; padding: 14px 14px 8px; }
     .side-head .ttl { flex: 1; font-size: .78rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--side-muted); }
     .side-btn { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 8px; background: var(--side-hover); color: var(--side-ink); cursor: pointer; font-size: 1rem; }
@@ -79,6 +82,7 @@
     nav.menu button.primary:hover { background: #12809f; }
     nav.menu .ico { flex: none; width: 24px; text-align: center; font-size: 1.1rem; }
     nav.menu .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    nav.menu .lbl small { display: block; font-size: .72rem; font-weight: 400; color: var(--side-muted); overflow: hidden; text-overflow: ellipsis; }
     nav.menu .count { flex: none; min-width: 22px; padding: 0 6px; border-radius: 11px; background: var(--danger); color: #fff; font-size: .75rem; font-weight: 700; text-align: center; line-height: 20px; }
     .side-foot { padding: 10px 16px 14px; border-top: 1px solid rgba(255,255,255,.08); font-size: .74rem; color: var(--side-muted); }
     .shell.mini .side-head .ttl, .shell.mini nav.menu .lbl, .shell.mini nav.menu .grp, .shell.mini .side-foot { display: none; }
@@ -92,15 +96,15 @@
       #side-toggle { display: inline-block; }
       #side-mini { display: none; }
       .crumb { display: none; }
-      .shell, .shell.mini { grid-template-columns: minmax(0, 1fr); }
-      .side { position: fixed; top: 0; right: 0; z-index: 40; width: min(300px, 86vw); height: 100%; padding-top: env(safe-area-inset-top, 0px);
-        transform: translateX(100%); transition: transform .2s ease-out; box-shadow: -8px 0 24px rgba(0,0,0,.25); }
+      .shell, .shell.mini { grid-template-columns: minmax(0, 1fr); background: none; }
+      .side { position: fixed; top: 0; left: 0; z-index: 40; width: min(300px, 86vw); height: 100%; padding-top: env(safe-area-inset-top, 0px);
+        transform: translateX(-100%); transition: transform .2s ease-out; box-shadow: 8px 0 24px rgba(0,0,0,.25); }
       .side.open { transform: none; }
       .shell.mini .side-head .ttl, .shell.mini nav.menu .lbl, .shell.mini nav.menu .grp, .shell.mini .side-foot { display: revert; }
       .shell.mini nav.menu button { justify-content: flex-start; padding: 8px 12px; }
       .side-ov.open { display: block; position: fixed; inset: 0; z-index: 35; background: rgba(8,20,24,.45); }
     }
-    @media (max-width: 560px) { .brand .name small { display: none; } .who { display: none; } }
+    @media (max-width: 560px) { .brand .name small { display: none; } .brand .name b { font-size: .92rem; } .who { display: none; } }
     @media (prefers-reduced-motion: reduce) { .shell, .side { transition: none; } }
 
     /* ===== 3. Components ===== */
@@ -219,18 +223,41 @@
     .qcard { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 10px; }
     .tag-cheap { background: #E9F7F0; border-color: #B7E3CB; color: #0d5b35; }
     .tag-win { background: var(--brand); border-color: var(--brand); color: #fff; }
-    /* request form (Food) */
-    .form-wrap { max-width: 760px; margin: 0 auto; }
-    .form-head { text-align: center; border-top: 6px solid var(--brand); }
-    .form-head h1 { margin: 4px 0 6px; font-size: 1.35rem; text-wrap: balance; }
-    .form-head .route { color: var(--brand-dark); background: var(--brand-soft); border-radius: 8px; padding: 6px 10px; text-align: left; }
-    label.field .hint, .field .hint { display: block; margin: -2px 0 6px; color: var(--muted); font-size: .82rem; font-weight: 400; }
-    .drop { border: 1px dashed #A9BAC0; border-radius: 10px; padding: 14px; background: #F8FAFB; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+    /* request form (Food) — document-style form: numbered sections, 3-column grid, hints under inputs */
+    .form-wrap { max-width: 1080px; }
+    .form-title { margin-bottom: 8px; }
+    .route-card { padding: 12px 16px; }
+    .sec-label { font-size: .78rem; font-weight: 600; color: var(--muted); letter-spacing: .04em; margin-bottom: 8px; }
+    .route-steps { display: flex; flex-wrap: wrap; gap: 6px 4px; margin: 0; padding: 0; list-style: none; font-size: .85rem; }
+    .route-steps li { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-dark); }
+    .route-steps li:not(:last-child)::after { content: "›"; margin-left: 6px; color: var(--muted); }
+    .route-steps .n { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #fff; font-size: .75rem; font-weight: 600; }
+    .fsec h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 1.02rem; }
+    .fsec .sn { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--brand); color: #fff; font-size: .85rem; }
+    .fgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; align-items: start; }
+    .fgrid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .fgrid .span-2 { grid-column: span 2; } .fgrid .span-3 { grid-column: 1 / -1; }
+    .fgrid label.field, .fgrid .field { margin-bottom: 14px; min-width: 0; }
+    .fgrid label.field > span, .fgrid .field > span { display: block; margin-bottom: 6px; font-weight: 500; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fgrid .field > span em { font-style: normal; font-weight: 400; color: var(--muted); font-size: .8rem; }
+    label.field .hint, .field .hint { display: block; margin: 4px 0 0; color: var(--muted); font-size: .8rem; font-weight: 400; }
+    .fsec .item-row { padding: 14px 16px 2px; background: #FBFCFD; }
+    .fsec .item-row .head { margin-bottom: 12px; }
+    .fsec .item-row .head .no { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--brand-soft); color: var(--brand-dark); font-size: .8rem; }
+    .drop { border: 1px dashed #A9BAC0; border-radius: 10px; padding: 12px 14px; background: #fff; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
     .drop.over { border-color: var(--brand); background: var(--brand-soft); }
     .pics { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+    .pics:empty { display: none; }
     .pic { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border-radius: 999px; background: #fff; border: 1px solid var(--line); font-size: .85rem; }
-    .form-actions { justify-content: center; margin-top: 8px; }
-    .btn.submit { min-width: 200px; }
+    .form-actions { position: sticky; bottom: 0; z-index: 10; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 -16px; padding: 12px 16px;
+      background: rgba(255,255,255,.96); border-top: 1px solid var(--line); box-shadow: 0 -4px 12px rgba(16,38,46,.06); }
+    .form-actions .sep { flex: 1; } .form-actions .err-text { margin: 0; }
+    .btn.submit { min-width: 180px; }
+    @media (max-width: 720px) {
+      .fgrid, .fgrid.two { grid-template-columns: minmax(0, 1fr); }
+      .fgrid .span-2 { grid-column: auto; }
+      .form-actions .sep { flex-basis: 100%; height: 0; } .form-actions .btn { flex: 1 1 auto; }
+    }
 
     /* dashboard (simple) */
     .out-done { background: var(--ok); } .out-open { background: var(--warn); } .out-rej { background: var(--danger); }
@@ -254,6 +281,15 @@
     .dotc { width: 10px; height: 10px; border-radius: 50%; flex: none; }
     .recent a { justify-content: space-between; align-items: flex-start; }
     table.people a { text-decoration: none; font-weight: 600; }
+    .recent a > span.small { flex: none; white-space: nowrap; }
+    /* ticket list: fixed, balanced columns — people / time columns never wrap */
+    @media (min-width: 721px) {
+      .tlist { table-layout: fixed; }
+      .tlist .c-main { width: auto; } .tlist .c-st { width: 190px; } .tlist .c-p { width: 140px; } .tlist .c-n { width: 72px; } .tlist .c-t { width: 130px; }
+      .tlist td, .tlist th { vertical-align: top; }
+      .tlist td[data-label="ผู้ขอ"], .tlist td[data-label="SR"], .tlist th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .tlist td.main > div { overflow: hidden; text-overflow: ellipsis; }
+    }
 
     /* pricing page */
     .steps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0 0 16px; flex-wrap: wrap; }
@@ -273,7 +309,22 @@
     .chk .small { grid-column: 1 / -1; }
     @media (max-width: 720px) { .chk { grid-template-columns: 1fr; } }
     .req { color: var(--danger-ink); }
-    .vgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0; }
+    .vgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 12px 0; align-items: start; }
+    @media (max-width: 1180px) { .vgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 720px) { .vgrid { grid-template-columns: minmax(0, 1fr); } }
+    .item-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; justify-content: flex-end; }
+    .item-stat .ihead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .item-stat.follow { border-left: 4px solid var(--warn); }
+    .item-stat.no { border-left: 4px solid #8FA1A7; background: #FAFBFB; }
+    .sumtbl tr.stat-row td { color: var(--muted); }
+    .vcol.add-slot { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 180px; align-self: stretch;
+      border: 2px dashed #B8C7CC; background: #fff; color: var(--brand); cursor: pointer; font: inherit; }
+    .vcol.add-slot:hover { border-color: var(--brand); background: var(--brand-soft); }
+    .vcol.add-slot .plus { font-size: 1.8rem; line-height: 1; } .vcol.add-slot small { color: var(--muted); }
+    .sell h4 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .sell .pending-note { display: none; font-weight: 400; font-size: .82rem; color: var(--warn-ink); }
+    .sell.pending .pending-note { display: inline; }
+    .sell.pending .costtbl { opacity: .5; }
     .vcol { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #FBFCFD; min-width: 0; }
     .vcol.is-win { border: 2px solid var(--brand); background: #F1F8FB; }
     .vcol .field { margin-bottom: 8px; }
@@ -296,6 +347,13 @@
     .costtbl tr.ref td { color: var(--muted); border-bottom: 0; }
     .costtbl input.gp { display: inline-block; width: 84px; min-height: 36px; padding: 4px 8px; margin: 0 4px; text-align: right; }
     .costtbl input.gp.invalid { border-color: var(--danger); }
+    .tag-follow { background: #FFF4DB; border-color: #F3D08A; color: var(--warn-ink); }
+    .istat { margin-top: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+    .istat.follow { border-left: 4px solid var(--warn); background: #FFFBF0; }
+    .istat.no { border-left: 4px solid #8FA1A7; background: #F5F7F8; }
+    .notice.side-follow { border-left: 4px solid var(--warn); background: #FFFBF0; }
+    .notice.side-sales { border-left: 4px solid #2a78d6; background: #EEF5FD; }
+    .notice.side-buy { border-left: 4px solid #1baf7a; background: #EBF8F2; }
     .sales-sell .sell-price { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
     .sales-sell .sell-price .lbl { color: var(--muted); font-weight: 500; }
     .sales-sell .sell-price b { font-size: 1.5rem; color: var(--brand); font-variant-numeric: tabular-nums; }
@@ -320,28 +378,28 @@
 </head>
 <body>
   <header class="topbar">
+    <button class="icon-btn" id="side-toggle" aria-label="เปิดเมนูโมดูล" aria-controls="side" aria-expanded="false">☰</button>
     <div class="brand" id="brand" role="link" tabindex="0" aria-label="ไปหน้า Dashboard">
       <span class="logo" aria-hidden="true">MGS</span>
-      <span class="name"><b>MGS ERP</b><small>Price Request &amp; Sourcing</small></span>
+      <span class="name"><b>MGS Food Price Request</b><small>M Global Sourcing Ltd.</small></span>
     </div>
     <div class="crumb" id="crumb" aria-live="polite"></div>
     <div class="spacer"></div>
     <div class="who" id="who"></div>
     <button class="icon-btn" id="bell" aria-label="การแจ้งเตือน" title="การแจ้งเตือน">🔔<span class="dot" id="bell-dot" hidden>0</span></button>
-    <button class="icon-btn" id="side-toggle" aria-label="เปิดเมนูโมดูล" aria-controls="side" aria-expanded="false">☰</button>
   </header>
   <div class="shell" id="shell">
-    <div class="content">
-      <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-      <footer>MGS Price Request · เวอร์ชัน <span id="ver"><?= appVersion ?></span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
-    </div>
     <aside class="side" id="side" aria-label="โมดูล">
       <div class="side-head"><span class="ttl">โมดูล</span>
-        <button type="button" class="side-btn" id="side-mini" aria-label="ย่อ/ขยายเมนู" title="ย่อ/ขยายเมนู">⇥</button>
+        <button type="button" class="side-btn" id="side-mini" aria-label="ย่อ/ขยายเมนู" title="ย่อ/ขยายเมนู">⇤</button>
         <button type="button" class="side-btn" id="side-close" aria-label="ปิดเมนู" hidden>✕</button></div>
       <nav class="menu" id="nav" aria-label="เมนูหลัก"></nav>
-      <div class="side-foot">M Global Sourcing Ltd.</div>
+      <div class="side-foot">MGS Food Price Request</div>
     </aside>
+    <div class="content">
+      <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
+      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver"><?= appVersion ?></span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+    </div>
   </div>
   <div class="side-ov" id="side-ov"></div>
   <div id="modal-root"></div>

@@ -31,14 +31,14 @@ function setupDatabase() {
   if (id) {
     ss = SpreadsheetApp.openById(id);
   } else {
-    ss = SpreadsheetApp.create('MGS Price Request — DATABASE (do not share)');
+    ss = SpreadsheetApp.create('MGS Food Price Request — DATABASE (do not share)');
     props.setProperty(CFG.PROP.DB_ID, ss.getId());
   }
   useDatabase_(ss);
   const report = setupSchema_(ss, { protect: true });
 
   if (!props.getProperty(CFG.PROP.DRIVE_ROOT_ID)) {
-    const folder = DriveApp.createFolder('MGS Price Request — Attachments (do not share)');
+    const folder = DriveApp.createFolder('MGS Food Price Request — Attachments (do not share)');
     props.setProperty(CFG.PROP.DRIVE_ROOT_ID, folder.getId());
     report.push('Created Drive folder ' + folder.getId());
   }
@@ -135,7 +135,7 @@ function setListValidation_(ss, tab, col, list) {
 function protectSheet_(sh, tab) {
   const existing = sh.getProtections(SpreadsheetApp.ProtectionType.SHEET);
   const p = existing.length ? existing[0] : sh.protect();
-  p.setDescription('MGS Price Request — ' + tab + ' (แก้ไขผ่านแอปเท่านั้น)');
+  p.setDescription('MGS Food Price Request — ' + tab + ' (แก้ไขผ่านแอปเท่านั้น)');
   p.setWarningOnly(false);
   const me = Session.getEffectiveUser();
   p.addEditor(me);

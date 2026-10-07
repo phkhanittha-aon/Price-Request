@@ -1,16 +1,16 @@
 /**
  * File: Config.gs
- * MGS Price Request & Sourcing System — configuration and the sheet "schema".
+ * MGS Food Price Request & Sourcing System — configuration and the sheet "schema".
  *
  * The header row of every tab is the contract between code and data.
  * Columns are always addressed by header name, never by position.
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.07-3';
+const APP_VERSION = '2026.10.08-1';
 
 const CFG = {
-  APP_NAME: 'MGS Price Request',
+  APP_NAME: 'MGS Food Price Request',
   TZ: 'Asia/Bangkok',
   LOCK_TIMEOUT_MS: 25000,
   MAX_ITEMS_PER_TICKET: 100,
@@ -91,7 +91,9 @@ const SCHEMA = {
            'doc_checked_at', 'completed_at', 'closed_at', 'rejected_at', 'cancelled_at',
            'client_key', 'created_at', 'updated_at',
            // appended in v2026.10.06-3 (Food form + SR Manager / GM price approval)
-           'documents_needed', 'quote_submitted_at', 'sr_manager_email', 'sr_manager_approved_at', 'gm_price_approved_at']
+           'documents_needed', 'quote_submitted_at', 'sr_manager_email', 'sr_manager_approved_at', 'gm_price_approved_at',
+           // appended in v2026.10.08-1: a "send later" ticket split out of another one
+           'parent_ticket_id']
   },
   TicketItems: {
     key: 'item_id',
@@ -100,7 +102,9 @@ const SCHEMA = {
            // Food request form fields (appended): % net weight (excl. ice glaze), size, retail pack size
            'net_weight', 'size', 'packing_size',
            // Selling price set by SR (appended): GP % of selling price, selling price per unit (stored at submit)
-           'gp_percent', 'sell_price_thb']
+           'gp_percent', 'sell_price_thb',
+           // SR decision per item (appended): '' = quote · 'not_offered' = will not quote · 'follow_up' = split to a new ticket
+           'quote_status', 'quote_status_reason', 'follow_up_ticket_id']
   },
   Quotations: {
     key: 'quote_id',
@@ -179,13 +183,13 @@ const STAGE_STATUS = {
 const STAGE_LABEL_TH = {
   pending_manager: 'รอ Sales Manager อนุมัติ',
   returned: 'ส่งกลับให้ Sales แก้ไข',
-  pending_gm: 'รอ GM อนุมัติ',
+  pending_gm: 'รอ GM อนุมัติฝั่งขาย',
   pending_assign: 'รอ SR รับงาน',
   doc_check: 'SR ตรวจเอกสาร',
   need_info: 'รอ Sales ส่งข้อมูลเพิ่ม',
   sourcing: 'SR กำลังหาราคา',
   pending_sr_manager: 'รอ SR Manager ตรวจราคา',
-  pending_gm_price: 'รอ GM อนุมัติราคา',
+  pending_gm_price: 'รอ GM อนุมัติฝั่งซื้อ',
   awaiting_sales_ack: 'รอ Sales รับทราบราคา',
   closed: 'ปิดงาน',
   rejected: 'ไม่อนุมัติ',

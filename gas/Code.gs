@@ -58,8 +58,16 @@ function menuFor_(u) {
   const G_WORK = 'งานของฉัน';
   const G_REQ = 'ใบขอราคา';
   const G_SRC = 'จัดหาราคา (Sourcing)';
+  const G_GM = 'อนุมัติ (GM)';
   const m = [{ key: 'dashboard', group: G_OVERVIEW, icon: '📊', label: 'Dashboard', route: { page: 'dashboard' } }];
   m.push({ key: 'inbox', group: G_WORK, icon: '📥', label: 'งานรอฉัน', route: { page: 'tickets', scope: 'inbox' }, badge: 'inbox' });
+  if (u.role === 'gm') {
+    // two separate GM approvals: sales side (the request) and purchasing side (vendor price + selling price)
+    m.push({ key: 'gm_sales', group: G_GM, icon: '🛒', label: 'อนุมัติฝั่งขาย', hint: 'คำขอราคาจาก Sales',
+      route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm' }, badge: 'gm_sales' });
+    m.push({ key: 'gm_buy', group: G_GM, icon: '📦', label: 'อนุมัติฝั่งซื้อ', hint: 'ราคาซื้อ + ราคาขาย จาก SR',
+      route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm_price' }, badge: 'gm_buy' });
+  }
   if (u.role === 'sales') {
     m.push({ key: 'new', group: G_REQ, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
     m.push({ key: 'mine', group: G_REQ, icon: '📄', label: 'ใบขอราคาของฉัน', route: { page: 'tickets', scope: 'mine' } });
@@ -68,6 +76,8 @@ function menuFor_(u) {
     m.push({ key: 'queue', group: G_SRC, icon: '🧾', label: 'คิวรอรับงาน', route: { page: 'tickets', scope: 'queue' } });
   }
   if (u.role === 'sr') m.push({ key: 'mine', group: G_SRC, icon: '💼', label: 'งานของฉัน (SR)', route: { page: 'tickets', scope: 'mine' } });
+  m.push({ key: 'follow', group: G_WORK, icon: '📌', label: 'ส่งตามหลัง (ค้าง)', hint: 'รายการที่ SR แยกไปหาราคาต่อ',
+    route: { page: 'tickets', scope: u.role === 'sales' || u.role === 'sr' ? 'mine' : 'all', follow: '1', outcome: 'open' }, badge: 'follow_up' });
   if (u.role !== 'sales') m.push({ key: 'all', group: G_REQ, icon: '📚', label: 'ใบขอราคาทั้งหมด', route: { page: 'tickets', scope: 'all' } });
   return m;
 }
@@ -116,6 +126,6 @@ function approvalRouteNote_(u) {
   const first = firstApprovalStage_(d);
   const mgr = first === 'pending_manager' ? userByEmail_(d.manager_email) : null;
   return first === 'pending_manager'
-    ? 'ส่งถึง Sales Manager (' + mgr.full_name + ') → GM → SR หาราคา → SR Manager → GM อนุมัติราคา → กลับถึงคุณ'
-    : 'ส่งตรงถึง GM (ยังไม่มี Sales Manager) → SR หาราคา → SR Manager → GM อนุมัติราคา → กลับถึงคุณ';
+    ? 'ส่งถึง Sales Manager (' + mgr.full_name + ') → GM อนุมัติฝั่งขาย → SR หาราคา → SR Manager → GM อนุมัติฝั่งซื้อ → กลับถึงคุณ'
+    : 'ส่งตรงถึง GM อนุมัติฝั่งขาย (ยังไม่มี Sales Manager) → SR หาราคา → SR Manager → GM อนุมัติฝั่งซื้อ → กลับถึงคุณ';
 }

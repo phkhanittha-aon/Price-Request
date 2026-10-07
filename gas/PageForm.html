@@ -22,60 +22,70 @@ Pages.new = Pages.edit = (function () {
     }).join('');
   }
 
-  function field(label, input, opts) {
+  /** One form field: Thai label + English sub-label on one line, input, then hint UNDER the input (keeps columns aligned). */
+  function field(label, en, input, opts) {
     const o = opts || {};
-    return '<label class="field"><span>' + (o.req ? '<span class="req">*</span> ' : '') + esc(label) + '</span>' +
-      (o.hint ? '<small class="hint">' + esc(o.hint) + '</small>' : '') + input + '</label>';
+    return '<label class="field' + (o.span ? ' span-' + o.span : '') + '"><span>' + esc(label) + (o.req ? ' <span class="req">*</span>' : '') +
+      (en ? ' <em>' + esc(en) + '</em>' : '') + '</span>' + input + (o.hint ? '<small class="hint">' + esc(o.hint) + '</small>' : '') + '</label>';
   }
 
   function itemHtml(it, i, count) {
     const units = (state.ref.units || []).map(function (u) { return '<option' + (it.uom === u ? ' selected' : '') + '>' + esc(u) + '</option>'; }).join('');
-    return '<div class="item-row" data-i="' + i + '"><div class="head"><span>สินค้ารายการที่ ' + (i + 1) + '</span><span class="sep"></span>' +
+    return '<div class="item-row" data-i="' + i + '"><div class="head"><span class="no">' + (i + 1) + '</span><span>สินค้ารายการที่ ' + (i + 1) + '</span><span class="sep"></span>' +
       (count > 1 ? '<button type="button" class="btn sm danger" data-remove="' + i + '">ลบสินค้านี้</button>' : '') + '</div>' +
-      field('ชื่อสินค้า (Product)', '<input type="text" data-k="product_name" maxlength="300" placeholder="เช่น กุ้งขาว Vannamei HLSO" value="' + esc(it.product_name) + '">', { req: true }) +
-      field('ประเภทสินค้า', '<select data-k="product_group_code">' + subGroupOptions(it.product_group_code) + '</select>', { hint: 'ช่วยให้ SR ใช้รายการตรวจเอกสารที่ตรงกับสินค้า (ไม่บังคับ)' }) +
-      '<div class="field"><span>รูปภาพสินค้า (Picture)</span><div class="drop" data-drop="' + i + '">' +
+      '<div class="fgrid">' +
+      field('ชื่อสินค้า', 'Product', '<input type="text" data-k="product_name" maxlength="300" placeholder="เช่น กุ้งขาว Vannamei HLSO" value="' + esc(it.product_name) + '">', { req: true, span: 2 }) +
+      field('ประเภทสินค้า', 'Category', '<select data-k="product_group_code">' + subGroupOptions(it.product_group_code) + '</select>', { hint: 'ไม่บังคับ — ใช้เลือกรายการตรวจเอกสาร' }) +
+      field('น้ำหนักสุทธิ', '% Net Weight', '<input type="text" data-k="net_weight" maxlength="100" placeholder="เช่น 80% หรือ NW 90%" value="' + esc(it.net_weight) + '">', { req: true, hint: 'ไม่รวมน้ำแข็ง' }) +
+      field('ขนาด', 'Size', '<input type="text" data-k="size" maxlength="100" placeholder="เช่น 31/40 หรือ 1.0–1.5 kg/pc" value="' + esc(it.size) + '">', { req: true }) +
+      field('แพคย่อย', 'Packing Size', '<input type="text" data-k="packing_size" maxlength="100" placeholder="เช่น 1 Kg/Pack หรือ 500 g" value="' + esc(it.packing_size) + '">', { req: true }) +
+      field('ปริมาณต่อเดือน', 'Qty / month', '<input type="number" inputmode="decimal" min="0" step="any" data-k="qty" placeholder="0" value="' + esc(it.qty) + '">', { req: true }) +
+      field('หน่วย', 'Unit', '<select data-k="uom"><option value="">— เลือก —</option>' + units + '</select>', { req: true }) +
+      field('ราคาเป้าหมาย (บาท/กก.)', 'Target Price', '<input type="number" inputmode="decimal" min="0" step="any" data-k="target_price" placeholder="0" value="' + esc(it.target_price) + '">',
+        { req: true, hint: 'ราคาที่ลูกค้าปิดซื้อได้ · ไม่มีให้ใส่ 0' }) +
+      '<div class="field span-3"><span>รูปภาพสินค้า <em>Picture</em></span><div class="drop" data-drop="' + i + '">' +
       '<label class="btn sm"><input type="file" data-pic="' + i + '" multiple hidden accept="image/*,.pdf">＋ เลือกรูป / ไฟล์</label>' +
-      '<span class="small muted">หรือลากไฟล์มาวางที่นี่ (รูปหรือ PDF ไม่เกิน ' + state.ref.max_upload_mb + ' MB)</span>' +
+      '<span class="small muted">หรือลากไฟล์มาวางที่นี่ · รูปหรือ PDF ไม่เกิน ' + state.ref.max_upload_mb + ' MB</span>' +
       '<div class="pics">' + it.pictures.map(function (f, k) {
         return '<span class="pic">' + (f.type.indexOf('image/') === 0 ? '🖼️ ' : '📄 ') + esc(f.name) + ' <button type="button" class="btn sm ghost" data-rmpic="' + i + ':' + k + '" aria-label="เอาออก">✕</button></span>';
       }).join('') + '</div></div></div>' +
-      field('น้ำหนักสุทธิ (% Net Weight)', '<input type="text" data-k="net_weight" maxlength="100" placeholder="เช่น 80% หรือ NW 90%" value="' + esc(it.net_weight) + '">', { req: true, hint: 'น้ำหนักไม่รวมน้ำแข็ง' }) +
-      field('ขนาด (Size)', '<input type="text" data-k="size" maxlength="100" placeholder="เช่น 31/40 หรือ 1.0–1.5 kg/pc" value="' + esc(it.size) + '">', { req: true }) +
-      field('ขนาดของแพคย่อย (Packing Size)', '<input type="text" data-k="packing_size" maxlength="100" placeholder="เช่น 1Kg/Pack หรือ 500g" value="' + esc(it.packing_size) + '">', { req: true, hint: 'ระบุแพคย่อย เช่น 1Kg/Pack หรือ 500g เป็นต้น' }) +
-      '<div class="row">' +
-      field('ปริมาณที่ลูกค้าต้องการต่อเดือน (Qty)', '<input type="number" inputmode="decimal" min="0" step="any" data-k="qty" value="' + esc(it.qty) + '">', { req: true }) +
-      field('หน่วย (Unit)', '<select data-k="uom"><option value="">— เลือก —</option>' + units + '</select>', { req: true }) +
-      '</div>' +
-      field('ราคาเป้าหมาย (Target Price (THB/Kg))', '<input type="number" inputmode="decimal" min="0" step="any" data-k="target_price" placeholder="0" value="' + esc(it.target_price) + '">',
-        { req: true, hint: 'คือ ราคาที่ลูกค้าให้มาและสามารถปิดซื้อได้ หากไม่มีให้ระบุ "0"' }) +
-      '</div>';
+      '</div></div>';
+  }
+
+  function routeSteps() {
+    // approval route as steps; the text comes from the server (it knows whether the Sales Manager step is skipped)
+    const parts = String(state.approvalRoute || '').split('→').map(function (x) { return x.trim(); }).filter(Boolean);
+    if (!parts.length) return '';
+    return '<ol class="route-steps" aria-label="เส้นทางอนุมัติ">' + parts.map(function (x, k) {
+      return '<li><span class="n">' + (k + 1) + '</span>' + esc(x) + '</li>';
+    }).join('') + '</ol>';
   }
 
   function formHtml(d, mode, ticket) {
-    return '<div class="form-wrap"><div class="card form-head"><h1>แบบฟอร์มสำหรับขอราคาสินค้า (Price Request – Food)</h1>' +
-      '<p class="muted">สำหรับขอราคาสินค้า FOOD ของบริษัท M Global Sourcing Ltd.</p>' +
-      (mode === 'edit' ? '<p><b>แก้ไข ' + esc(ticket.ticket_no) + '</b></p>' : '') +
-      (state.approvalRoute ? '<p class="small route">เส้นทางอนุมัติ: ' + esc(state.approvalRoute) + '</p>' : '') + '</div>' +
+    return '<div class="form-wrap">' +
+      '<div class="page-head form-title"><div><h1>' + (mode === 'edit' ? 'แก้ไขใบขอราคา ' + esc(ticket.ticket_no) : 'สร้างใบขอราคา') + '</h1>' +
+      '<div class="small muted">แบบฟอร์มขอราคาสินค้า FOOD · M Global Sourcing Ltd.</div></div></div>' +
+      (state.approvalRoute ? '<div class="card route-card"><div class="sec-label">เส้นทางอนุมัติ</div>' + routeSteps() + '</div>' : '') +
       (mode === 'edit' && ticket.stage === 'returned' ? '<div class="notice warn">Sales Manager ส่งกลับให้แก้ไข — แก้แล้วกด “บันทึกและส่งอีกครั้ง”</div>' : '') +
-      '<form id="pr-form" novalidate><div class="card">' +
-      field('ชื่อลูกค้า (Customer)', '<input type="text" id="f-customer" maxlength="200" placeholder="Type here" value="' + esc(d.customer_name) + '">', { req: true }) +
-      '</div>' +
+      '<form id="pr-form" novalidate>' +
+      '<section class="card fsec"><h2><span class="sn">1</span>ข้อมูลลูกค้า</h2><div class="fgrid">' +
+      field('ชื่อลูกค้า', 'Customer', '<input type="text" id="f-customer" maxlength="200" placeholder="ชื่อร้าน / บริษัทลูกค้า" value="' + esc(d.customer_name) + '">', { req: true }) +
+      field('วันที่ต้องการให้ตอบกลับราคา', 'Expected Date', '<input type="date" id="f-due" min="' + todayYmd(0) + '" value="' + esc(d.due_date) + '">', { req: true }) +
+      field('ผู้ร้องขอ', 'Requester', '<input type="text" id="f-requester" disabled value="' + esc(state.me.full_name) + '">', { hint: 'ใช้บัญชีที่เข้าสู่ระบบ' }) +
+      '</div></section>' +
+      '<section class="card fsec"><h2><span class="sn">2</span>รายการสินค้า</h2>' +
       '<div id="items">' + d.items.map(function (it, i) { return itemHtml(it, i, d.items.length); }).join('') + '</div>' +
-      '<p><button type="button" class="btn" id="add-item">＋ เพิ่มสินค้าอีกรายการ</button></p>' +
-      '<div class="card">' +
-      field('เอกสารที่ต้องการประกอบ (Documents Needed)', '<input type="text" id="f-docs" maxlength="2000" placeholder="เช่น COA, Health Certificate, Halal" value="' + esc(d.documents_needed) + '">',
-        { hint: 'ในกรณีไม่ได้ระบุ จะถือว่าไม่ต้องการเอกสารประกอบ' }) +
-      field('วันที่ต้องการให้ตอบกลับราคา (Expected Date)', '<input type="date" id="f-due" min="' + todayYmd(0) + '" value="' + esc(d.due_date) + '">', { req: true }) +
-      field('ผู้ร้องขอ (Requester)', '<select id="f-requester" disabled><option>' + esc(state.me.full_name) + ' (' + esc(state.me.email) + ')</option></select>',
-        { req: true, hint: 'ระบบใช้บัญชีที่เข้าสู่ระบบโดยอัตโนมัติ' }) +
-      field('หมายเหตุ (Remark)', '<textarea id="f-remark" maxlength="2000" placeholder="Type here">' + esc(d.description) + '</textarea>', { hint: 'ข้อมูลที่ต้องการแจ้งเพิ่มเติม' }) +
-      '</div>' +
-      '<div class="err-text" id="form-err" style="margin-bottom:8px"></div>' +
-      '<div class="actions form-actions"><button type="button" class="btn" id="cancel-btn">ยกเลิก</button>' +
+      '<button type="button" class="btn" id="add-item">＋ เพิ่มสินค้าอีกรายการ</button></section>' +
+      '<section class="card fsec"><h2><span class="sn">3</span>เอกสารและหมายเหตุ</h2><div class="fgrid two">' +
+      field('เอกสารที่ต้องการประกอบ', 'Documents Needed', '<textarea id="f-docs" maxlength="2000" rows="3" placeholder="เช่น COA, Health Certificate, Halal">' + esc(d.documents_needed) + '</textarea>',
+        { hint: 'ไม่ระบุ = ไม่ต้องการเอกสารประกอบ' }) +
+      field('หมายเหตุ', 'Remark', '<textarea id="f-remark" maxlength="2000" rows="3" placeholder="ข้อมูลที่ต้องการแจ้งเพิ่มเติม">' + esc(d.description) + '</textarea>') +
+      '</div></section>' +
+      '<div class="form-actions"><div class="err-text" id="form-err"></div><span class="sep"></span>' +
+      '<button type="button" class="btn" id="cancel-btn">ยกเลิก</button>' +
       (mode === 'edit' ? '<button type="button" class="btn" id="save-btn">บันทึก</button>' +
         (ticket.stage === 'returned' ? '<button type="button" class="btn primary" id="save-resubmit">บันทึกและส่งอีกครั้ง</button>' : '')
-        : '<button type="button" class="btn primary submit" id="save-btn">Submit</button>') +
+        : '<button type="button" class="btn primary submit" id="save-btn">ส่งใบขอราคา</button>') +
       '</div><div id="upload-progress" style="margin-top:12px"></div></form></div>';
   }
 

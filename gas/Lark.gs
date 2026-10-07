@@ -9,7 +9,7 @@
  *        LARK_APP_ID, LARK_APP_SECRET
  *        LARK_HOST           (optional, default https://open.larksuite.com — Feishu: https://open.feishu.cn)
  *        LARK_GROUP_CHAT_ID  (optional, oc_xxx — group that receives SLA breach summaries; add the bot to it)
- *        LARK_PRICE_GROUP_CHAT_ID (optional, oc_xxx — group told "ทำราคาเสร็จแล้ว" with the selling price when GM
+ *        LARK_PRICE_GROUP_CHAT_ID (optional, oc_xxx — group told "ทำราคาเสร็จแล้ว" (status only, no prices) when GM
  *                             approves; blank = use LARK_GROUP_CHAT_ID; add the bot to the group)
  *   4. Run testLarkConnection() then installTriggers().
  *
@@ -212,9 +212,9 @@ function testLarkConnection() {
   if (!ids[me]) throw new Error('Token OK แต่ไม่พบผู้ใช้ Lark ของ ' + me + ' — ตรวจสิทธิ์ contact:user.id:readonly และอีเมลใน Lark');
   larkCall_('/open-apis/im/v1/messages?receive_id_type=open_id', {
     receive_id: ids[me], msg_type: 'interactive',
-    content: JSON.stringify(larkCard_({ type: 'test', title: 'MGS Price Request — ทดสอบการเชื่อมต่อ', body: 'ถ้าเห็นข้อความนี้ แปลว่า Lark Bot ใช้งานได้ ✅', link: '' }))
+    content: JSON.stringify(larkCard_({ type: 'test', title: 'MGS Food Price Request — ทดสอบการเชื่อมต่อ', body: 'ถ้าเห็นข้อความนี้ แปลว่า Lark Bot ใช้งานได้ ✅', link: '' }))
   });
-  const groupOk = larkGroupText_('MGS Price Request — ทดสอบการส่งเข้ากลุ่ม ✅');
+  const groupOk = larkGroupText_('MGS Food Price Request — ทดสอบการส่งเข้ากลุ่ม ✅');
   console.log('Lark OK. DM sent to ' + me + (groupOk ? ' + group message sent' : ' (no group configured)'));
   return 'OK';
 }

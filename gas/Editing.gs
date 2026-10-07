@@ -172,6 +172,7 @@ function saveQuotationCore_(u, p) {
   if (!item || toBool_(item.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบรายการสินค้า');
   const t = ticketForUser_(u, item.ticket_id);
   if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน ในขั้นตอนหาราคา');
+  requireQuotable_(item);
 
   const quoteId = cleanText_(p.quote_id, 64);
   let existing = quoteId ? findOne_(TAB.QUOTATIONS, 'quote_id', quoteId) : null;
@@ -357,6 +358,7 @@ function saveSourcingDraft(ticketId, items) {
       const plan = list.map(function (row) {
         const it = byId[String(row && row.item_id)];
         if (!it) throw appError_('NOT_FOUND', 'ไม่พบรายการสินค้าในใบนี้');
+        requireQuotable_(it);
         const quotes = (Array.isArray(row.quotes) ? row.quotes : []).filter(function (q) {
           return cleanText_(q.vendor_name) || String(q.unit_price === undefined || q.unit_price === null ? '' : q.unit_price).trim() !== '';
         });
@@ -453,4 +455,128 @@ function saveChecklist(ticketId, rows) {
       return { changes: changes, checklist: checklistOf_(t.ticket_id) };
     });
   });
+}
+
+// =============================================================================
+// SR — per-item decision: quote · not offered · send later (split to its own ticket)
+// =============================================================================
+
+const ITEM_QUOTE_STATUS_ = ['quote', 'not_offered', 'follow_up'];
+
+/** Prices can be entered only for items the SR is quoting in this ticket. */
+function requireQuotable_(item) {
+  const st = String(item.quote_status || '');
+  if (st === 'follow_up') throw appError_('ITEM_SPLIT', 'รายการที่ ' + item.line_no + ' แยกไปส่งราคาตามหลังแล้ว — กรอกราคาในใบใหม่');
+  if (st === 'not_offered') throw appError_('ITEM_NOT_OFFERED', 'รายการที่ ' + item.line_no + ' ตั้งเป็น “ไม่เสนอ” — กด “กลับมาเสนอราคา” ก่อน');
+}
+
+/**
+ * SR marks one item:
+ *   'not_offered' — answered as "ไม่เสนอราคา" (reason required); reversible with 'quote' while sourcing
+ *   'follow_up'   — "ส่งตามหลัง": the item is pulled out NOW into a new ticket (same customer, same SR,
+ *                   approvals carried over) that stays open as pending work; vendor prices and pictures move with it.
+ *                   Not reversible. The original ticket can then be submitted without that item.
+ */
+function setItemQuoteStatus(ticketId, itemId, status, reason, expectedVersion) {
+  return api_('setItemQuoteStatus', function () {
+    return withLock_(function () {
+      const u = currentUser_();
+      const t = ticketForUser_(u, ticketId);
+      if (!(u.role === 'sr' && t.sr_email === u.email && (t.stage === 'sourcing' || t.stage === 'doc_check'))) {
+        throw appError_('FORBIDDEN', 'ตั้งสถานะรายการได้เฉพาะ SR ผู้รับงาน ในขั้นตอนตรวจเอกสาร / หาราคา');
+      }
+      requireVersion_(t, expectedVersion);
+      const st = String(status || '');
+      if (ITEM_QUOTE_STATUS_.indexOf(st) === -1) throw appError_('VALIDATION', 'สถานะรายการไม่ถูกต้อง');
+      const items = activeItemsOf_(t.ticket_id);
+      const it = items.filter(function (x) { return x.item_id === String(itemId); })[0];
+      if (!it) throw appError_('NOT_FOUND', 'ไม่พบรายการสินค้าในใบนี้');
+      if (it.quote_status === 'follow_up') throw appError_('ITEM_SPLIT', 'รายการนี้แยกไปส่งตามหลังแล้ว แก้กลับไม่ได้');
+      const why = cleanText_(reason, 500);
+      const now = new Date();
+      let followUp = null;
+
+      if (st === 'quote') {
+        if (!it.quote_status) throw appError_('VALIDATION', 'รายการนี้อยู่ในสถานะเสนอราคาอยู่แล้ว');
+        updateRow_(TAB.ITEMS, it.item_id, { quote_status: '', quote_status_reason: '', updated_at: now });
+      } else {
+        if (it.quote_status === st) throw appError_('VALIDATION', 'รายการนี้ตั้งสถานะนี้ไว้แล้ว');
+        if (why.length < 3) throw appError_('COMMENT_REQUIRED', st === 'not_offered' ? 'กรุณาระบุเหตุผลที่ไม่เสนอราคา' : 'กรุณาระบุเหตุผล / กำหนดส่งตามหลัง');
+        if (st === 'follow_up') {
+          const staying = items.filter(function (x) { return x.item_id !== it.item_id && x.quote_status !== 'follow_up'; });
+          if (!staying.length) throw appError_('LAST_ITEM', 'ส่งตามหลังทุกรายการไม่ได้ — ถ้ายังหาราคาไม่ได้ทั้งใบ ให้ทำต่อในใบเดิม');
+          followUp = splitFollowUp_(u, t, it, why, now);
+        }
+        updateRow_(TAB.ITEMS, it.item_id, { quote_status: st, quote_status_reason: why, gp_percent: '', sell_price_thb: '',
+          follow_up_ticket_id: followUp ? followUp.ticket_id : '', updated_at: now });
+        // a not-offered item has no winner
+        activeQuotesOfItem_(it.item_id).filter(function (q) { return q.is_selected; }).forEach(function (q) {
+          updateRow_(TAB.QUOTATIONS, q.quote_id, { is_selected: false, selection_reason: '', updated_at: now });
+        });
+      }
+      const saved = normTicket_(updateRow_(TAB.TICKETS, t.ticket_id, { version: t.version + 1, updated_at: now }));
+      appendLog_({ ticket_id: t.ticket_id, action: st === 'quote' ? 'item_quote_restored' : (st === 'not_offered' ? 'item_not_offered' : 'item_follow_up'),
+        actor_email: u.email, actor_role: u.role, comment: why,
+        metadata: { item_id: it.item_id, line_no: it.line_no, label: 'รายการที่ ' + it.line_no + ' ' + it.product_name,
+          follow_up_ticket_no: followUp ? followUp.ticket_no : undefined } });
+      if (followUp) {
+        enqueueNotifications_([t.requestor_email, t.sr_email].concat(activeUsersByRole_('sr_manager').map(function (x) { return x.email; })), followUp,
+          'item_follow_up', '[' + t.ticket_no + '] รายการที่ ' + it.line_no + ' ส่งราคาตามหลัง → ' + followUp.ticket_no,
+          it.product_name + ' — ' + why + '\nแยกเป็นงานค้าง ' + followUp.ticket_no + ' (SR ' + u.full_name + ')', ticketLink_(followUp, 'ticket'));
+      }
+      return { ticket: publicTicket_(saved), follow_up: followUp ? { ticket_id: followUp.ticket_id, ticket_no: followUp.ticket_no } : null };
+    });
+  });
+}
+
+/** Create the follow-up ticket for one item. Runs inside withLock_ (called by setItemQuoteStatus). */
+function splitFollowUp_(u, t, it, why, now) {
+  const year = fmtDate_(now, 'yyyy');
+  const no = nextCounter_('ticket_no_' + year);
+  const ticketId = uuid_();
+  const ticket = {};
+  SCHEMA.Tickets.cols.forEach(function (c) { ticket[c] = t[c] === undefined ? '' : t[c]; });
+  Object.assign(ticket, {
+    ticket_id: ticketId,
+    ticket_no: 'PR-' + year + '-' + ('000' + no).slice(-Math.max(4, String(no).length)),
+    title: cleanText_('ส่งตามหลัง ' + t.ticket_no + ': ' + (t.customer_name || '') + ' — ' + it.product_name, 200),
+    parent_ticket_id: t.ticket_id,
+    // approvals of the request carry over; the job continues where the original one is
+    status: STAGE_STATUS[t.stage], stage: t.stage, stage_entered_at: now, assigned_at: now,
+    revision_count: 0, version: 1, info_request_json: '', rejection_reason: '',
+    quote_submitted_at: '', sr_manager_email: '', sr_manager_approved_at: '', gm_price_approved_at: '',
+    completed_at: '', closed_at: '', rejected_at: '', cancelled_at: '',
+    client_key: '', created_at: now, updated_at: now,
+    description: cleanText_((t.description ? t.description + '\n' : '') + 'แยกจาก ' + t.ticket_no + ' รายการที่ ' + it.line_no + ' — ' + why, CFG.MAX_TEXT)
+  });
+  insertRow_(TAB.TICKETS, ticket);
+  const newItemId = uuid_();
+  const src = findOne_(TAB.ITEMS, 'item_id', it.item_id);
+  const item = {};
+  SCHEMA.TicketItems.cols.forEach(function (c) { item[c] = src[c] === undefined ? '' : src[c]; });
+  Object.assign(item, { item_id: newItemId, ticket_id: ticketId, line_no: 1, quote_status: '', quote_status_reason: '',
+    follow_up_ticket_id: '', gp_percent: src.gp_percent === undefined ? '' : src.gp_percent, sell_price_thb: '', created_at: now, updated_at: now });
+  insertRow_(TAB.ITEMS, item);
+  // vendor prices + item pictures + quotation files move with the item
+  const moved = activeQuotesOfItem_(it.item_id).map(function (q) {
+    updateRow_(TAB.QUOTATIONS, q.quote_id, { item_id: newItemId, ticket_id: ticketId, updated_at: now });
+    return q.quote_id;
+  });
+  findAll_(TAB.ATTACHMENTS, 'ticket_id', t.ticket_id).forEach(function (a) {
+    if (toBool_(a.is_deleted)) return;
+    if (String(a.item_id) === it.item_id) updateRow_(TAB.ATTACHMENTS, a.attachment_id, { item_id: newItemId, ticket_id: ticketId });
+    else if (a.quote_id && moved.indexOf(String(a.quote_id)) !== -1) updateRow_(TAB.ATTACHMENTS, a.attachment_id, { ticket_id: ticketId });
+  });
+  // document checklist: same template, keeping what the SR already ticked on the original
+  generateChecklist_(ticketId);
+  const done = {};
+  checklistOf_(t.ticket_id).forEach(function (c) { if (c.is_checked) done[c.product_group_code + '|' + c.item_key] = c; });
+  checklistOf_(ticketId).forEach(function (c) {
+    const d = done[c.product_group_code + '|' + c.item_key];
+    if (d) updateRow_(TAB.CHECKLIST, c.check_id, { is_checked: true, checked_by: d.checked_by, checked_at: now, note: d.note || '', updated_at: now });
+  });
+  appendLog_({ ticket_id: ticketId, log_type: 'transition', action: 'create', actor_email: u.email, actor_role: u.role,
+    to_status: ticket.status, to_stage: ticket.stage, comment: why,
+    metadata: { ticket_no: ticket.ticket_no, item_count: 1, split_from: t.ticket_no, split_line_no: it.line_no } });
+  return normTicket_(ticket);
 }

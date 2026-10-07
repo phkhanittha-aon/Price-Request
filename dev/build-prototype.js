@@ -32,8 +32,16 @@ const mocks = fs.readFileSync(path.join(__dirname, 'gas-browser-mocks.js'), 'utf
 let index = read('Index.html')
   .replace(/<\?!= include_\('(\w+)'\); \?>/g, (_, n) => read(n + '.html'))
   .replace(/<\?= appVersion \?>/g, version + ' · prototype');
-const head = /<head>([\s\S]*?)<\/head>/.exec(index)[1]
-  .replace(/<base[^>]*>/, '').replace(/<meta charset[^>]*>/, '').replace(/<meta name="viewport"[^>]*>/, '');
+// Prompt is embedded (base64) so the prototype looks the same offline / behind a proxy. The web app uses Google Fonts.
+const fontDir = path.join(__dirname, 'fonts');
+const fontCss = fs.readFileSync(path.join(fontDir, 'manifest.txt'), 'utf8').trim().split('\n').map(function (line) {
+  const [file, weight, range] = line.split('|');
+  const b64 = fs.readFileSync(path.join(__dirname, '..', file)).toString('base64');
+  return "@font-face{font-family:'Prompt';font-style:normal;font-weight:" + weight + ";font-display:swap;src:url(data:font/woff2;base64," + b64 + ") format('woff2');unicode-range:" + range + ';}';
+}).join('\n');
+const head = '<style>' + fontCss + '</style>\n' + /<head>([\s\S]*?)<\/head>/.exec(index)[1]
+  .replace(/<base[^>]*>/, '').replace(/<meta charset[^>]*>/, '').replace(/<meta name="viewport"[^>]*>/, '')
+  .replace(/<link rel="(preconnect|stylesheet)"[^>]*>\s*/g, '');
 let body = /<body>([\s\S]*?)<\/body>/.exec(index)[1];
 
 const backend = `
@@ -143,7 +151,7 @@ const bar = `
 </script>`;
 
 body = body.replace(/(<header class="topbar">)/, backend + bar + '$1');
-let html = '<title>MGS Price Request</title>\n' + head.trim() + '\n' + body.trim() + '\n';
+let html = '<title>MGS Food Price Request</title>\n' + head.trim() + '\n' + body.trim() + '\n';
 if (process.argv[3] === '--standalone') {
   html = '<!DOCTYPE html>\n<html lang="th">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
     html.replace(/(<\/style>\s*)(?=<script>|<div class="proto-bar")/, '$1</head>\n<body>\n') + '</body>\n</html>\n';

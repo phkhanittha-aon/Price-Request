@@ -11,7 +11,7 @@
 function runAcceptanceTests() {
   requireAdminOrOwner_();
   const results = [];
-  const tmp = SpreadsheetApp.create('MGS Price Request — TEST ' + fmtDate_(new Date(), 'yyyy-MM-dd HH:mm:ss'));
+  const tmp = SpreadsheetApp.create('MGS Food Price Request — TEST ' + fmtDate_(new Date(), 'yyyy-MM-dd HH:mm:ss'));
   try {
     useDatabase_(tmp);
     setupSchema_(tmp, { protect: false });
@@ -26,6 +26,7 @@ function runAcceptanceTests() {
     runPhase3Cases_(results);
     runOrgCases_(results);
     runSellPriceCases_(results);
+    runFollowUpCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -923,11 +924,31 @@ function runSellPriceCases_(results) {
     ok(mgr.items[0].pricing === null && mgr.items[0].quotations.length === 0 && mgr.items[0].sales_pricing.sell_price_thb === 337.62,
       'Sales Manager also sees the selling price only');
     const salesNotes = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return String(n.user_email) === U.salesFood2; });
-    ok(salesNotes.length > 0 && salesNotes.every(function (n) { return String(n.body).indexOf('\n') === -1; }),
-      'Sales notification carries no GM / SR Manager price comment');
+    const ready = salesNotes.filter(function (n) { return n.type === 'quote_ready'; });
+    ok(ready.length === 1 && String(ready[0].body).indexOf('337.62') !== -1 &&
+      !/Andaman|270\.09|GP \d|\d%|ต้นทุน|เคลียร์/.test(String(ready[0].body)),
+      'Requesting Sales gets the selling price of their own request in the DM — no cost / GP');
     const grp = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === PRICE_GROUP_KEY_; });
-    ok(grp.length === 1 && grp[0].type === 'price_done_group' && String(grp[0].body).indexOf('337.62') !== -1 &&
-      !/Andaman|270\.09|GP \d|\d%|ต้นทุน|เคลียร์/.test(String(grp[0].body)), 'GM approval queues ONE Lark group message: selling price only, no cost');
+    ok(grp.length === 1 && grp[0].type === 'price_done_group' && String(grp[0].body).indexOf('กุ้งขาว') !== -1 &&
+      !/337\.62|ราคาขาย \*|Andaman|270\.09|GP \d|\d%|ต้นทุน|เคลียร์/.test(String(grp[0].body)),
+      'GM approval queues ONE Lark group message: status only — no price (other Sales are in the group)');
+    // another Sales must not reach this request's price by any path
+    expectErr(as(U.salesFood1, function () { return getTicket(id); }), 'NOT_FOUND', 'Other Sales cannot open the request (NOT_FOUND)');
+    ok(!as(U.salesFood1, function () { return must(listTickets({ scope: 'all' })); }).rows.some(function (r) { return r.ticket_id === id; }) &&
+      !as(U.salesFood1, function () { return must(getDashboard('all')); }).recent.some(function (r) { return r.ticket_id === id; }),
+      'Other Sales does not see the request in lists or Dashboard');
+    ok(!findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).some(function (n) { return String(n.user_email) === U.salesFood1; }),
+      'Other Sales gets no notification of this request');
+    ok(STAGE_LABEL_TH.pending_gm.indexOf('ฝั่งขาย') !== -1 && STAGE_LABEL_TH.pending_gm_price.indexOf('ฝั่งซื้อ') !== -1,
+      'GM approval stages are labelled sales side / purchasing side');
+    const gmMenu = menuFor_(userByEmail_(U.gm));
+    ok(gmMenu.some(function (m) { return m.key === 'gm_sales' && m.route.stage === 'pending_gm'; }) &&
+      gmMenu.some(function (m) { return m.key === 'gm_buy' && m.route.stage === 'pending_gm_price'; }) &&
+      !menuFor_(userByEmail_(U.salesFood1)).some(function (m) { return /^gm_/.test(m.key); }),
+      'GM menu has separate "อนุมัติฝั่งขาย" and "อนุมัติฝั่งซื้อ" (not shown to Sales)');
+    const gp = pollData_(userByEmail_(U.gm));
+    ok(typeof gp.gm_sales === 'number' && typeof gp.gm_buy === 'number' && pollData_(userByEmail_(U.salesFood1)).gm_buy === undefined,
+      'Poll gives GM the two approval counts');
     TEST_LARK_ = { app_id: 'a', app_secret: 'b', host: 'https://lark.test', group_chat_id: '', price_group_chat_id: 'oc_price' };
     const fh = fakeHttp_();
     TEST_HTTP_ = fh;
@@ -941,5 +962,114 @@ function runSellPriceCases_(results) {
       String(findOne_(TAB.NOTIFICATIONS, 'notif_id', grp[0].notif_id).lark_status) === 'sent', 'Group message delivered to the price group chat');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: SELL_PRICE — ' + e.message + '\n' + e.stack);
+  }
+}
+
+// =============================================================================
+// Per-item SR decision: not offered / send later (split into its own pending ticket)
+// =============================================================================
+function runFollowUpCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', { expected_version: ticketById_(id).version }); });
+  };
+  const setSt = function (email, id, itemId, st, why) {
+    return as(email, function () { return setItemQuoteStatus(id, itemId, st, why, ticketById_(id).version); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  try {
+    const t = as(U.salesFood3, function () {
+      return must(createTicket({ customer_name: 'ร้าน ส่งตามหลัง', due_date: inDays(4), items: [
+        { product_name: 'กุ้งขาว HOSO', net_weight: '100%', size: '40/50', packing_size: '1 kg', qty: 300, uom: 'กก.', target_price: 0 },
+        { product_name: 'หมึกกล้วย', net_weight: '80%', size: 'U5', packing_size: '1 kg', qty: 200, uom: 'กก.', target_price: 0 },
+        { product_name: 'ปลาแซลมอน', net_weight: '100%', size: '3-4 kg', packing_size: 'ตัว', qty: 100, uom: 'กก.', target_price: 0 }] })).ticket;
+    });
+    const id = t.ticket_id;
+    must(go(U.mgrFood, id, 'manager_approve'));
+    must(go(U.gm, id, 'gm_approve'));
+    must(go(U.sr1, id, 'claim'));
+    as(U.sr1, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+    must(go(U.sr1, id, 'doc_complete'));
+    const items = activeItemsOf_(id);
+    const [shrimp, squid, salmon] = items;
+    // the squid already has a vendor price + a picture before the SR decides to send it later
+    must(as(U.sr1, function () { return saveQuotation({ item_id: squid.item_id, vendor_name: 'Squid Co', unit_price: 150, currency: 'THB', vat_term: 'ex_vat' }); }));
+    insertRow_(TAB.ATTACHMENTS, { attachment_id: uuid_(), ticket_id: id, item_id: squid.item_id, quote_id: '', category: 'request', file_name: 'squid.jpg',
+      drive_file_id: 'f-squid', mime_type: 'image/jpeg', size_bytes: 10, uploaded_by: U.salesFood3, uploaded_at: new Date(), is_deleted: false });
+
+    expectErr(setSt(U.sr2, id, shrimp.item_id, 'not_offered', 'ไม่มีของ'), 'FORBIDDEN', 'Only the assigned SR can set an item status');
+    expectErr(setSt(U.salesFood3, id, shrimp.item_id, 'not_offered', 'x'), 'FORBIDDEN', 'Sales cannot set an item status');
+    expectErr(setSt(U.sr1, id, shrimp.item_id, 'not_offered', ''), 'COMMENT_REQUIRED', 'Not offered needs a reason');
+    expectErr(as(U.sr1, function () { return setItemQuoteStatus(id, shrimp.item_id, 'not_offered', 'ไม่มีของ', 0); }), 'VERSION_CONFLICT', 'Item status uses optimistic locking');
+
+    // 1) not offered
+    must(setSt(U.sr1, id, shrimp.item_id, 'not_offered', 'ขาดตลาด ไม่มี vendor'));
+    ok(activeItemsOf_(id)[0].quote_status === 'not_offered', 'Item marked “ไม่เสนอราคา” with reason');
+    expectErr(as(U.sr1, function () { return saveQuotation({ item_id: shrimp.item_id, vendor_name: 'X', unit_price: 1, currency: 'THB', vat_term: 'ex_vat' }); }),
+      'ITEM_NOT_OFFERED', 'No vendor price can be entered on a not-offered item');
+    must(setSt(U.sr1, id, shrimp.item_id, 'quote'));
+    ok(activeItemsOf_(id)[0].quote_status === '', 'Not offered can be reverted to quoting');
+    must(setSt(U.sr1, id, shrimp.item_id, 'not_offered', 'ขาดตลาด ไม่มี vendor'));
+
+    // 2) send later → split into a new ticket right away
+    const r = must(setSt(U.sr1, id, squid.item_id, 'follow_up', 'รอ vendor ตอบ 2 สัปดาห์'));
+    const fu = ticketById_(r.follow_up.ticket_id);
+    const fuItems = activeItemsOf_(fu.ticket_id);
+    ok(fu && fu.parent_ticket_id === id && fu.stage === 'sourcing' && fu.sr_email === U.sr1 && fu.requestor_email === U.salesFood3 &&
+      fu.customer_name === 'ร้าน ส่งตามหลัง' && !!fu.gm_approved_at && /^PR-\d{4}-\d{4,}$/.test(fu.ticket_no),
+      'Send later creates ' + fu.ticket_no + ': same customer / Sales / SR, approvals carried, in sourcing');
+    ok(fuItems.length === 1 && fuItems[0].product_name === 'หมึกกล้วย' && fuItems[0].quote_status === '', 'Follow-up ticket holds just that item');
+    ok(activeQuotesOfItem_(fuItems[0].item_id).length === 1 && activeQuotesOfItem_(squid.item_id).length === 0, 'Vendor price moved with the item');
+    ok(findAll_(TAB.ATTACHMENTS, 'item_id', fuItems[0].item_id).length === 1, 'Item picture moved with the item');
+    ok(checklistOf_(fu.ticket_id).length > 0 && checklistOf_(fu.ticket_id).filter(function (c) { return c.is_required; }).every(function (c) { return c.is_checked; }),
+      'Follow-up keeps the document checks already done');
+    ok(findAll_(TAB.LOGS, 'ticket_id', fu.ticket_id).some(function (l) { return l.action === 'create'; }) &&
+      findAll_(TAB.LOGS, 'ticket_id', id).some(function (l) { return l.action === 'item_follow_up'; }), 'Both tickets logged (create / item_follow_up)');
+    ok(findAll_(TAB.NOTIFICATIONS, 'ticket_id', fu.ticket_id).some(function (n) { return String(n.user_email) === U.salesFood3 && n.type === 'item_follow_up'; }),
+      'Sales is told the item will be sent later (with the new number)');
+    expectErr(setSt(U.sr1, id, squid.item_id, 'quote'), 'ITEM_SPLIT', 'A split item cannot be reverted');
+    expectErr(setSt(U.sr1, fu.ticket_id, fuItems[0].item_id, 'follow_up', 'ยังไม่ได้'), 'LAST_ITEM', 'Cannot send later the last item of a ticket');
+
+    // 3) the original continues without the two items
+    expectErr(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: squid.item_id, quotes: [] }]); }), 'ITEM_SPLIT', 'Draft refuses a split item');
+    const q = must(as(U.sr1, function () { return saveQuotation({ item_id: salmon.item_id, vendor_name: 'Nordic', unit_price: 500, currency: 'THB', vat_term: 'ex_vat' }); })).quote;
+    as(U.sr1, function () { must(selectQuotation(q.quote_id, '')); });
+    ok(must(go(U.sr1, id, 'submit_quote')).ticket.stage === 'pending_sr_manager', 'Submit works with one item not offered and one sent later');
+    must(go(U.srManager, id, 'srm_approve'));
+    must(go(U.gm, id, 'gm_price_approve'));
+    const sd = as(U.salesFood3, function () { return must(getTicket(id)); });
+    const byName = function (n) { return sd.items.filter(function (x) { return x.product_name === n; })[0]; };
+    ok(byName('กุ้งขาว HOSO').quote_status === 'not_offered' && byName('กุ้งขาว HOSO').quote_status_reason === 'ขาดตลาด ไม่มี vendor' && !byName('กุ้งขาว HOSO').sales_pricing,
+      'Sales sees “ไม่เสนอราคา” + reason (no price)');
+    ok(byName('หมึกกล้วย').quote_status === 'follow_up' && byName('หมึกกล้วย').follow_up.ticket_no === fu.ticket_no && sd.follow_ups.length === 1,
+      'Sales sees “ส่งตามหลัง” with the new ticket number');
+    ok(byName('ปลาแซลมอน').sales_pricing && byName('ปลาแซลมอน').sales_pricing.sell_price_thb > 500, 'Quoted item still has its selling price');
+    const dm = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return String(n.user_email) === U.salesFood3 && n.type === 'quote_ready'; })[0];
+    ok(/ไม่เสนอราคา/.test(dm.body) && dm.body.indexOf(fu.ticket_no) !== -1, 'Sales DM lists not-offered and sent-later items');
+    const grp = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === PRICE_GROUP_KEY_; })[0];
+    ok(/ไม่เสนอราคา/.test(grp.body) && grp.body.indexOf(fu.ticket_no) !== -1 && !/\d+\.\d\d/.test(grp.body), 'Group message shows the item statuses, still no prices');
+
+    // 4) the follow-up is pending work everywhere
+    ok(as(U.salesFood3, function () { return must(getDashboard('all')); }).follow_ups.some(function (r) { return r.ticket_id === fu.ticket_id && r.parent_ticket_no === t.ticket_no; }),
+      'Dashboard lists the open follow-up (with its origin ticket)');
+    ok(must(as(U.sr1, function () { return listTickets({ scope: 'mine', follow_up: true, outcome: 'open' }); })).rows.some(function (r) { return r.ticket_id === fu.ticket_id; }) &&
+      !must(as(U.sr1, function () { return listTickets({ scope: 'mine', follow_up: true }); })).rows.some(function (r) { return r.ticket_id === id; }),
+      'List filter “ส่งตามหลัง” shows only follow-up tickets');
+    ok(pollData_(userByEmail_(U.salesFood3)).follow_up >= 1 && pollData_(userByEmail_(U.salesFood1)).follow_up === 0, 'Menu badge counts own open follow-ups only');
+    ok(as(U.salesFood3, function () { return must(getTicket(fu.ticket_id)); }).parent.ticket_no === t.ticket_no, 'Follow-up links back to the original');
+    expectErr(as(U.salesFood1, function () { return getTicket(fu.ticket_id); }), 'NOT_FOUND', 'Other Sales cannot open the follow-up');
+    ok(menuFor_(userByEmail_(U.salesFood3)).some(function (m) { return m.key === 'follow' && m.route.follow === '1'; }), 'Menu has “ส่งตามหลัง (ค้าง)”');
+  } catch (e) {
+    results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: FOLLOW_UP — ' + e.message + '\n' + e.stack);
   }
 }

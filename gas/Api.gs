@@ -48,6 +48,7 @@ function listTickets(query) {
     if (q.priority) list = list.filter(function (t) { return t.priority === q.priority; });
     if (q.requestor) list = list.filter(function (t) { return t.requestor_email === String(q.requestor).toLowerCase(); });
     if (q.sr) list = list.filter(function (t) { return t.sr_email === String(q.sr).toLowerCase(); });
+    if (q.follow_up) list = list.filter(function (t) { return !!t.parent_ticket_id; });
     if (from) list = list.filter(function (t) { return new Date(t.created_at) >= from; });
     if (toEnd) list = list.filter(function (t) { return new Date(t.created_at) < toEnd; });
 
@@ -103,8 +104,10 @@ function listContext_() {
   rows_(TAB.USERS).forEach(function (r) { names[String(r.email).toLowerCase()] = String(r.full_name); });
   const deptMgr = {};
   rows_(TAB.DEPARTMENTS).forEach(function (d) { deptMgr[String(d.code)] = String(d.manager_email || '').toLowerCase(); });
+  const ticketNos = {};
+  rows_(TAB.TICKETS).forEach(function (r) { ticketNos[String(r.ticket_id)] = String(r.ticket_no); });
   return {
-    itemsByTicket: itemsByTicket, groups: groups, names: names, deptMgr: deptMgr,
+    itemsByTicket: itemsByTicket, groups: groups, names: names, deptMgr: deptMgr, ticketNos: ticketNos,
     sla: setting_('sla_hours', {}), warn: Number(setting_('sla_warning_ratio', 0.8))
   };
 }
@@ -175,6 +178,7 @@ function summaryRow_(t, ctx, now) {
     department_code: String(t.department_code),
     due_date: t.due_date ? fmtDate_(t.due_date) : '',
     revision_count: t.revision_count,
+    parent_ticket_no: t.parent_ticket_id && ctx.ticketNos ? (ctx.ticketNos[t.parent_ticket_id] || '') : '',
     item_count: items.length,
     item_names: items.map(function (i) { return String(i.product_name); }).join(' | '),
     group_codes: groupCodes,
@@ -200,7 +204,14 @@ function pollData_(u) {
   const unread = rows_(TAB.NOTIFICATIONS).filter(function (n) {
     return String(n.user_email).toLowerCase() === u.email && !toBool_(n.is_read);
   }).length;
-  return { inbox: inbox, unread: unread, server_time: new Date().toISOString() };
+  const out = { inbox: inbox, unread: unread, server_time: new Date().toISOString(),
+    follow_up: myOpenFollowUps_(u).length };
+  if (u.role === 'gm') {
+    const tickets = rows_(TAB.TICKETS).map(normTicket_);
+    out.gm_sales = tickets.filter(function (t) { return t.stage === 'pending_gm' && t.manager_email !== u.email; }).length;
+    out.gm_buy = tickets.filter(function (t) { return t.stage === 'pending_gm_price'; }).length;
+  }
+  return out;
 }
 
 /** Called every ~60 s by the page while it is visible. */
@@ -324,6 +335,7 @@ function getDashboard(range) {
       by_sales: sortPeople(sales),
       by_sr: sortPeople(srs),
       recent: recent,
+      follow_ups: myOpenFollowUps_(u).map(function (t) { return summaryRow_(t, ctx, now); }),
       can_see_everyone: ['manager', 'gm', 'admin', 'sr_manager'].indexOf(u.role) !== -1
     };
   });
@@ -335,4 +347,17 @@ function percentile_(sorted, p) {
   const lo = Math.floor(idx);
   const hi = Math.ceil(idx);
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+/**
+ * Open "send later" tickets (items an SR split out of a request) that this user should track:
+ * Sales — their own requests · SR — their own jobs · everyone else — all they can see.
+ */
+function myOpenFollowUps_(u) {
+  return rows_(TAB.TICKETS).map(normTicket_).filter(function (t) {
+    if (!t.parent_ticket_id || outcome_(t) !== 'open' || !canSeeTicket_(u, t)) return false;
+    if (u.role === 'sales') return t.requestor_email === u.email;
+    if (u.role === 'sr') return t.sr_email === u.email;
+    return true;
+  }).sort(function (a, b) { return new Date(a.created_at) - new Date(b.created_at); });
 }

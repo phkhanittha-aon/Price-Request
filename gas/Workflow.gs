@@ -37,14 +37,14 @@ const TRANSITION_ACTIONS = ['resubmit', 'cancel', 'manager_approve', 'manager_re
 const ACTION_LABEL_TH = {
   create: 'สร้างใบขอราคา', resubmit: 'ส่งใบขอราคาอีกครั้ง', cancel: 'ยกเลิกใบขอราคา',
   manager_approve: 'Sales Manager อนุมัติ', manager_reject: 'Sales Manager ไม่อนุมัติ', manager_return: 'Sales Manager ส่งกลับแก้ไข',
-  gm_approve: 'GM อนุมัติ', gm_reject: 'GM ไม่อนุมัติ', claim: 'SR รับงาน', assign: 'มอบหมายงาน SR',
+  gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', assign: 'มอบหมายงาน SR',
   request_info: 'SR ขอข้อมูลเพิ่ม', respond_info: 'Sales ส่งข้อมูลเพิ่ม', doc_complete: 'SR ตรวจเอกสารครบ',
   submit_quote: 'SR ส่งราคาให้ SR Manager ตรวจ', srm_approve: 'SR Manager อนุมัติราคา', srm_return: 'SR Manager ส่งกลับให้แก้ราคา',
-  gm_price_approve: 'GM อนุมัติราคา (ส่งถึง Sales)', gm_price_return: 'GM ส่งกลับให้แก้ราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
+  gm_price_approve: 'GM อนุมัติฝั่งซื้อ (ราคา → ส่งถึง Sales)', gm_price_return: 'GM ฝั่งซื้อ ส่งกลับให้แก้ราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
   // data changes (not status changes)
   ticket_updated: 'แก้ไขข้อมูลใบขอราคา', item_added: 'เพิ่มรายการสินค้า', item_updated: 'แก้ไขรายการสินค้า', item_deleted: 'ลบรายการสินค้า',
   checklist_updated: 'ตรวจเอกสาร', quotation_added: 'เพิ่มราคา vendor', quotation_updated: 'แก้ไขราคา vendor',
-  quotation_deleted: 'ลบราคา vendor', quotation_selected: 'เลือกผู้ชนะ', pricing_updated: 'กำหนด GP %', attachment_added: 'แนบไฟล์', attachment_removed: 'ลบไฟล์แนบ'
+  quotation_deleted: 'ลบราคา vendor', quotation_selected: 'เลือกผู้ชนะ', pricing_updated: 'กำหนด GP %', item_not_offered: 'SR ตั้งรายการเป็น “ไม่เสนอราคา”', item_follow_up: 'SR แยกรายการไปส่งราคาตามหลัง', item_quote_restored: 'SR กลับมาเสนอราคารายการ', attachment_added: 'แนบไฟล์', attachment_removed: 'ลบไฟล์แนบ'
 };
 
 // =============================================================================
@@ -426,7 +426,11 @@ function doTransition_(ticketId, action, comment, payload) {
     // reviewer comments may discuss cost / GP → only cost roles get them; Sales side gets the status line
     const isCost = function (e) { const x = userByEmail_(e); return !!x && COST_ROLES_.indexOf(x.role) !== -1; };
     enqueueNotifications_(recipients.filter(isCost), saved, notifyType, nTitle, nBody + (note ? '\n' + note : ''), ticketLink_(saved, page));
-    enqueueNotifications_(recipients.filter(function (e) { return !isCost(e); }), saved, notifyType, nTitle, nBody, ticketLink_(saved, page));
+    const salesSide = recipients.filter(function (e) { return !isCost(e); });
+    // the requesting Sales gets the selling price of THEIR OWN request (winning offer only) in the DM
+    const own = action === 'gm_price_approve' ? '\n\n' + sellPriceLines_(saved).join('\n') : '';
+    enqueueNotifications_(salesSide.filter(function (e) { return e === saved.requestor_email; }), saved, notifyType, nTitle, nBody + own, ticketLink_(saved, page));
+    enqueueNotifications_(salesSide.filter(function (e) { return e !== saved.requestor_email; }), saved, notifyType, nTitle, nBody, ticketLink_(saved, page));
   } else {
     enqueueNotifications_(recipients, saved, notifyType, nTitle, nBody + (note ? '\n' + note : ''), ticketLink_(saved, page));
   }
@@ -446,6 +450,7 @@ function validateQuotesForSubmit_(t) {
   const today = todayBkk_();
   let grand = 0;
   items.forEach(function (it) {
+    if (it.quote_status) return;   // 'not_offered' / 'follow_up': answered without a price (follow-up = its own ticket)
     const quotes = activeQuotesOfItem_(it.item_id);
     if (!quotes.length) { noQuote.push(it.line_no); return; }
     const cmp = compareQuotes_(it.qty, quotes);
@@ -491,7 +496,17 @@ function ticketDetail_(u, t) {
     const items = activeItemsOf_(t.ticket_id).map(function (it) {
       const out = Object.assign({}, it);
       out.product_group_name = groupName_(it.product_group_code);
-      if (showQuotes) {
+      if (it.follow_up_ticket_id) {
+        const fu = ticketById_(it.follow_up_ticket_id);
+        out.follow_up = fu ? { ticket_id: fu.ticket_id, ticket_no: String(fu.ticket_no), stage_label: STAGE_LABEL_TH[fu.stage], status: fu.status } : null;
+      }
+      if (it.quote_status) {
+        delete out.gp_percent;
+        out.quotations = [];
+        out.pricing = null;
+        out.sales_pricing = null;
+        out.sell_price_thb = null;
+      } else if (showQuotes) {
         out.quotations = compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id));
         out.pricing = itemPricing_(it, out.quotations.filter(function (q) { return q.is_selected; })[0]);
       } else {
@@ -519,8 +534,13 @@ function ticketDetail_(u, t) {
           uploaded_by: String(a.uploaded_by), uploaded_at: isoOrBlank_(a.uploaded_at)
         };
       });
+    const parent = t.parent_ticket_id ? ticketById_(t.parent_ticket_id) : null;
+    const children = findAll_(TAB.TICKETS, 'parent_ticket_id', t.ticket_id).map(normTicket_).filter(function (c) { return canSeeTicket_(u, c); })
+      .map(function (c) { return { ticket_id: c.ticket_id, ticket_no: String(c.ticket_no), stage_label: STAGE_LABEL_TH[c.stage], status: c.status }; });
     return {
       ticket: publicTicket_(t),
+      parent: parent && canSeeTicket_(u, parent) ? { ticket_id: parent.ticket_id, ticket_no: String(parent.ticket_no) } : null,
+      follow_ups: children,
       items: items,
       checklist: checklistOf_(t.ticket_id),
       attachments: attachments,
@@ -655,7 +675,9 @@ function activeItemsOf_(ticketId) {
         target_price: r.target_price === '' ? null : Number(r.target_price),
         gp_percent: r.gp_percent === '' || r.gp_percent === undefined ? null : Number(r.gp_percent),
         sell_price_thb: r.sell_price_thb === '' || r.sell_price_thb === undefined ? null : Number(r.sell_price_thb),
-        target_currency: String(r.target_currency || 'THB')
+        target_currency: String(r.target_currency || 'THB'),
+        quote_status: String(r.quote_status || ''), quote_status_reason: String(r.quote_status_reason || ''),
+        follow_up_ticket_id: String(r.follow_up_ticket_id || '')
       };
     })
     .sort(function (a, b) { return a.line_no - b.line_no; });

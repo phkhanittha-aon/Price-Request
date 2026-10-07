@@ -93,12 +93,12 @@ function ticketLink_(t, page) {
 const PRICE_GROUP_KEY_ = '#price_group';
 
 /**
- * Queue one Lark group message: "price finished" with the SELLING price per unit only
- * (the group includes Sales — no vendor, cost, clearance or GP). Sent by dispatchNotifications().
+ * Selling price lines of ONE ticket (winning offer only) — for the requesting Sales' own DM.
+ * Never contains vendor, cost, clearance or GP.
  */
-function enqueuePriceDoneGroup_(t) {
-  const items = activeItemsOf_(t.ticket_id);
-  const lines = items.map(function (it) {
+function sellPriceLines_(t) {
+  return activeItemsOf_(t.ticket_id).map(function (it) {
+    if (it.quote_status) return itemStatusLine_(it);
     const win = compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id)).filter(function (q) { return q.is_selected; })[0];
     const sp = salesPricing_(it, win);
     const spec = [it.size, it.packing_size].filter(Boolean).join(' · ');
@@ -106,13 +106,27 @@ function enqueuePriceDoneGroup_(t) {
       'ราคาขาย **' + (sp ? money2_(sp.sell_price_thb) : '-') + ' บาท/' + it.uom + '**' +
       (sp && sp.valid_until ? ' · ยืนราคาถึง ' + sp.valid_until : '');
   });
+}
+
+/**
+ * Queue one Lark group message: "price finished" — status only, NO prices at all.
+ * The group holds every Sales, and a Sales may only see the price of their own request
+ * (they get it in their own DM and in the app). Sent by dispatchNotifications().
+ */
+function enqueuePriceDoneGroup_(t) {
+  const lines = activeItemsOf_(t.ticket_id).map(function (it) {
+    if (it.quote_status) return '• ' + itemStatusLine_(it).replace(/\*\*/g, '');
+    const spec = [it.size, it.packing_size].filter(Boolean).join(' · ');
+    return '• #' + it.line_no + ' ' + it.product_name + (spec ? ' (' + spec + ')' : '');
+  });
   const req = userByEmail_(t.requestor_email);
   const sr = userByEmail_(t.sr_email);
   insertRows_(TAB.NOTIFICATIONS, [{
     notif_id: uuid_(), user_email: PRICE_GROUP_KEY_, ticket_id: t.ticket_id, type: 'price_done_group',
     title: '✅ [' + t.ticket_no + '] ทำราคาเสร็จแล้ว — ' + (t.customer_name || t.title),
     body: 'ลูกค้า: ' + (t.customer_name || '-') + ' · Sales: ' + (req ? req.full_name : t.requestor_email) +
-      ' · SR: ' + (sr ? sr.full_name : (t.sr_email || '-')) + '\n\n' + lines.join('\n'),
+      ' · SR: ' + (sr ? sr.full_name : (t.sr_email || '-')) + '\n\n' + lines.join('\n') +
+      '\n\nราคาขายส่งถึง Sales ผู้ขอทาง Lark ส่วนตัวแล้ว · ดูรายละเอียดในระบบ',
     link: ticketLink_(t, 'ticket'), is_read: false, read_at: '', created_at: new Date(),
     lark_status: 'pending', lark_attempts: 0, lark_error: '', lark_sent_at: ''
   }]);
@@ -124,4 +138,13 @@ function money2_(n) {
   if (!isFinite(v)) return '-';
   const parts = v.toFixed(2).split('.');
   return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + parts[1];
+}
+
+/** "#2 ปลาซาบะ — ไม่เสนอ (เหตุผล)" / "— ส่งราคาตามหลัง (PR-2026-0012)" */
+function itemStatusLine_(it) {
+  if (it.quote_status === 'follow_up') {
+    const fu = it.follow_up_ticket_id ? ticketById_(it.follow_up_ticket_id) : null;
+    return '**#' + it.line_no + ' ' + it.product_name + '** — ส่งราคาตามหลัง' + (fu ? ' (' + fu.ticket_no + ')' : '');
+  }
+  return '**#' + it.line_no + ' ' + it.product_name + '** — ไม่เสนอราคา' + (it.quote_status_reason ? ' (' + it.quote_status_reason + ')' : '');
 }

@@ -92,7 +92,7 @@ Pages.pricing = (function () {
   /* ---------- rendering ---------- */
   function stepper(stage) {
     const steps = [['doc_check', 'ตรวจเอกสาร'], ['sourcing', 'หาราคา / เทียบราคา'], ['pending_sr_manager', 'SR Manager ตรวจ'],
-      ['pending_gm_price', 'GM อนุมัติราคา'], ['awaiting_sales_ack', 'ส่งถึง Sales']];
+      ['pending_gm_price', 'GM อนุมัติฝั่งซื้อ'], ['awaiting_sales_ack', 'ส่งถึง Sales']];
     const idx = { doc_check: 0, need_info: 0, sourcing: 1, pending_sr_manager: 2, pending_gm_price: 3, awaiting_sales_ack: 4, closed: 5 }[stage];
     return '<ol class="steps">' + steps.map(function (s, i) {
       const cls = idx > i ? 'done' : idx === i ? 'now' : '';
@@ -203,7 +203,7 @@ Pages.pricing = (function () {
   /** Selling price breakdown per unit (values filled by refreshItem; GP input kept across refreshes). */
   function sellTable(it, mi, editable) {
     const u = 'บาท/' + esc(it.uom);
-    return '<div class="sell"><h4>ราคาขาย (ต่อหน่วย)</h4><table class="tbl costtbl"><tbody>' +
+    return '<div class="sell"><h4>ราคาขาย (ต่อหน่วย)<span class="pending-note">เลือกผู้ชนะด้านบนเพื่อคำนวณ</span></h4><table class="tbl costtbl"><tbody>' +
       '<tr><td>ต้นทุนสินค้า <span class="small muted" data-c="vendor"></span></td><td class="num" data-c="cost">–</td><td class="u">' + u + '</td></tr>' +
       '<tr><td>+ ค่าเคลียร์ของ</td><td class="num" data-c="clr">–</td><td class="u">' + u + '</td></tr>' +
       '<tr class="sub"><td>= ต้นทุนถึงคลัง</td><td class="num" data-c="landed">–</td><td class="u">' + u + '</td></tr>' +
@@ -215,20 +215,43 @@ Pages.pricing = (function () {
       '</tbody></table></div>';
   }
 
+  /** Item the SR answered without a price — compact card (no vendor grid). */
+  function statusCard(it, idx) {
+    const editable = ctx.d.permissions.can_edit_quotes;
+    const follow = it.quote_status === 'follow_up';
+    return '<section class="card item-stat ' + (follow ? 'follow' : 'no') + '" data-sitem="' + idx + '"><div class="ihead"><div><b>#' + it.line_no + ' ' + esc(it.product_name) + '</b>' +
+      ' <span class="badge">' + esc(it.product_group_name) + '</span><div class="small">' + fmtNum(it.qty) + ' ' + esc(it.uom) + '/เดือน · Size ' + esc(it.size || '–') +
+      ' · Pack ' + esc(it.packing_size || '–') + '</div></div>' +
+      (follow ? '<span class="badge tag-follow">📌 ส่งตามหลัง</span>' : '<span class="badge">✕ ไม่เสนอ</span>') + '</div>' +
+      '<div class="small" style="margin-top:8px">' + (follow ? 'แยกเป็นใบ <a href="#" data-gotk="' + esc(it.follow_up ? it.follow_up.ticket_id : '') + '"><b>' +
+        esc(it.follow_up ? it.follow_up.ticket_no : '') + '</b></a> ' + (it.follow_up ? '<span class="muted">(' + esc(it.follow_up.stage_label) + ')</span>' : '') + ' · ' : '') +
+      'เหตุผล: ' + esc(it.quote_status_reason || '–') + '</div>' +
+      (!follow && editable ? '<div class="item-tools"><button type="button" class="btn sm" data-restore="' + idx + '">↩ กลับมาเสนอราคารายการนี้</button></div>' : '') +
+      '</section>';
+  }
+
   function itemCard(it, idx) {
+    if (it.quote_status) return statusCard(it, idx);
     const mi = ctx.model.items[idx];
     const editable = ctx.d.permissions.can_edit_quotes;
     const isFood = rootOf(it.product_group_code) === 'FOOD';
     let cols = mi.quotes.map(function (q, qi) { return vendorCol(it, mi, q, qi, editable, isFood); }).join('');
-    if (!mi.quotes.length) cols = '<div class="empty small">' + (editable ? 'ยังไม่มีราคา vendor — กด “+ เพิ่ม Vendor”' : 'ยังไม่มีราคา vendor') + '</div>';
+    // fixed 3-slot grid (max 3 vendors): the next empty slot is the "add vendor" box, so columns always line up
+    if (editable && mi.quotes.length < MAX_VENDORS) {
+      cols += '<button type="button" class="vcol add-slot" data-addq><span class="plus">＋</span><b>เพิ่ม Vendor</b>' +
+        '<small>' + mi.quotes.length + ' / ' + MAX_VENDORS + ' เจ้า</small></button>';
+    }
+    if (!mi.quotes.length && !editable) cols = '<div class="empty small">ยังไม่มีราคา vendor</div>';
     return '<details class="card item" data-item="' + idx + '"' + (idx < 2 ? ' open' : '') + '>' +
       '<summary><div class="ihead"><div><b>#' + it.line_no + ' ' + esc(it.product_name) + '</b> <span class="badge">' + esc(it.product_group_name) + '</span>' +
       '<div class="small">' + fmtNum(it.qty) + ' ' + esc(it.uom) + '/เดือน · NW ' + esc(it.net_weight || '–') + ' · Size ' + esc(it.size || '–') +
       ' · Pack ' + esc(it.packing_size || '–') + (it.target_price ? ' · เป้าหมาย ' + fmtMoney(it.target_price) + ' บาท/กก.' : ' · ไม่มีราคาเป้าหมาย') + '</div></div>' +
       '<span class="istatus"></span></div></summary>' +
       (it.description ? '<p class="small muted" style="white-space:pre-wrap">' + esc(it.description) + '</p>' : '') +
+      (editable ? '<div class="item-tools"><span class="small muted">หาราคารายการนี้ไม่ได้ตอนนี้?</span>' +
+        '<button type="button" class="btn sm" data-istatus="not_offered" data-idx="' + idx + '">✕ ไม่เสนอรายการนี้</button>' +
+        '<button type="button" class="btn sm" data-istatus="follow_up" data-idx="' + idx + '">📌 ส่งตามหลัง (แยกเป็นงานค้าง)</button></div>' : '') +
       '<div class="vgrid">' + cols + '</div>' +
-      (editable ? '<button type="button" class="btn" data-addq' + (mi.quotes.length >= MAX_VENDORS ? ' disabled' : '') + '>+ เพิ่ม Vendor (' + mi.quotes.length + '/' + MAX_VENDORS + ')</button>' : '') +
       '<div class="reason" hidden><label class="field"><span>เหตุผลที่ไม่เลือกเจ้าที่ถูกที่สุด <span class="req">*</span></span>' +
       '<textarea data-reason maxlength="500" placeholder="เช่น คุณภาพดีกว่า, ลูกค้ากำหนดแบรนด์, Lead time สั้นกว่า"' + (editable ? '' : ' disabled') + '>' + esc(mi.reason) + '</textarea></label></div>' +
       sellTable(it, mi, editable) + '</details>';
@@ -280,7 +303,7 @@ Pages.pricing = (function () {
     const reason = $('.reason', card);
     reason.hidden = !calc.needReason;
     const add = $('[data-addq]', card);
-    if (add) { add.disabled = mi.quotes.length >= MAX_VENDORS; add.textContent = '+ เพิ่ม Vendor (' + mi.quotes.length + '/' + MAX_VENDORS + ')'; }
+    if (add) $('small', add).textContent = mi.quotes.length + ' / ' + MAX_VENDORS + ' เจ้า';
     const filled = mi.quotes.filter(function (q) { return !isBlank(q); }).length;
     let status;
     if (!filled) status = '<span class="sla breach">⛔ ยังไม่มีราคา</span>';
@@ -292,12 +315,13 @@ Pages.pricing = (function () {
     const put = function (k, html) { const el = $('[data-c="' + k + '"]', box); if (el) el.innerHTML = html; };
     const sp = salePrice(calc.win, mi);
     const w = calc.win && calc.win.c ? calc.win : null;
+    box.classList.toggle('pending', !w);
     put('vendor', w ? '(' + esc(w.q.vendor_name || '-') + ')' : '');
     put('cost', w ? fmtMoney(w.c.net_thb) : '–');
     put('clr', w ? fmtMoney(w.c.clearance) : '–');
     put('landed', w ? fmtMoney(w.c.landed_thb) : '–');
     put('profit', sp && !isNaN(sp.gp) ? fmtMoney(sp.profit) : '–');
-    put('sell', sp && !isNaN(sp.gp) ? '<b>' + fmtMoney(sp.sell) + '</b>' : (sp ? '<span class="sla breach">GP ไม่ถูกต้อง</span>' : '<span class="small muted">เลือกผู้ชนะก่อน</span>'));
+    put('sell', sp && !isNaN(sp.gp) ? '<b>' + fmtMoney(sp.sell) + '</b>' : (sp ? '<span class="sla breach">GP ไม่ถูกต้อง</span>' : '–'));
     put('target', it.target_price ? fmtMoney(it.target_price) : 'ไม่มี');
     let diff = '';
     if (sp && !isNaN(sp.gp) && it.target_price) {
@@ -312,6 +336,7 @@ Pages.pricing = (function () {
   /** One row per item: per-unit cost breakdown and selling price (no totals). */
   function summaryRows() {
     return ctx.d.items.map(function (it, i) {
+      if (it.quote_status) return { it: it, w: null, sp: null, ready: true, stat: it.quote_status };
       const mi = ctx.model.items[i];
       const calc = itemCalc(mi, it);
       const w = calc.win && calc.win.c ? calc.win : null;
@@ -324,6 +349,11 @@ Pages.pricing = (function () {
       '<th class="num">ค่าเคลียร์ของ</th><th class="num">ต้นทุนถึงคลัง</th><th class="num">GP</th><th class="num">กำไร</th><th class="num">ราคาขาย</th><th class="num">ราคาเป้าหมาย</th></tr></thead><tbody>' +
       rows.map(function (r) {
         const u = '/' + esc(r.it.uom);
+        if (r.stat) {
+          return '<tr class="stat-row"><td class="main">#' + r.it.line_no + ' ' + esc(r.it.product_name) + '</td><td colspan="8">' +
+            (r.stat === 'follow_up' ? '📌 ส่งราคาตามหลัง' + (r.it.follow_up ? ' — ใบ ' + esc(r.it.follow_up.ticket_no) : '') : '✕ ไม่เสนอราคา') +
+            ' <span class="muted">(' + esc(r.it.quote_status_reason || '') + ')</span></td></tr>';
+        }
         return '<tr><td class="main">#' + r.it.line_no + ' ' + esc(r.it.product_name) + '</td>' +
           '<td data-label="ผู้ขาย">' + (r.w ? esc(r.w.q.vendor_name) : '<span class="muted">ยังไม่เลือก</span>') + '</td>' +
           '<td class="num" data-label="ต้นทุนสินค้า">' + (r.w ? fmtMoney(r.w.c.net_thb) + u : '–') + '</td>' +
@@ -405,6 +435,12 @@ Pages.pricing = (function () {
 
     // vendors
     $all('.card.item', view).forEach(bindItem);
+    // per-item decision: not offered / send later (split) / back to quoting
+    $all('[data-istatus]', view).forEach(function (b) {
+      b.onclick = function () { setItemStatus(Number(b.getAttribute('data-idx')), b.getAttribute('data-istatus')); };
+    });
+    $all('[data-restore]', view).forEach(function (b) { b.onclick = function () { setItemStatus(Number(b.getAttribute('data-restore')), 'quote'); }; });
+    $all('[data-gotk]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-gotk') }); }; });
 
     if ($('#pp-save', view)) {
       $('#pp-save', view).onclick = function () { save().then(function () { toast('บันทึกร่างแล้ว', 'ok'); }).catch(function () {}); };
@@ -503,8 +539,36 @@ Pages.pricing = (function () {
     });
   }
 
+  function setItemStatus(idx, status) {
+    const it = ctx.d.items[idx];
+    const follow = status === 'follow_up';
+    const restore = status === 'quote';
+    dialog({
+      title: restore ? 'กลับมาเสนอราคารายการที่ ' + it.line_no + '?' : (follow ? 'ส่งราคาตามหลัง — รายการที่ ' + it.line_no : 'ไม่เสนอราคา — รายการที่ ' + it.line_no),
+      html: '<p class="small"><b>' + esc(it.product_name) + '</b></p>' + (follow
+        ? '<p class="small">ระบบจะ<b>แยกรายการนี้เป็นใบใหม่</b>ทันที (ลูกค้า/อนุมัติเดิม, คุณเป็น SR) และขึ้นเป็น “งานส่งตามหลังที่ยังค้าง” · ราคา vendor และรูปที่กรอกไว้ย้ายไปด้วย · ใบนี้ส่งราคาต่อได้โดยไม่ต้องรอรายการนี้ · <b>แก้กลับไม่ได้</b></p>'
+        : restore ? '<p class="small">รายการจะกลับมาให้กรอกราคา vendor ตามปกติ</p>'
+        : '<p class="small">Sales จะเห็นว่า “ไม่เสนอราคา” พร้อมเหตุผล · กลับมาเสนอได้ระหว่างหาราคา</p>'),
+      comment: restore ? 'none' : 'required',
+      commentLabel: follow ? 'เหตุผล / กำหนดส่งตามหลัง' : 'เหตุผลที่ไม่เสนอ',
+      confirmText: restore ? 'กลับมาเสนอราคา' : (follow ? 'แยกเป็นงานส่งตามหลัง' : 'ยืนยันไม่เสนอ')
+    }).then(function (res) {
+      if (!res) return;
+      const run = function () {
+        return api('getTicket', ctx.d.ticket.ticket_id).then(function (fresh) {
+          return api('setItemQuoteStatus', ctx.d.ticket.ticket_id, it.item_id, status, res.comment, fresh.ticket.version);
+        });
+      };
+      (ctx.dirty ? save().then(run) : run()).then(function (r) {
+        toast(r.follow_up ? 'แยกเป็นใบ ' + r.follow_up.ticket_no + ' แล้ว (งานค้างของคุณ)' : 'บันทึกแล้ว', 'ok', 7000);
+        refreshPoll();
+        return api('getTicket', ctx.d.ticket.ticket_id).then(function (d) { ctx.d = d; ctx.model = fromDetail(d); ctx.dirty = false; render(); });
+      }).catch(function (e) { if (e && e.error) toast(e.error, 'err', 9000); });
+    });
+  }
+
   function payload() {
-    return ctx.model.items.map(function (mi) {
+    return ctx.model.items.filter(function (mi, i) { return !ctx.d.items[i].quote_status; }).map(function (mi) {
       return {
         item_id: mi.item_id,
         winner_quote_id: mi.winner || '',
@@ -563,6 +627,7 @@ Pages.pricing = (function () {
     const out = [];
     const today = todayYmd(0);
     ctx.d.items.forEach(function (it, i) {
+      if (it.quote_status) return;
       const mi = ctx.model.items[i];
       const filled = mi.quotes.filter(function (q) { return !isBlank(q); });
       const calc = itemCalc(mi, it);
@@ -625,6 +690,8 @@ Pages.pricing = (function () {
       view.innerHTML = loadingHtml('กำลังโหลดใบเสนอราคา...');
       api('getTicket', route.id).then(function (d) {
         if (!isCurrent()) return;
+        // cost page: SR / SR Manager / GM / Admin only — everyone else goes to the ticket page (server sends them no cost anyway)
+        if (!d.permissions.can_view_quotes) { go({ page: 'ticket', id: route.id }, true); return; }
         ctx = { d: d, model: fromDetail(d), dirty: false, view: view };
         render();
       }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });

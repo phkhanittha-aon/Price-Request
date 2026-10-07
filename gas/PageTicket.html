@@ -10,13 +10,13 @@ Pages.ticket = (function () {
     manager_approve: { label: 'อนุมัติ (Sales Manager)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันอนุมัติใบ {no} ส่งต่อให้ GM?' },
     manager_return: { label: 'ส่งกลับให้แก้ไข', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ Sales แก้ไข' },
     manager_reject: { label: 'ไม่อนุมัติ', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ไม่อนุมัติ', confirm: 'ไม่อนุมัติใบ {no}? ใบจะถูกปิดและแก้ไขต่อไม่ได้' },
-    gm_approve: { label: 'อนุมัติ (GM)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันอนุมัติใบ {no} ส่งต่อให้ SR?' },
-    gm_reject: { label: 'ไม่อนุมัติ (GM)', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ไม่อนุมัติ', confirm: 'ไม่อนุมัติใบ {no}? ใบจะถูกปิด' },
+    gm_approve: { label: '✅ อนุมัติฝั่งขาย', cls: 'primary', comment: 'optional', confirm: 'อนุมัติฝั่งขาย: อนุมัติคำขอราคาใบ {no} ส่งต่อให้ SR หาราคา?' },
+    gm_reject: { label: 'ไม่อนุมัติฝั่งขาย', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ไม่อนุมัติ', confirm: 'ไม่อนุมัติคำขอราคาใบ {no}? ใบจะถูกปิด' },
     claim: { label: 'รับงานนี้', cls: 'primary', comment: 'none', confirm: 'รับงานใบ {no}? ระบบจะบันทึกคุณเป็น SR ผู้รับผิดชอบ' },
     assign: { label: 'มอบหมาย SR', cls: '', comment: 'optional', select: 'sr' },
-    srm_approve: { label: 'อนุมัติราคา (SR Manager)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันราคาใบ {no} ส่งต่อให้ GM อนุมัติ?' },
+    srm_approve: { label: 'อนุมัติราคา (SR Manager)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันราคาใบ {no} ส่งต่อให้ GM อนุมัติฝั่งซื้อ?' },
     srm_return: { label: 'ส่งกลับให้ SR แก้ราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ SR แก้ไข' },
-    gm_price_approve: { label: 'อนุมัติราคา (GM)', cls: 'primary', comment: 'optional', confirm: 'อนุมัติราคาใบ {no} และส่งถึง Sales?' },
+    gm_price_approve: { label: '✅ อนุมัติฝั่งซื้อ', cls: 'primary', comment: 'optional', confirm: 'อนุมัติฝั่งซื้อ: อนุมัติราคาซื้อและราคาขายใบ {no} แล้วส่งราคาขายถึง Sales?' },
     gm_price_return: { label: 'ส่งกลับให้ SR แก้ราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ SR แก้ไข' },
     request_info: { label: 'ขอข้อมูลเพิ่มจาก Sales', cls: '', comment: 'required', commentLabel: 'ข้อมูล/เอกสารที่ต้องการ', checklist: true },
     respond_info: { label: 'ส่งข้อมูลเพิ่มให้ SR', cls: 'primary', comment: 'required', commentLabel: 'คำตอบ / รายละเอียดที่ส่งเพิ่ม (แนบไฟล์ด้านล่างก่อนกดส่ง)' },
@@ -57,8 +57,20 @@ Pages.ticket = (function () {
     }
     if (t.stage === 'returned') html += '<div class="notice warn">Sales Manager ส่งกลับให้แก้ไข — ดูเหตุผลใน Timeline ด้านล่าง แล้วกด “แก้ไขใบขอราคา”</div>';
     if (t.stage === 'pending_sr_manager') html += '<div class="notice">SR ส่งราคาแล้ว — รอ SR Manager ตรวจราคา แล้วส่งให้ GM อนุมัติ</div>';
-    if (t.stage === 'pending_gm_price') html += '<div class="notice">SR Manager อนุมัติราคาแล้ว — รอ GM อนุมัติราคาก่อนส่งถึง Sales</div>';
-    if (t.stage === 'awaiting_sales_ack') html += '<div class="notice">SR ส่งราคาแล้ว กรุณาตรวจตารางเทียบราคา แล้วกดรับทราบ หรือขอให้ปรับราคา</div>';
+    if (d.parent) html += '<div class="notice side-follow">📌 ใบส่งราคาตามหลัง — แยกมาจาก <a href="#" data-goto="' + esc(d.parent.ticket_id) + '">' + esc(d.parent.ticket_no) + '</a></div>';
+    if (d.follow_ups && d.follow_ups.length) {
+      html += '<div class="notice side-follow">📌 มีรายการส่งราคาตามหลัง: ' + d.follow_ups.map(function (c) {
+        return '<a href="#" data-goto="' + esc(c.ticket_id) + '">' + esc(c.ticket_no) + '</a> <span class="small muted">(' + esc(c.stage_label) + ')</span>';
+      }).join(' · ') + '</div>';
+    }
+    const isGm = d.me.role === 'gm';
+    if (t.stage === 'pending_gm') {
+      html += '<div class="notice side-sales"><b>🛒 อนุมัติฝั่งขาย</b>' + (isGm ? ' — ตรวจคำขอของ Sales: ลูกค้า สินค้า ปริมาณ และราคาเป้าหมาย ก่อนส่งให้ SR หาราคา' : ' — รอ GM อนุมัติคำขอราคา') + '</div>';
+    }
+    if (t.stage === 'pending_gm_price') {
+      html += '<div class="notice side-buy"><b>📦 อนุมัติฝั่งซื้อ</b>' + (isGm ? ' — ตรวจราคาซื้อจาก vendor, ต้นทุนถึงคลัง, GP และราคาขาย (SR Manager ตรวจแล้ว) ก่อนส่งราคาขายถึง Sales' : ' — SR Manager อนุมัติแล้ว รอ GM อนุมัติราคา') + '</div>';
+    }
+    if (t.stage === 'awaiting_sales_ack') html += '<div class="notice">' + (d.me.role === 'sales' ? 'GM อนุมัติราคาแล้ว — ตรวจราคาขายด้านล่าง แล้วกดรับทราบ หรือขอให้ปรับราคา' : 'ส่งราคาขายถึง Sales แล้ว — รอ Sales รับทราบ') + '</div>';
     return html;
   }
 
@@ -90,7 +102,9 @@ Pages.ticket = (function () {
         picturesHtml(d, it) +
         (it.spec ? '<div class="small">Spec: ' + esc(it.spec) + '</div>' : '') +
         (it.description ? '<div class="small muted" style="white-space:pre-wrap">' + esc(it.description) + '</div>' : '');
-      if (showQ && it.quotations.length) {
+      if (it.quote_status) {
+        html += itemStatusHtml(it);
+      } else if (showQ && it.quotations.length) {
         html += '<div class="tbl-wrap" style="margin-top:8px"><table class="tbl stack"><thead><tr><th>Vendor</th><th class="num">ราคา/หน่วย</th>' +
           '<th>VAT</th><th class="num">ต้นทุนสินค้า/หน่วย (฿)</th><th class="num">ค่าเคลียร์ของ/หน่วย (฿)</th><th class="num">ต้นทุนถึงคลัง/หน่วย (฿)</th><th>เงื่อนไข</th></tr></thead><tbody>' +
           it.quotations.slice().sort(function (a, b) { return a.cost_rank - b.cost_rank; }).map(function (q) {
@@ -130,6 +144,16 @@ Pages.ticket = (function () {
       '<tr class="total"><td>= ราคาขาย</td><td class="num">' + fmtMoney(p.sell_price_thb) + '</td><td class="u">' + u + '</td></tr>' +
       '<tr class="ref"><td>ราคาเป้าหมายลูกค้า</td><td class="num">' + (p.target_price ? fmtMoney(p.target_price) : 'ไม่มี') + '</td><td class="u">' + diff + '</td></tr>' +
       '</tbody></table></div>';
+  }
+
+  /** Item the SR answered without a price: not offered (reason) or sent later as its own ticket. */
+  function itemStatusHtml(it) {
+    if (it.quote_status === 'follow_up') {
+      return '<div class="istat follow"><b>📌 ส่งราคาตามหลัง</b>' + (it.follow_up ? ' — แยกเป็นใบ <a href="#" data-goto="' + esc(it.follow_up.ticket_id) + '">' +
+        esc(it.follow_up.ticket_no) + '</a> <span class="small muted">(' + esc(it.follow_up.stage_label) + ')</span>' : '') +
+        (it.quote_status_reason ? '<div class="small">เหตุผล: ' + esc(it.quote_status_reason) + '</div>' : '') + '</div>';
+    }
+    return '<div class="istat no"><b>✕ ไม่เสนอราคา</b>' + (it.quote_status_reason ? '<div class="small">เหตุผล: ' + esc(it.quote_status_reason) + '</div>' : '') + '</div>';
   }
 
   /** Sales side: selling price per unit + offer terms only (the server sends no cost / vendor / GP). */
@@ -284,6 +308,7 @@ Pages.ticket = (function () {
     const t = d.ticket;
     $all('[data-action]', view).forEach(function (b) { b.onclick = function () { runAction(view, d, b.getAttribute('data-action')); }; });
     $all('[data-nav]', view).forEach(function (b) { b.onclick = function () { go({ page: b.getAttribute('data-nav'), id: t.ticket_id }); }; });
+    $all('[data-goto]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-goto') }); }; });
     $all('[data-open]', view).forEach(function (a) {
       a.onclick = function (e) {
         e.preventDefault();

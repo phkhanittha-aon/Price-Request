@@ -89,6 +89,14 @@ Pages.dashboard = (function () {
         (r.sr_name ? ' · SR ' + esc(r.sr_name) : '') + '</div></div><span class="small muted">' + esc(fmtDateTime(r.updated_at)) + '</span></a></li>';
     }).join('') + '</ul></div></div>';
 
+    if (d.follow_ups && d.follow_ups.length) {
+      html += '<div class="card follow-card"><h3>📌 รายการส่งตามหลังที่ยังค้าง <span class="badge tag-follow">' + d.follow_ups.length + '</span></h3><ul class="recent">' +
+        d.follow_ups.map(function (r) {
+          return '<li><a href="#" data-ticket="' + esc(r.ticket_id) + '"><div><b>' + esc(r.ticket_no) + '</b> <span class="small muted">จาก ' + esc(r.parent_ticket_no) + '</span>' +
+            '<div class="small">' + esc(r.item_names) + ' · ' + esc(r.customer_name) + '</div><div class="small muted">' + esc(r.stage_label) + ' · ' + esc(r.requestor_name) +
+            (r.sr_name ? ' · SR ' + esc(r.sr_name) : '') + '</div></div><span class="small muted">ค้าง ' + r.age_days + ' วัน</span></a></li>';
+        }).join('') + '</ul></div>';
+    }
     html += peopleTable(d.can_see_everyone ? 'แยกตาม Sales (ทุกคน)' : 'ของฉัน', d.by_sales, 'requestor', false);
     if (d.by_sr.length && state.me.role !== 'sales') html += peopleTable(d.can_see_everyone ? 'แยกตาม SR ผู้หาราคา' : 'งาน SR ของฉัน', d.by_sr, 'sr', true);
 

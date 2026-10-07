@@ -195,7 +195,7 @@ function dialog(opts) {
 })();
 
 /* ===== 5. Router (google.script.history keeps the browser back button working) ===== */
-const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome'];
+const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome', 'follow'];
 function cleanRoute(p) {
   const r = {};
   ROUTE_KEYS.forEach(function (k) { if (p && p[k]) r[k] = String(p[k]); });
@@ -223,7 +223,7 @@ function render(route) {
     console.error(e);
   }
 }
-function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || ''); }
+function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || '') + (r.follow || ''); }
 const PAGE_TITLE = { ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
 function renderNav() {
   initShell();
@@ -233,11 +233,12 @@ function renderNav() {
   $('#nav').innerHTML = state.menu.map(function (m, i) {
     const active = routeKey(cleanRoute(m.route)) === routeKey(cur) && !cur.id;
     if (active) activeItem = m;
-    const count = m.badge === 'inbox' && state.poll.inbox ? '<span class="count">' + state.poll.inbox + '</span>' : '';
+    const n = m.badge ? Number(state.poll[m.badge] || 0) : 0;
+    const count = n ? '<span class="count">' + n + '</span>' : '';
     const head = m.group && m.group !== group ? '<div class="grp">' + esc(m.group) + '</div>' : '';
     group = m.group || group;
     return head + '<button type="button" data-i="' + i + '" title="' + esc(m.label) + '" class="' + (active ? 'active ' : '') + (m.primary ? 'primary' : '') + '"' +
-      (active ? ' aria-current="page"' : '') + '><span class="ico" aria-hidden="true">' + esc(m.icon || '•') + '</span><span class="lbl">' + esc(m.label) + '</span>' + count + '</button>';
+      (active ? ' aria-current="page"' : '') + '><span class="ico" aria-hidden="true">' + esc(m.icon || '•') + '</span><span class="lbl">' + esc(m.label) + (m.hint ? '<small>' + esc(m.hint) + '</small>' : '') + '</span>' + count + '</button>';
   }).join('');
   $all('#nav button').forEach(function (b) {
     b.onclick = function () { setSide(false); go(state.menu[Number(b.getAttribute('data-i'))].route); };
