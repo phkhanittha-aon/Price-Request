@@ -249,6 +249,12 @@
     .pics { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
     .pics:empty { display: none; }
     .pic { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border-radius: 999px; background: #fff; border: 1px solid var(--line); font-size: .85rem; }
+    .doc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .doc-chip { min-height: 34px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; cursor: pointer; font: inherit; font-size: .85rem; }
+    .doc-chip.on { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-dark); font-weight: 600; }
+    .due-quick { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+    .due-quick .btn { min-height: 30px; padding: 2px 8px; font-size: .8rem; }
+    .no-target { margin-top: 6px; font-size: .85rem; }
     .form-actions { position: sticky; bottom: 0; z-index: 10; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 -16px; padding: 12px 16px;
       background: rgba(255,255,255,.96); border-top: 1px solid var(--line); box-shadow: 0 -4px 12px rgba(16,38,46,.06); }
     .form-actions .sep { flex: 1; } .form-actions .err-text { margin: 0; }

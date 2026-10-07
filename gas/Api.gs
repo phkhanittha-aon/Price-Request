@@ -428,3 +428,40 @@ function boardCachePut_(key, obj) {
     console.warn('board cache put failed', e);
   }
 }
+
+/**
+ * Sales form helpers — ONLY the signed-in Sales' own requests: their customers (newest first, with the
+ * documents asked last time) and their products (with the specs used last time). Never other Sales' data.
+ */
+function getSalesHistory() {
+  return api_('getSalesHistory', function () {
+    const u = currentUser_();
+    if (u.role !== 'sales') return { customers: [], products: [] };
+    const mine = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return t.requestor_email === u.email; })
+      .sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+    const customers = [];
+    const seenC = {};
+    mine.forEach(function (t) {
+      const name = String(t.customer_name || '').trim();
+      const k = name.toLowerCase();
+      if (!name || seenC[k]) return;
+      seenC[k] = true;
+      customers.push({ name: name, documents_needed: String(t.documents_needed || ''), last_at: fmtDate_(t.created_at) });
+    });
+    const ids = {};
+    mine.forEach(function (t, i) { ids[t.ticket_id] = i; });
+    const products = [];
+    const seenP = {};
+    rows_(TAB.ITEMS).filter(function (r) { return !toBool_(r.is_deleted) && ids[String(r.ticket_id)] !== undefined; })
+      .sort(function (a, b) { return ids[String(a.ticket_id)] - ids[String(b.ticket_id)]; })
+      .forEach(function (r) {
+        const name = String(r.product_name || '').trim();
+        const k = name.toLowerCase();
+        if (!name || seenP[k]) return;
+        seenP[k] = true;
+        products.push({ name: name, product_group_code: String(r.product_group_code || ''), net_weight: String(r.net_weight || ''),
+          size: String(r.size || ''), packing_size: String(r.packing_size || ''), uom: String(r.uom || '') });
+      });
+    return { customers: customers.slice(0, 100), products: products.slice(0, 200) };
+  });
+}

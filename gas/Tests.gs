@@ -1105,6 +1105,15 @@ function runBoardCases_(results) {
     const fresh = as(U.gm, function () { return must(listTicketBoard()); });
     ok(fresh.cached === false && fresh.rows.filter(function (r) { return r.ticket_id === t.ticket_id; })[0].stage === 'pending_assign',
       'After a change the board is rebuilt (no stale stage)');
+    const h1 = as(U.salesFood1, function () { return must(getSalesHistory()); });
+    const own = rows_(TAB.TICKETS).map(normTicket_).filter(function (x) { return x.requestor_email === U.salesFood1; });
+    const others = rows_(TAB.TICKETS).map(normTicket_).filter(function (x) { return x.requestor_email !== U.salesFood1; })
+      .map(function (x) { return String(x.customer_name).toLowerCase(); });
+    ok(h1.customers.length > 0 && h1.customers.every(function (c) { return own.some(function (x) { return x.customer_name === c.name; }); }) &&
+      !h1.customers.some(function (c) { return others.indexOf(c.name.toLowerCase()) !== -1 && !own.some(function (x) { return x.customer_name === c.name; }); }),
+      'Sales history: own customers only (with last documents)');
+    ok(h1.products.length > 0 && h1.products[0].net_weight !== undefined, 'Sales history: own products with last specs');
+    ok(as(U.gm, function () { return must(getSalesHistory()); }).customers.length === 0, 'Sales history is empty for non-Sales');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: BOARD — ' + e.message + '\n' + e.stack);
   }

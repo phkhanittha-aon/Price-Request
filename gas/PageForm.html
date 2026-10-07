@@ -11,8 +11,32 @@ Pages.new = Pages.edit = (function () {
     return { item_id: uuid(), product_group_code: '', product_name: '', net_weight: '', size: '', packing_size: '', qty: '', uom: 'กก.',
       target_price: '', pictures: [] };
   }
+  /** Today + n working days (Mon–Fri), Bangkok date. */
+  function workingDaysFromToday(n) {
+    let d = new Date(todayYmd(0) + 'T00:00:00Z');
+    let left = n;
+    while (left > 0) {
+      d = new Date(d.getTime() + 86400000);
+      const wd = d.getUTCDay();
+      if (wd !== 0 && wd !== 6) left--;
+    }
+    return d.toISOString().slice(0, 10);
+  }
   function newDraft() {
-    return { client_key: uuid(), customer_name: '', documents_needed: '', due_date: '', description: '', items: [blankItem()] };
+    return { client_key: uuid(), customer_name: '', documents_needed: '', due_date: workingDaysFromToday(state.ref.default_due_working_days || 3),
+      description: '', items: [blankItem()], _dueDefault: true };
+  }
+  function historyLists() {
+    const h = state.salesHistory || { customers: [], products: [] };
+    return '<datalist id="cust-list">' + h.customers.map(function (c) { return '<option value="' + esc(c.name) + '">'; }).join('') + '</datalist>' +
+      '<datalist id="prod-list">' + h.products.map(function (p) { return '<option value="' + esc(p.name) + '">'; }).join('') + '</datalist>';
+  }
+  function docChips(d) {
+    const cur = String(d.documents_needed || '').split(/\s*,\s*/).map(function (x) { return x.toLowerCase(); });
+    return '<div class="doc-chips">' + (state.ref.document_options || []).map(function (o) {
+      const on = cur.indexOf(o.toLowerCase()) !== -1;
+      return '<button type="button" class="doc-chip' + (on ? ' on' : '') + '" data-doc="' + esc(o) + '" aria-pressed="' + on + '">' + (on ? '✓ ' : '+ ') + esc(o) + '</button>';
+    }).join('') + '</div>';
   }
 
   function subGroupOptions(selected) {
@@ -34,15 +58,17 @@ Pages.new = Pages.edit = (function () {
     return '<div class="item-row" data-i="' + i + '"><div class="head"><span class="no">' + (i + 1) + '</span><span>สินค้ารายการที่ ' + (i + 1) + '</span><span class="sep"></span>' +
       (count > 1 ? '<button type="button" class="btn sm danger" data-remove="' + i + '">ลบสินค้านี้</button>' : '') + '</div>' +
       '<div class="fgrid">' +
-      field('ชื่อสินค้า', 'Product', '<input type="text" data-k="product_name" maxlength="300" placeholder="เช่น กุ้งขาว Vannamei HLSO" value="' + esc(it.product_name) + '">', { req: true, span: 2 }) +
+      field('ชื่อสินค้า', 'Product', '<input type="text" data-k="product_name" list="prod-list" maxlength="300" placeholder="เช่น กุ้งขาว Vannamei HLSO — หรือเลือกสินค้าที่เคยขอ" value="' + esc(it.product_name) + '">', { req: true, span: 2, hint: 'เลือกสินค้าที่เคยขอ ระบบเติม NW / Size / Packing ให้ (แก้ได้)' }) +
       field('ประเภทสินค้า', 'Category', '<select data-k="product_group_code">' + subGroupOptions(it.product_group_code) + '</select>', { hint: 'ไม่บังคับ — ใช้เลือกรายการตรวจเอกสาร' }) +
       field('น้ำหนักสุทธิ', '% Net Weight', '<input type="text" data-k="net_weight" maxlength="100" placeholder="เช่น 80% หรือ NW 90%" value="' + esc(it.net_weight) + '">', { req: true, hint: 'ไม่รวมน้ำแข็ง' }) +
       field('ขนาด', 'Size', '<input type="text" data-k="size" maxlength="100" placeholder="เช่น 31/40 หรือ 1.0–1.5 kg/pc" value="' + esc(it.size) + '">', { req: true }) +
       field('แพคย่อย', 'Packing Size', '<input type="text" data-k="packing_size" maxlength="100" placeholder="เช่น 1 Kg/Pack หรือ 500 g" value="' + esc(it.packing_size) + '">', { req: true }) +
       field('ปริมาณต่อเดือน', 'Qty / month', '<input type="number" inputmode="decimal" min="0" step="any" data-k="qty" placeholder="0" value="' + esc(it.qty) + '">', { req: true }) +
       field('หน่วย', 'Unit', '<select data-k="uom"><option value="">— เลือก —</option>' + units + '</select>', { req: true }) +
-      field('ราคาเป้าหมาย (บาท/กก.)', 'Target Price', '<input type="number" inputmode="decimal" min="0" step="any" data-k="target_price" placeholder="0" value="' + esc(it.target_price) + '">',
-        { req: true, hint: 'ราคาที่ลูกค้าปิดซื้อได้ · ไม่มีให้ใส่ 0' }) +
+      field('ราคาเป้าหมาย (บาท/กก.)', 'Target Price', '<input type="number" inputmode="decimal" min="0" step="any" data-k="target_price" placeholder="0.00" value="' +
+        esc(it.no_target ? '' : it.target_price) + '"' + (it.no_target ? ' disabled' : '') + '>' +
+        '<label class="chk-inline no-target"><input type="checkbox" data-notarget="' + i + '"' + (it.no_target ? ' checked' : '') + '> ไม่มีราคาเป้าหมาย</label>',
+        { req: true, hint: 'ราคาที่ลูกค้าปิดซื้อได้' }) +
       '<div class="field span-3"><span>รูปภาพสินค้า <em>Picture</em></span><div class="drop" data-drop="' + i + '">' +
       '<label class="btn sm"><input type="file" data-pic="' + i + '" multiple hidden accept="image/*,.pdf">＋ เลือกรูป / ไฟล์</label>' +
       '<span class="small muted">หรือลากไฟล์มาวางที่นี่ · รูปหรือ PDF ไม่เกิน ' + state.ref.max_upload_mb + ' MB</span>' +
@@ -69,15 +95,16 @@ Pages.new = Pages.edit = (function () {
       (mode === 'edit' && ticket.stage === 'returned' ? '<div class="notice warn">Sales Manager ส่งกลับให้แก้ไข — แก้แล้วกด “บันทึกและส่งอีกครั้ง”</div>' : '') +
       '<form id="pr-form" novalidate>' +
       '<section class="card fsec"><h2><span class="sn">1</span>ข้อมูลลูกค้า</h2><div class="fgrid">' +
-      field('ชื่อลูกค้า', 'Customer', '<input type="text" id="f-customer" maxlength="200" placeholder="ชื่อร้าน / บริษัทลูกค้า" value="' + esc(d.customer_name) + '">', { req: true }) +
-      field('วันที่ต้องการให้ตอบกลับราคา', 'Expected Date', '<input type="date" id="f-due" min="' + todayYmd(0) + '" value="' + esc(d.due_date) + '">', { req: true }) +
+      field('ชื่อลูกค้า', 'Customer', '<input type="text" id="f-customer" list="cust-list" maxlength="200" placeholder="พิมพ์หรือเลือกลูกค้าที่เคยขอ" value="' + esc(d.customer_name) + '">', { req: true }) +
+      field('วันที่ต้องการให้ตอบกลับราคา', 'Expected Date', '<input type="date" id="f-due" min="' + todayYmd(0) + '" value="' + esc(d.due_date) + '"' + (d._dueDefault ? ' class="auto"' : '') + '>' +
+        '<div class="due-quick"><button type="button" class="btn sm ghost" data-due="3">+3 วันทำการ</button><button type="button" class="btn sm ghost" data-due="5">+5 วันทำการ</button><button type="button" class="btn sm ghost" data-due="10">+2 สัปดาห์</button></div>', { req: true }) +
       field('ผู้ร้องขอ', 'Requester', '<input type="text" id="f-requester" disabled value="' + esc(state.me.full_name) + '">', { hint: 'ใช้บัญชีที่เข้าสู่ระบบ' }) +
       '</div></section>' +
       '<section class="card fsec"><h2><span class="sn">2</span>รายการสินค้า</h2>' +
       '<div id="items">' + d.items.map(function (it, i) { return itemHtml(it, i, d.items.length); }).join('') + '</div>' +
       '<button type="button" class="btn" id="add-item">＋ เพิ่มสินค้าอีกรายการ</button></section>' +
       '<section class="card fsec"><h2><span class="sn">3</span>เอกสารและหมายเหตุ</h2><div class="fgrid two">' +
-      field('เอกสารที่ต้องการประกอบ', 'Documents Needed', '<textarea id="f-docs" maxlength="2000" rows="3" placeholder="เช่น COA, Health Certificate, Halal">' + esc(d.documents_needed) + '</textarea>',
+      field('เอกสารที่ต้องการประกอบ', 'Documents Needed', docChips(d) + '<textarea id="f-docs" maxlength="2000" rows="2" placeholder="กดเลือกด้านบน หรือพิมพ์เพิ่ม คั่นด้วย ,">' + esc(d.documents_needed) + '</textarea>',
         { hint: 'ไม่ระบุ = ไม่ต้องการเอกสารประกอบ' }) +
       field('หมายเหตุ', 'Remark', '<textarea id="f-remark" maxlength="2000" rows="3" placeholder="ข้อมูลที่ต้องการแจ้งเพิ่มเติม">' + esc(d.description) + '</textarea>') +
       '</div></section>' +
@@ -86,7 +113,7 @@ Pages.new = Pages.edit = (function () {
       (mode === 'edit' ? '<button type="button" class="btn" id="save-btn">บันทึก</button>' +
         (ticket.stage === 'returned' ? '<button type="button" class="btn primary" id="save-resubmit">บันทึกและส่งอีกครั้ง</button>' : '')
         : '<button type="button" class="btn primary submit" id="save-btn">ส่งใบขอราคา</button>') +
-      '</div><div id="upload-progress" style="margin-top:12px"></div></form></div>';
+      '</div><div id="upload-progress" style="margin-top:12px"></div></form>' + historyLists() + '</div>';
   }
 
   function collect(view, d) {
@@ -97,6 +124,9 @@ Pages.new = Pages.edit = (function () {
     $all('.item-row', view).forEach(function (row) {
       const it = d.items[Number(row.getAttribute('data-i'))];
       $all('[data-k]', row).forEach(function (el) { it[el.getAttribute('data-k')] = el.value; });
+      const nt = $('[data-notarget]', row);
+      it.no_target = !!(nt && nt.checked);
+      if (it.no_target) it.target_price = '0';
     });
   }
 
@@ -123,8 +153,8 @@ Pages.new = Pages.edit = (function () {
       if (!get('packing_size').value.trim()) mark(get('packing_size'), 'กรอกขนาดแพคย่อย');
       if (!get('qty').value || !(Number(get('qty').value) > 0)) mark(get('qty'), 'ปริมาณต้องมากกว่า 0');
       if (!get('uom').value) mark(get('uom'), 'เลือกหน่วย');
-      const tp = get('target_price').value;
-      if (tp === '') mark(get('target_price'), 'กรอกราคาเป้าหมาย (ถ้าไม่มีให้ใส่ 0)');
+      const tp = $('[data-notarget]', row) && $('[data-notarget]', row).checked ? '0' : get('target_price').value;
+      if (tp === '') mark(get('target_price'), 'กรอกราคาเป้าหมาย หรือติ๊ก “ไม่มีราคาเป้าหมาย”');
       else if (Number(tp) < 0) mark(get('target_price'), 'ต้องไม่ติดลบ');
     });
     $('#form-err', view).textContent = errors ? 'ยังกรอกไม่ครบ ' + errors + ' ช่อง (ไฮไลต์สีแดง)' : '';
@@ -231,7 +261,27 @@ Pages.new = Pages.edit = (function () {
     });
   }
 
+  function refreshDocChips(view, d) {
+    const cur = String(d.documents_needed || '').split(/\s*,\s*/).map(function (x) { return x.toLowerCase(); });
+    $all('[data-doc]', view).forEach(function (b) {
+      const on = cur.indexOf(b.getAttribute('data-doc').toLowerCase()) !== -1;
+      b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
+      b.textContent = (on ? '✓ ' : '+ ') + b.getAttribute('data-doc');
+    });
+  }
+  function loadHistory(view, d, mode, original) {
+    if (state.salesHistory || state.me.role !== 'sales') return;
+    api('getSalesHistory').then(function (h) {
+      state.salesHistory = h;
+      const host = $('.form-wrap', view);
+      if (!host) return;
+      $all('#cust-list, #prod-list', view).forEach(function (x) { x.remove(); });
+      host.insertAdjacentHTML('beforeend', historyLists());
+    }).catch(function () { /* suggestions are optional */ });
+  }
+
   function mount(view, d, mode, original) {
+    loadHistory(view, d, mode, original);
     view.innerHTML = formHtml(d, mode, original && original.ticket);
     const rerender = function () { collect(view, d); mount(view, d, mode, original); };
     $('#add-item', view).onclick = function () {
@@ -266,7 +316,63 @@ Pages.new = Pages.edit = (function () {
         rerender();
       };
     });
-    $('#pr-form', view).addEventListener('input', function () { collect(view, d); });
+    $('#pr-form', view).addEventListener('input', function (e) {
+      collect(view, d);
+      const el = e.target;
+      if (el.id === 'f-due') { d._dueDefault = false; el.classList.remove('auto'); }
+      if (el.id === 'f-docs') refreshDocChips(view, d);
+    });
+    // customer picked from history → documents asked last time (only when still empty)
+    $('#f-customer', view).addEventListener('change', function () {
+      const c = ((state.salesHistory || {}).customers || []).filter(function (x) { return x.name.toLowerCase() === this.value.trim().toLowerCase(); }, this)[0];
+      if (c && c.documents_needed && !$('#f-docs', view).value.trim()) {
+        $('#f-docs', view).value = c.documents_needed;
+        $('#f-docs', view).classList.add('auto');
+        collect(view, d); refreshDocChips(view, d);
+        toast('เติมเอกสารที่ลูกค้านี้ขอครั้งล่าสุดให้แล้ว (แก้ได้)', 'ok');
+      }
+    });
+    // product picked from history → specs used last time (fills empty boxes only)
+    $all('[data-k="product_name"]', view).forEach(function (inpEl) {
+      inpEl.addEventListener('change', function () {
+        const p = ((state.salesHistory || {}).products || []).filter(function (x) { return x.name.toLowerCase() === inpEl.value.trim().toLowerCase(); })[0];
+        if (!p || inpEl.dataset.filledFor === p.name) return;
+        inpEl.dataset.filledFor = p.name;
+        const row = inpEl.closest('.item-row');
+        let filled = 0;
+        ['product_group_code', 'net_weight', 'size', 'packing_size', 'uom'].forEach(function (k) {
+          const el = $('[data-k="' + k + '"]', row);
+          if (!el || !p[k] || (el.value && !(k === 'uom' && el.value === 'กก.'))) return;
+          if (k === 'product_group_code' && p[k] === 'FOOD') return;
+          el.value = p[k]; el.classList.add('auto'); filled++;
+        });
+        collect(view, d);
+        if (filled) toast('เติมสเปกจากครั้งก่อนให้ ' + filled + ' ช่อง (แก้ได้)', 'ok');
+      });
+    });
+    $all('[data-notarget]', view).forEach(function (cb) {
+      cb.onchange = function () {
+        const row = cb.closest('.item-row');
+        const tp = $('[data-k="target_price"]', row);
+        tp.disabled = cb.checked;
+        if (cb.checked) tp.value = '';
+        collect(view, d);
+      };
+    });
+    $all('[data-due]', view).forEach(function (b) {
+      b.onclick = function () { $('#f-due', view).value = workingDaysFromToday(Number(b.getAttribute('data-due'))); d._dueDefault = false; $('#f-due', view).classList.remove('auto'); collect(view, d); };
+    });
+    $all('[data-doc]', view).forEach(function (b) {
+      b.onclick = function () {
+        const name = b.getAttribute('data-doc');
+        const ta = $('#f-docs', view);
+        const parts = ta.value.split(/\s*,\s*/).filter(String);
+        const at = parts.map(function (x) { return x.toLowerCase(); }).indexOf(name.toLowerCase());
+        if (at === -1) parts.push(name); else parts.splice(at, 1);
+        ta.value = parts.join(', ');
+        collect(view, d); refreshDocChips(view, d);
+      };
+    });
     $('#cancel-btn', view).onclick = function () {
       if (mode === 'edit') go({ page: 'ticket', id: original.ticket.ticket_id });
       else { delete state.drafts['new']; go({ page: 'tickets', scope: 'mine' }); }
@@ -282,6 +388,27 @@ Pages.new = Pages.edit = (function () {
     render: function (view, route, isCurrent) {
       if (route.page === 'new') {
         if (state.me.role !== 'sales') { view.innerHTML = errorHtml({ error: 'เฉพาะ Sales เท่านั้นที่สร้างใบขอราคาได้' }); return; }
+        if (route.copy) {
+          // "สร้างใบใหม่จากใบนี้": customer + documents + remark + products (no pictures, new dates)
+          view.innerHTML = loadingHtml('กำลังคัดลอกจากใบเดิม...');
+          api('getTicket', route.copy).then(function (o) {
+            if (!isCurrent()) return;
+            const d = newDraft();
+            d.customer_name = o.ticket.customer_name || '';
+            d.documents_needed = o.ticket.documents_needed || '';
+            d.description = '';
+            d.items = o.items.map(function (it) {
+              return Object.assign(blankItem(), { product_group_code: it.product_group_code === 'FOOD' ? '' : it.product_group_code, product_name: it.product_name,
+                net_weight: it.net_weight, size: it.size, packing_size: it.packing_size, qty: it.qty, uom: it.uom,
+                target_price: it.target_price == null ? '' : it.target_price });
+            });
+            state.drafts['new'] = d;
+            google.script.history.replace({ page: 'new' }, { page: 'new' });
+            mount(view, d, 'new', null);
+            toast('คัดลอกจาก ' + o.ticket.ticket_no + ' แล้ว — ตรวจปริมาณและราคาเป้าหมายก่อนส่ง', 'ok', 7000);
+          }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+          return;
+        }
         const d = state.drafts['new'] = state.drafts['new'] || newDraft();
         mount(view, d, 'new', null);
         return;

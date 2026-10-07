@@ -79,6 +79,7 @@ Pages.ticket = (function () {
     const p = d.permissions;
     const buttons = [];
     if (p.can_edit_request) buttons.push('<button class="btn" data-nav="edit">✏️ แก้ไขใบขอราคา</button>');
+    if (d.me.role === 'sales' && t.requestor_email === d.me.email) buttons.push('<button class="btn" data-copy>📄 สร้างใบใหม่จากใบนี้</button>');
     const srWork = p.actions.indexOf('doc_complete') !== -1 || p.actions.indexOf('submit_quote') !== -1;
     if (srWork) buttons.push('<button class="btn primary" data-nav="pricing">' + (t.stage === 'doc_check' ? '📋 ตรวจเอกสาร' : '💰 กรอกราคา / เทียบราคา') + '</button>');
     p.actions.forEach(function (a) {
@@ -309,6 +310,7 @@ Pages.ticket = (function () {
     const t = d.ticket;
     $all('[data-action]', view).forEach(function (b) { b.onclick = function () { runAction(view, d, b.getAttribute('data-action')); }; });
     $all('[data-nav]', view).forEach(function (b) { b.onclick = function () { go({ page: b.getAttribute('data-nav'), id: t.ticket_id }); }; });
+    $all('[data-copy]', view).forEach(function (b) { b.onclick = function () { go({ page: 'new', copy: t.ticket_id }); }; });
     $all('[data-goto]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-goto') }); }; });
     $all('[data-open]', view).forEach(function (a) {
       a.onclick = function (e) {

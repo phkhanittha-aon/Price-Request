@@ -195,7 +195,7 @@ function dialog(opts) {
 })();
 
 /* ===== 5. Router (google.script.history keeps the browser back button working) ===== */
-const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome', 'follow', 'q', 'sort', 'group', 'prio', 'from', 'to'];
+const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome', 'follow', 'q', 'sort', 'group', 'prio', 'from', 'to', 'copy'];
 function cleanRoute(p) {
   const r = {};
   ROUTE_KEYS.forEach(function (k) { if (p && p[k]) r[k] = String(p[k]); });
