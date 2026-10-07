@@ -92,25 +92,42 @@ Pages.ticket = (function () {
         (it.description ? '<div class="small muted" style="white-space:pre-wrap">' + esc(it.description) + '</div>' : '');
       if (showQ && it.quotations.length) {
         html += '<div class="tbl-wrap" style="margin-top:8px"><table class="tbl stack"><thead><tr><th>Vendor</th><th class="num">ราคา/หน่วย</th>' +
-          '<th>VAT</th><th class="num">ต้นทุนสุทธิ/หน่วย (฿)</th><th class="num">รวมสุทธิ (฿)</th><th class="num">รวมจ่ายจริง (฿)</th><th>เงื่อนไข</th></tr></thead><tbody>' +
+          '<th>VAT</th><th class="num">ต้นทุนสินค้า/หน่วย (฿)</th><th class="num">ค่าเคลียร์ของ/หน่วย (฿)</th><th class="num">ต้นทุนถึงคลัง/หน่วย (฿)</th><th>เงื่อนไข</th></tr></thead><tbody>' +
           it.quotations.slice().sort(function (a, b) { return a.cost_rank - b.cost_rank; }).map(function (q) {
             return '<tr' + (q.is_selected ? ' style="background:#F1F8FB"' : '') + '><td class="main">' + esc(q.vendor_name) + ' ' +
               (q.is_selected ? '<span class="badge tag-win">✔ ผู้ชนะ</span> ' : '') + (q.is_cheapest ? '<span class="badge tag-cheap">ถูกที่สุด</span>' : '') +
               (q.is_selected && q.selection_reason ? '<div class="small muted">เหตุผล: ' + esc(q.selection_reason) + '</div>' : '') + '</td>' +
               '<td class="num" data-label="ราคา/หน่วย">' + fmtNum(q.unit_price) + ' ' + esc(q.currency) + (q.currency !== 'THB' ? '<div class="small muted">@' + fmtNum(q.fx_rate) + '</div>' : '') + '</td>' +
               '<td data-label="VAT">' + esc(vatLabel(q.vat_term)) + '</td>' +
-              '<td class="num" data-label="ต้นทุนสุทธิ/หน่วย">' + fmtMoney(q.net_unit_cost_thb) + '</td>' +
-              '<td class="num" data-label="รวมสุทธิ"><b>' + fmtMoney(q.total_cost_thb) + '</b></td>' +
-              '<td class="num" data-label="รวมจ่ายจริง">' + fmtMoney(q.total_gross_thb) + '</td>' +
+              '<td class="num" data-label="ต้นทุนสินค้า/หน่วย">' + fmtMoney(q.net_unit_cost_thb) + '</td>' +
+              '<td class="num" data-label="ค่าเคลียร์ของ/หน่วย">' + fmtMoney(q.clearance_thb || 0) + '</td>' +
+              '<td class="num" data-label="ต้นทุนถึงคลัง/หน่วย"><b>' + fmtMoney(q.landed_unit_cost_thb) + '</b></td>' +
               '<td data-label="เงื่อนไข" class="small">' + [q.brand, q.origin_country ? 'Origin ' + q.origin_country : '', incoLabel(q.incoterm), q.packing,
                 q.shelf_life ? 'อายุ ' + q.shelf_life : '', q.moq != null ? 'MOQ ' + fmtNum(q.moq) : '', q.lead_time_days != null ? 'Lead ' + q.lead_time_days + ' วัน' : '',
                 q.payment_term, q.valid_until ? 'ยืนราคาถึง ' + fmtDate(q.valid_until) : ''].filter(Boolean).map(esc).join(' · ') + '</td></tr>';
-          }).join('') + '</tbody></table></div>';
+          }).join('') + '</tbody></table></div>' + sellHtml(it);
       } else if (!showQ && ['on_process'].indexOf(d.ticket.status) !== -1) {
         html += '<div class="small muted" style="margin-top:6px">ราคาจะแสดงเมื่อ SR ส่งราคาแล้ว</div>';
       }
       return html + '</div>';
     }).join('') + '</div>';
+  }
+
+  /** Selling price per unit (server-computed in it.pricing): product cost + clearance = landed; + GP = selling price. */
+  function sellHtml(it) {
+    const p = it.pricing;
+    if (!p || p.sell_price_thb == null) return '';
+    const u = 'บาท/' + esc(it.uom);
+    const diff = p.target_diff_pct == null ? u : (p.target_diff_pct > 0 ? '<span class="sla breach">▲ สูงกว่าเป้า ' + fmtNum(p.target_diff_pct) + '%</span>' :
+      '<span class="sla ok">✓ ' + (p.target_diff_pct < 0 ? 'ต่ำกว่าเป้า ' + fmtNum(-p.target_diff_pct) + '%' : 'เท่าราคาเป้า') + '</span>');
+    return '<div class="sell"><h4>ราคาขาย (ต่อหน่วย) · ' + esc(p.vendor_name) + '</h4><table class="tbl costtbl"><tbody>' +
+      '<tr><td>ต้นทุนสินค้า</td><td class="num">' + fmtMoney(p.product_cost_thb) + '</td><td class="u">' + u + '</td></tr>' +
+      '<tr><td>+ ค่าเคลียร์ของ</td><td class="num">' + fmtMoney(p.clearance_thb) + '</td><td class="u">' + u + '</td></tr>' +
+      '<tr class="sub"><td>= ต้นทุนถึงคลัง</td><td class="num">' + fmtMoney(p.landed_cost_thb) + '</td><td class="u">' + u + '</td></tr>' +
+      '<tr><td>+ กำไร GP ' + fmtNum(p.gp_percent) + '%' + (p.gp_is_default ? ' <span class="small muted">(ค่าเริ่มต้น)</span>' : '') + '</td><td class="num">' + fmtMoney(p.profit_thb) + '</td><td class="u">' + u + '</td></tr>' +
+      '<tr class="total"><td>= ราคาขาย</td><td class="num">' + fmtMoney(p.sell_price_thb) + '</td><td class="u">' + u + '</td></tr>' +
+      '<tr class="ref"><td>ราคาเป้าหมายลูกค้า</td><td class="num">' + (p.target_price ? fmtMoney(p.target_price) : 'ไม่มี') + '</td><td class="u">' + diff + '</td></tr>' +
+      '</tbody></table></div>';
   }
 
   function incoLabel(k) {
@@ -167,7 +184,7 @@ Pages.ticket = (function () {
     product_group_code: 'กลุ่มสินค้า', product_name: 'ชื่อสินค้า', spec: 'Spec', qty: 'จำนวน', uom: 'หน่วย', target_price: 'ราคาเป้าหมาย',
     target_currency: 'สกุลเงินเป้าหมาย', vendor_id: 'รหัส vendor', vendor_name: 'Vendor', unit_price: 'ราคาต่อหน่วย', currency: 'สกุลเงิน',
     fx_rate: 'อัตราแลกเปลี่ยน', vat_term: 'VAT', vat_rate: 'อัตรา VAT', moq: 'MOQ', lead_time_days: 'Lead time (วัน)', payment_term: 'เงื่อนไขชำระเงิน',
-    valid_until: 'ยืนราคาถึง', remark: 'หมายเหตุ', attachment_file_id: 'ไฟล์ใบเสนอราคา', is_checked: 'ติ๊กแล้ว', note: 'หมายเหตุ'
+    valid_until: 'ยืนราคาถึง', remark: 'หมายเหตุ', clearance_thb: 'ค่าเคลียร์ของ (บาท/หน่วย)', gp_percent: 'GP %', attachment_file_id: 'ไฟล์ใบเสนอราคา', is_checked: 'ติ๊กแล้ว', note: 'หมายเหตุ'
   };
   function showVal(k, v) {
     if (v === true) return 'ใช่';

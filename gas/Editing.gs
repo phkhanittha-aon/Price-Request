@@ -12,7 +12,7 @@ const ITEM_FIELDS_ = ['product_group_code', 'product_name', 'net_weight', 'size'
   'target_price', 'target_currency'];
 const QUOTE_FIELDS_ = ['vendor_id', 'vendor_name', 'unit_price', 'currency', 'fx_rate', 'vat_term', 'moq', 'lead_time_days',
   'payment_term', 'valid_until', 'remark', 'attachment_file_id', 'is_selected', 'selection_reason',
-  'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life'];
+  'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life', 'clearance_thb'];
 
 // =============================================================================
 // Sales — header & items
@@ -189,7 +189,7 @@ function saveQuotationCore_(u, p) {
 
   const clean = validateQuoteFields_(p, t);
   const vatRate = existing ? Number(existing.vat_rate) : vatRate_();
-  const costs = quoteCosts_(clean.unit_price, clean.fx_rate, clean.vat_term, vatRate);
+  const costs = quoteCosts_(clean.unit_price, clean.fx_rate, clean.vat_term, vatRate, clean.clearance_thb);
   const now = new Date();
 
   if (existing) {
@@ -268,7 +268,8 @@ function validateQuoteFields_(p, t) {
     origin_country: cleanText_(p.origin_country, 100),
     packing: cleanText_(p.packing, 200),
     incoterm: p.incoterm ? oneOf_(String(p.incoterm).toUpperCase(), INCOTERMS, 'เงื่อนไขการส่งมอบ (Incoterm)') : '',
-    shelf_life: cleanText_(p.shelf_life, 100)
+    shelf_life: cleanText_(p.shelf_life, 100),
+    clearance_thb: toNumber_(p.clearance_thb, 'ค่าเคลียร์ของ (บาท/หน่วย)', { allowBlank: true, min: 0, max: 1e9 }) || 0
   };
 }
 
@@ -373,12 +374,29 @@ function saveSourcingDraft(ticketId, items) {
         const keepIds = quotes.map(function (q) { return cleanText_(q.quote_id, 64); }).filter(String);
         const winner = cleanText_(row.winner_quote_id, 64);
         if (winner && keepIds.indexOf(winner) === -1) throw appError_('VALIDATION', 'รายการที่ ' + it.line_no + ': ผู้ชนะต้องเป็น vendor ที่กรอกไว้');
-        return { item: it, quotes: quotes, keepIds: keepIds, winner: winner, reason: cleanText_(row.selection_reason, 500) };
+        let gp = it.gp_percent;
+        if (row.gp_percent !== undefined) {
+          try {
+            gp = toNumber_(row.gp_percent, 'GP %', { allowBlank: true, min: 0, max: 99.99 });
+          } catch (e) {
+            if (e.isApp) throw appError_(e.code, 'รายการที่ ' + it.line_no + ': ' + e.message, { line_no: it.line_no });
+            throw e;
+          }
+        }
+        return { item: it, quotes: quotes, keepIds: keepIds, winner: winner, reason: cleanText_(row.selection_reason, 500), gp: gp };
       });
 
       // 2) write
       let changes = 0;
       plan.forEach(function (p) {
+        const oldGp = p.item.gp_percent === null ? '' : p.item.gp_percent;
+        const newGp = p.gp === null || p.gp === undefined ? '' : p.gp;
+        if (String(oldGp) !== String(newGp)) {
+          updateRow_(TAB.ITEMS, p.item.item_id, { gp_percent: newGp, updated_at: new Date() });
+          appendLog_({ ticket_id: t.ticket_id, action: 'pricing_updated', actor_email: u.email, actor_role: u.role,
+            metadata: { item_id: p.item.item_id, line_no: p.item.line_no, diff: { gp_percent: { old: oldGp, 'new': newGp } } } });
+          changes++;
+        }
         activeQuotesOfItem_(p.item.item_id).forEach(function (q) {
           if (p.keepIds.indexOf(q.quote_id) === -1) { deleteQuotationCore_(u, q.quote_id); changes++; }
         });

@@ -7,7 +7,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.06-3';
+const APP_VERSION = '2026.10.07-2';
 
 const CFG = {
   APP_NAME: 'MGS Price Request',
@@ -97,7 +97,9 @@ const SCHEMA = {
     cols: ['item_id', 'ticket_id', 'line_no', 'product_group_code', 'product_name', 'spec', 'description',
            'qty', 'uom', 'target_price', 'target_currency', 'is_deleted', 'created_at', 'updated_at',
            // Food request form fields (appended): % net weight (excl. ice glaze), size, retail pack size
-           'net_weight', 'size', 'packing_size']
+           'net_weight', 'size', 'packing_size',
+           // Selling price set by SR (appended): GP % of selling price, selling price per unit (stored at submit)
+           'gp_percent', 'sell_price_thb']
   },
   Quotations: {
     key: 'quote_id',
@@ -107,7 +109,9 @@ const SCHEMA = {
            'net_unit_cost', 'net_unit_cost_thb', 'gross_unit_price_thb',
            'is_deleted', 'created_by', 'created_at', 'updated_at',
            // Food-specific (optional) — appended later, keep at the end
-           'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life']
+           'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life',
+           // Selling price (appended): clearance cost per unit and landed cost = net cost + clearance
+           'clearance_thb', 'landed_unit_cost_thb']
   },
   Checklist: {
     key: 'check_id',
@@ -208,6 +212,7 @@ const DEFAULT_SETTINGS = [
   ['sla_warning_ratio', '0.8', 'เตือนเมื่อใช้เวลาเกินสัดส่วนนี้ของ SLA'],
   ['currencies', JSON.stringify(['THB', 'USD', 'CNY', 'EUR', 'JPY', 'SGD']), 'สกุลเงินใน dropdown'],
   ['max_upload_mb', '20', 'ขนาดไฟล์แนบสูงสุดต่อไฟล์ (MB)'],
+  ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
   ['allowed_mime_types', JSON.stringify([
     'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic',
     'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv'

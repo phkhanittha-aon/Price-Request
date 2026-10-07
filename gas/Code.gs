@@ -89,6 +89,7 @@ function referenceData_() {
     vendors: vendors,
     currencies: setting_('currencies', ['THB']),
     vat_rate: vatRate_(),
+    default_gp_percent: defaultGp_(),
     vat_terms: VAT_TERMS.map(function (k) { return { key: k, label: VAT_TERM_LABEL[k] }; }),
     incoterms: INCOTERMS.map(function (k) { return { key: k, label: INCOTERM_LABEL[k] }; }),
     priorities: PRIORITIES,

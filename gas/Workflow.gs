@@ -44,7 +44,7 @@ const ACTION_LABEL_TH = {
   // data changes (not status changes)
   ticket_updated: 'แก้ไขข้อมูลใบขอราคา', item_added: 'เพิ่มรายการสินค้า', item_updated: 'แก้ไขรายการสินค้า', item_deleted: 'ลบรายการสินค้า',
   checklist_updated: 'ตรวจเอกสาร', quotation_added: 'เพิ่มราคา vendor', quotation_updated: 'แก้ไขราคา vendor',
-  quotation_deleted: 'ลบราคา vendor', quotation_selected: 'เลือกผู้ชนะ', attachment_added: 'แนบไฟล์', attachment_removed: 'ลบไฟล์แนบ'
+  quotation_deleted: 'ลบราคา vendor', quotation_selected: 'เลือกผู้ชนะ', pricing_updated: 'กำหนด GP %', attachment_added: 'แนบไฟล์', attachment_removed: 'ลบไฟล์แนบ'
 };
 
 // =============================================================================
@@ -327,6 +327,10 @@ function doTransition_(ticketId, action, comment, payload) {
       if (!isAssignedSr()) forbid('เฉพาะ SR ผู้รับงานเท่านั้นที่ส่งราคาได้');
       if (t.stage !== 'sourcing') badState();
       meta = validateQuotesForSubmit_(t);
+      // record the effective GP % and selling price per unit that this submission proposes
+      meta.winners.forEach(function (w) {
+        updateRow_(TAB.ITEMS, w.item_id, { gp_percent: w.gp_percent, sell_price_thb: w.sell_price_thb, updated_at: now });
+      });
       patch.stage = 'pending_sr_manager';
       patch.quote_submitted_at = now;
       notifyType = 'approval_required';
@@ -447,8 +451,10 @@ function validateQuotesForSubmit_(t) {
     if (!win.is_cheapest && !win.selection_reason) noReason.push(it.line_no);
     if (win.valid_until && win.valid_until < today) expired.push(it.line_no);
     grand += win.total_cost_thb;
+    const pr = itemPricing_(it, win);
     winners.push({ item_id: it.item_id, line_no: it.line_no, quote_id: win.quote_id, vendor_name: win.vendor_name,
-      net_unit_cost_thb: win.net_unit_cost_thb, total_cost_thb: win.total_cost_thb });
+      net_unit_cost_thb: win.net_unit_cost_thb, clearance_thb: win.clearance_thb, landed_cost_thb: pr.landed_cost_thb,
+      gp_percent: pr.gp_percent, sell_price_thb: pr.sell_price_thb });
   });
   if (noQuote.length) throw appError_('MISSING_QUOTATION', 'รายการที่ยังไม่มีราคา vendor: ลำดับที่ ' + noQuote.join(', '), { lines: noQuote });
   if (noWinner.length) throw appError_('MISSING_WINNER', 'รายการที่ยังไม่ได้เลือกผู้ชนะ: ลำดับที่ ' + noWinner.join(', '), { lines: noWinner });
@@ -478,6 +484,7 @@ function ticketDetail_(u, t) {
       const out = Object.assign({}, it);
       out.product_group_name = groupName_(it.product_group_code);
       out.quotations = showQuotes ? compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id)) : [];
+      out.pricing = showQuotes ? itemPricing_(it, out.quotations.filter(function (q) { return q.is_selected; })[0]) : null;
       return out;
     });
     const attachments = findAll_(TAB.ATTACHMENTS, 'ticket_id', t.ticket_id)
@@ -624,6 +631,8 @@ function activeItemsOf_(ticketId) {
         qty: Number(r.qty), uom: String(r.uom),
         net_weight: String(r.net_weight || ''), size: String(r.size || ''), packing_size: String(r.packing_size || ''),
         target_price: r.target_price === '' ? null : Number(r.target_price),
+        gp_percent: r.gp_percent === '' || r.gp_percent === undefined ? null : Number(r.gp_percent),
+        sell_price_thb: r.sell_price_thb === '' || r.sell_price_thb === undefined ? null : Number(r.sell_price_thb),
         target_currency: String(r.target_currency || 'THB')
       };
     })

@@ -25,6 +25,7 @@ function runAcceptanceTests() {
     runPhase2Cases_(results);
     runPhase3Cases_(results);
     runOrgCases_(results);
+    runSellPriceCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -830,4 +831,79 @@ function runOrgCases_(results) {
     ok(tl.join(',').indexOf('submit_quote,srm_return,submit_quote,srm_approve,gm_price_return,submit_quote,srm_approve,gm_price_approve') !== -1,
       'Timeline records every price approval step');
   });
+}
+
+// =============================================================================
+// Selling price: clearance cost per vendor, landed cost, GP %, selling price per unit
+// =============================================================================
+function runSellPriceCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  try {
+    const t = as(U.salesFood2, function () {
+      return must(createTicket({ customer_name: 'โรงแรม GP', due_date: inDays(3), items: [
+        { product_name: 'กุ้งขาว PD', net_weight: '90%', size: '41/50', packing_size: '1 kg/pack', qty: 400, uom: 'กก.', target_price: 330 }] })).ticket;
+    });
+    const id = t.ticket_id;
+    must(go(U.mgrFood, id, 'manager_approve'));
+    must(go(U.gm, id, 'gm_approve'));
+    must(go(U.sr1, id, 'claim'));
+    as(U.sr1, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+    must(go(U.sr1, id, 'doc_complete'));
+    const it = activeItemsOf_(id)[0];
+    const cif = { quote_id: Utilities.getUuid(), vendor_name: 'Ocean Pride Vietnam Co., Ltd.', unit_price: 7.2, currency: 'USD', fx_rate: 36.5,
+      vat_term: 'no_vat', incoterm: 'CIF', clearance_thb: 12 };
+    const local = { quote_id: Utilities.getUuid(), vendor_name: 'Andaman Seafood Co., Ltd.', unit_price: 289, currency: 'THB', fx_rate: 1,
+      vat_term: 'include_vat', incoterm: 'DELIVERED' };
+    const draft = function (row) { return as(U.sr1, function () { return saveSourcingDraft(id, [Object.assign({ item_id: it.item_id }, row)]); }); };
+
+    must(draft({ quotes: [cif, local], winner_quote_id: local.quote_id }));
+    const q = activeQuotesOfItem_(it.item_id);
+    const qc = q.filter(function (x) { return x.quote_id === cif.quote_id; })[0];
+    const ql = q.filter(function (x) { return x.quote_id === local.quote_id; })[0];
+    ok(qc.net_unit_cost_thb === 262.8 && qc.clearance_thb === 12 && qc.landed_unit_cost_thb === 274.8,
+      'Landed cost = 7.20 USD × 36.5 + clearance 12 = 274.80 THB/kg');
+    const cmp = compareQuotes_(it.qty, q);
+    ok(cmp.filter(function (x) { return x.is_cheapest; })[0].quote_id === local.quote_id,
+      'Cheapest is decided on landed cost (local 270.09 beats CIF 274.80 after clearance)');
+
+    const d1 = as(U.sr1, function () { return must(getTicket(id)); });
+    const p1 = d1.items[0].pricing;
+    ok(p1.gp_percent === 15 && p1.gp_is_default && p1.landed_cost_thb === 270.09 && p1.sell_price_thb === 317.76 && p1.profit_thb === 47.67,
+      'Default GP 15% → selling price 270.09 ÷ 0.85 = 317.76 (profit 47.67)');
+    ok(p1.target_diff_pct === -3.7, 'Selling price compared with target 330 THB/kg (−3.7%)');
+
+    must(draft({ quotes: [cif, local], winner_quote_id: local.quote_id, gp_percent: 20 }));
+    const p2 = as(U.sr1, function () { return must(getTicket(id)); }).items[0].pricing;
+    ok(p2.gp_percent === 20 && !p2.gp_is_default && p2.sell_price_thb === 337.62, 'GP 20% → selling price 337.62');
+    ok(findAll_(TAB.LOGS, 'ticket_id', id).some(function (l) { return l.action === 'pricing_updated'; }), 'GP change logged');
+    expectErr(draft({ quotes: [cif, local], winner_quote_id: local.quote_id, gp_percent: 100 }), 'VALIDATION', 'GP 100% rejected');
+    expectErr(draft({ quotes: [cif, local], winner_quote_id: local.quote_id, gp_percent: -5 }), 'VALIDATION', 'Negative GP rejected');
+    expectErr(draft({ quotes: [Object.assign({}, cif, { clearance_thb: -1 }), local] }), 'VALIDATION', 'Negative clearance rejected');
+
+    ok(as(U.salesFood2, function () { return must(getTicket(id)); }).items[0].pricing === null, 'Sales cannot see cost / GP before approval');
+    must(go(U.sr1, id, 'submit_quote'));
+    const saved = activeItemsOf_(id)[0];
+    ok(saved.gp_percent === 20 && saved.sell_price_thb === 337.62, 'Submit stores GP % and selling price on the item');
+    const log = findAll_(TAB.LOGS, 'ticket_id', id).filter(function (l) { return l.action === 'submit_quote'; }).pop();
+    ok(parseJson_(log.metadata_json, {}).winners[0].sell_price_thb === 337.62, 'Submit log records the proposed selling price');
+    approvePriceT_(U, id);
+    const sales = as(U.salesFood2, function () { return must(getTicket(id)); }).items[0].pricing;
+    ok(sales.sell_price_thb === 337.62 && sales.vendor_name === 'Andaman Seafood Co., Ltd.', 'Sales sees the selling price after GM approval');
+  } catch (e) {
+    results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: SELL_PRICE — ' + e.message + '\n' + e.stack);
+  }
 }
