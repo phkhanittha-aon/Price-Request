@@ -507,7 +507,11 @@ function ticketDetail_(u, t) {
         out.sales_pricing = null;
         out.sell_price_thb = null;
       } else if (showQuotes) {
-        out.quotations = compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id));
+        out.quotations = compareQuotes_(it.qty, activeQuotesOfItem_(it.item_id)).map(function (q) {
+          const v = q.vendor_id ? findOne_(TAB.VENDORS, 'vendor_id', q.vendor_id) : null;
+          q.supplier_warnings = v ? certWarnings_(normSupplier_(v)) : [];   // shown to SR Manager / GM when reviewing
+          return q;
+        });
         out.pricing = itemPricing_(it, out.quotations.filter(function (q) { return q.is_selected; })[0]);
       } else {
         // Sales side: no cost data leaves the server — selling price only, and only after GM approval

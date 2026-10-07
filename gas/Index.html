@@ -317,6 +317,21 @@
     .item-stat.follow { border-left: 4px solid var(--warn); }
     .item-stat.no { border-left: 4px solid #8FA1A7; background: #FAFBFB; }
     .sumtbl tr.stat-row td { color: var(--muted); }
+    .sup-combo { position: relative; }
+    .sup-results { position: absolute; z-index: 25; left: 0; right: 0; top: calc(100% + 4px); max-height: 340px; overflow-y: auto; background: #fff;
+      border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(16,38,46,.14); padding: 4px; }
+    .sup-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px;
+      background: transparent; text-align: left; cursor: pointer; font: inherit; color: var(--text); }
+    .sup-opt.active, .sup-opt:hover { background: var(--brand-soft); }
+    .sup-opt.sup-new { color: var(--brand); font-weight: 600; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; }
+    .sup-none { padding: 8px 10px; }
+    .sup-chosen { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+    .sup-chosen b { font-size: .95rem; }
+    .sup-acts { display: flex; flex-direction: column; align-items: flex-end; }
+    .price-hint:empty { display: none; }
+    .price-hint { color: var(--brand-dark); }
+    input.auto, select.auto { background: #F2F8FA; border-style: dashed; }
+    .auto-note { color: var(--brand-dark); margin-top: 4px; }
     .vcol.add-slot { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 180px; align-self: stretch;
       border: 2px dashed #B8C7CC; background: #fff; color: var(--brand); cursor: pointer; font: inherit; }
     .vcol.add-slot:hover { border-color: var(--brand); background: var(--brand-soft); }

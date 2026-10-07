@@ -169,6 +169,106 @@ Pages.pricing = (function () {
     return '<input type="' + (type || 'text') + '" data-f="' + name + '" value="' + esc(value == null ? '' : value) + '"' + (extra || '') + (disabled ? ' disabled' : '') + '>';
   }
 
+  /* ---------- Supplier search (pick from the Supplier master; terms are filled, the price never is) ---------- */
+  function supplierById(id) { return (state.ref.vendors || []).filter(function (v) { return v.vendor_id === id; })[0]; }
+  function typeLabel(k) { const x = (state.ref.supplier_types || []).filter(function (t) { return t.key === k; })[0]; return x ? x.label : ''; }
+  function certBadges(s) {
+    return (s && s.cert_warnings || []).map(function (w) {
+      return '<span class="sla ' + (w.level === 'expired' ? 'breach' : 'warning') + '">⚠ ' + esc(w.name) + (w.level === 'expired' ? ' หมดอายุ' : ' ใกล้หมดอายุ') + '</span>';
+    }).join(' ');
+  }
+  function hintFor(it, vid) { return ctx.hints && ctx.hints[it.item_id] ? ctx.hints[it.item_id][vid] : null; }
+  function hintText(h) {
+    if (!h) return '';
+    return 'ครั้งก่อน ' + fmtNum(h.unit_price) + ' ' + esc(h.currency) + ' · ' + esc(fmtDate(h.at)) + (h.ticket_no ? ' · ' + esc(h.ticket_no) : '') +
+      (h.match === 'group' ? ' (สินค้าในกลุ่มเดียวกัน: ' + esc(h.product_name) + ')' : '');
+  }
+  function supplierField(it, q, ro) {
+    const s = q.vendor_id ? supplierById(q.vendor_id) : null;
+    if (q.vendor_name) {
+      return '<div class="field sup-pick"><span>Supplier <span class="req">*</span></span><div class="sup-chosen"><div><b>' + esc(q.vendor_name) + '</b>' +
+        (s ? '<div class="small muted">' + esc([typeLabel(s.supplier_type), s.country, s.default_currency].filter(Boolean).join(' · ')) + '</div>' + certBadges(s) :
+          (q.vendor_id ? '' : '<div class="small muted">ยังไม่ผูกกับฐานข้อมูล Supplier</div>')) +
+        (q._auto && Object.keys(q._auto).length ? '<div class="small auto-note">ช่องพื้นเส้นประ = ระบบเติมให้จาก Supplier · แก้ได้</div>' : '') + '</div>' +
+        (ro ? '' : '<div class="sup-acts"><button type="button" class="btn sm ghost" data-sup-change>เปลี่ยน</button>' +
+          (s ? '<button type="button" class="btn sm ghost" data-sup-savedef title="บันทึกสกุลเงิน VAT เงื่อนไขชำระ Incoterm MOQ Lead time ของใบนี้เป็นค่าเริ่มต้นของ Supplier">↺ ตั้งเป็นค่าเริ่มต้น</button>' : '') + '</div>') +
+        '</div></div>';
+    }
+    return '<div class="field sup-pick"><span>Supplier <span class="req">*</span></span><div class="sup-combo">' +
+      '<input type="search" data-sup-search role="combobox" aria-expanded="false" aria-autocomplete="list" placeholder="พิมพ์ชื่อ / ชื่อย่อ / รหัส Supplier"' + (ro ? ' disabled' : '') + '>' +
+      '<div class="sup-results" role="listbox" hidden></div></div></div>';
+  }
+  function supplierMatches(it, text) {
+    const words = String(text || '').toLowerCase().split(/\s+/).filter(String);
+    return (state.ref.vendors || []).filter(function (s) {
+      const hay = (s.name + ' ' + s.short_name + ' ' + s.vendor_id + ' ' + s.tax_id + ' ' + s.brands).toLowerCase();
+      return words.every(function (w) { return hay.indexOf(w) !== -1; });
+    }).map(function (s) {
+      const h = hintFor(it, s.vendor_id);
+      const score = (h && h.match === 'product' ? 4 : h ? 2 : 0) + (s.product_groups.indexOf(it.product_group_code) !== -1 ? 1 : 0);
+      return { s: s, h: h, score: score };
+    }).sort(function (a, b) { return (b.score - a.score) || a.s.name.localeCompare(b.s.name, 'th'); }).slice(0, 8);
+  }
+  function supplierResultsHtml(it, text) {
+    const list = supplierMatches(it, text);
+    return list.map(function (x, i) {
+      return '<button type="button" class="sup-opt' + (i === 0 ? ' active' : '') + '" role="option" data-sup-pick="' + esc(x.s.vendor_id) + '"><b>' + esc(x.s.name) + '</b>' +
+        '<span class="small muted">' + esc([typeLabel(x.s.supplier_type), x.s.country, x.s.default_currency].filter(Boolean).join(' · ')) + '</span>' +
+        (x.h ? '<span class="small">' + hintText(x.h) + '</span>' : '') + certBadges(x.s) + '</button>';
+    }).join('') + (list.length ? '' : '<div class="sup-none small muted">ไม่พบในฐานข้อมูล</div>') +
+      '<button type="button" class="sup-opt sup-new" data-sup-new>＋ เพิ่ม Supplier ใหม่' + (text ? ' “' + esc(text) + '”' : '') + '</button>';
+  }
+  /** Fill the quote from the supplier (+ the last quote for this product). Never the unit price. */
+  function applySupplier(it, q, s) {
+    const h = hintFor(it, s.vendor_id);
+    const fill = {
+      currency: s.default_currency || 'THB', vat_term: s.default_vat_term || q.vat_term,
+      payment_term: s.payment_term, incoterm: s.incoterm,
+      lead_time_days: s.lead_time_days == null ? '' : s.lead_time_days, moq: s.moq == null ? '' : s.moq,
+      valid_until: todayYmd(s.validity_days || state.ref.default_validity_days || 30),
+      origin_country: (h && h.origin_country) || s.country,
+      brand: (h && h.brand) || (s.brands && s.brands.indexOf(',') === -1 ? s.brands : ''),
+      packing: h ? h.packing : '', shelf_life: h ? h.shelf_life : '',
+      clearance_thb: s.clearance_per_kg != null && /^(กก\.|kg)$/i.test(it.uom) ? s.clearance_per_kg : ''
+    };
+    const fx = fill.currency === 'THB' ? 1 : (state.ref.fx_defaults || {})[fill.currency];
+    fill.fx_rate = fx == null ? '' : fx;
+    const conflicts = Object.keys(fill).filter(function (k) {
+      return q._edited && q._edited[k] && String(q[k] == null ? '' : q[k]) !== '' && String(q[k]) !== String(fill[k] == null ? '' : fill[k]) && String(fill[k] == null ? '' : fill[k]) !== '';
+    });
+    const go = function (overwrite) {
+      q.vendor_id = s.vendor_id;
+      q.vendor_name = s.name;
+      q._auto = q._auto || {};
+      Object.keys(fill).forEach(function (k) {
+        const v = fill[k] == null ? '' : fill[k];
+        if (v === '' ) return;
+        if (!overwrite && conflicts.indexOf(k) !== -1) return;
+        q[k] = v;
+        q._auto[k] = true;
+        if (q._edited) delete q._edited[k];
+      });
+      if (q.currency === 'THB') { q.fx_rate = 1; delete q._auto.fx_rate; }
+    };
+    if (!conflicts.length) { go(true); return Promise.resolve(); }
+    return dialog({ title: 'แทนที่ช่องที่คุณแก้เองหรือไม่?', message: 'ช่องที่คุณกรอกไว้เองต่างจากค่าของ ' + s.name + ': ' + conflicts.join(', '),
+      confirmText: 'ใช้ค่าของ Supplier' }).then(function (ok) { go(!!ok); });
+  }
+  function saveSupplierDefaults(q) {
+    const s = supplierById(q.vendor_id);
+    if (!s) return;
+    const p = Object.assign({}, s, { expected_version: s.version, default_currency: q.currency, default_vat_term: q.vat_term, payment_term: q.payment_term,
+      incoterm: q.incoterm, lead_time_days: q.lead_time_days, moq: q.moq });
+    dialog({ title: 'ตั้งเป็นค่าเริ่มต้นของ ' + s.name + '?', message: 'สกุลเงิน ' + q.currency + ' · VAT · เงื่อนไขชำระ “' + (q.payment_term || '-') + '” · Incoterm · MOQ · Lead time ' +
+      'จากใบนี้ จะถูกใช้เติมให้อัตโนมัติครั้งต่อไป (ใบเสนอราคาเก่าไม่เปลี่ยน)', confirmText: 'บันทึกค่าเริ่มต้น' }).then(function (ok) {
+      if (!ok) return;
+      api('saveSupplier', p).then(function (r) {
+        state.ref.vendors = state.ref.vendors.map(function (v) { return v.vendor_id === r.supplier.vendor_id ? Object.assign(r.supplier, { cert_warnings: v.cert_warnings }) : v; });
+        toast('บันทึกค่าเริ่มต้นของ ' + r.supplier.name + ' แล้ว', 'ok');
+      }).catch(function (e) { toast(e.error, 'err', 9000); });
+    });
+  }
+
   function vendorCol(it, mi, q, qi, editable, isFood) {
     const ro = !editable;
     const cur = state.ref.currencies.map(function (c) { return { key: c, label: c }; });
@@ -180,8 +280,9 @@ Pages.pricing = (function () {
       '<div class="vhead"><label class="win"><input type="radio" name="win-' + esc(it.item_id) + '" value="' + esc(q.quote_id) + '"' +
       (mi.winner === q.quote_id ? ' checked' : '') + (ro ? ' disabled' : '') + '> เลือกเจ้านี้</label>' +
       '<span class="vtags"></span>' + (editable ? '<button type="button" class="btn sm ghost" data-delq="' + qi + '" aria-label="ลบ vendor">✕ ลบ</button>' : '') + '</div>' +
-      f('Vendor', inp('vendor_name', q.vendor_name, 'text', ' list="vendor-list" maxlength="200" placeholder="ชื่อผู้ขาย"', ro), true) +
-      '<div class="row tight">' + f('ราคา/หน่วย', inp('unit_price', q.unit_price, 'number', ' inputmode="decimal" min="0" step="any"', ro), true) +
+      supplierField(it, q, ro) +
+      '<div class="row tight">' + f('ราคา/หน่วย', inp('unit_price', q.unit_price, 'number', ' inputmode="decimal" min="0" step="any"', ro) +
+        '<small class="hint price-hint" data-hint></small>', true) +
       f('สกุลเงิน', sel('currency', cur, q.currency, ro)) + '</div>' +
       '<div class="row tight">' + f('อัตราแลกเปลี่ยน → THB', inp('fx_rate', q.currency === 'THB' ? 1 : q.fx_rate, 'number', ' inputmode="decimal" min="0" step="any"', ro || q.currency === 'THB'), q.currency !== 'THB') +
       f('VAT', sel('vat_term', state.ref.vat_terms, q.vat_term, ro), true) + '</div>' +
@@ -265,7 +366,6 @@ Pages.pricing = (function () {
       (docPhase && d.items.every(function (it) { return !it.quotations.length; }) ?
         '<div class="notice">ติ๊กเอกสารให้ครบแล้วกด “ยืนยันเอกสารครบ” ก่อน จึงจะกรอกราคา vendor ได้ หรือกด “ขอข้อมูลเพิ่มจาก Sales” ถ้าเอกสารไม่พอ</div>' :
         d.items.map(itemCard).join('') + '<div class="card" id="pp-summary"></div>') +
-      '<datalist id="vendor-list">' + state.ref.vendors.map(function (v) { return '<option value="' + esc(v.name) + '">'; }).join('') + '</datalist>' +
       '<datalist id="pay-list"><option value="เงินสด"><option value="Credit 30 วัน"><option value="Credit 60 วัน"><option value="T/T 30% deposit"><option value="L/C at sight"></datalist>' +
       '<datalist id="origin-list"><option value="ไทย"><option value="นอร์เวย์"><option value="ชิลี"><option value="เวียดนาม"><option value="อินเดีย"><option value="จีน"><option value="ญี่ปุ่น"><option value="ออสเตรเลีย"></datalist>' +
       (d.permissions.can_edit_quotes ? '<div class="savebar"><div class="sum" id="pp-sum"></div><span class="sep"></span>' +
@@ -286,6 +386,13 @@ Pages.pricing = (function () {
     calc.rows.forEach(function (r, qi) {
       const col = $('.vcol[data-q="' + qi + '"]', card);
       if (!col) return;
+      const q = mi.quotes[qi];
+      const hint = $('[data-hint]', col);
+      if (hint) hint.innerHTML = q && q.vendor_id ? hintText(hintFor(it, q.vendor_id)) : '';
+      $all('[data-f]', col).forEach(function (el) {
+        const k = el.getAttribute('data-f');
+        el.classList.toggle('auto', !!(q && ((q._auto && q._auto[k]) || (k === 'fx_rate' && q._fxDefault))));
+      });
       $('.calc', col).innerHTML = r.c ?
         '<div class="kvs"><span>ต้นทุนสินค้า/' + esc(it.uom) + '</span><span>฿' + fmtMoney(r.c.net_thb) + '</span>' +
         '<span>+ ค่าเคลียร์ของ</span><span>฿' + fmtMoney(r.c.clearance) + '</span>' +
@@ -453,6 +560,13 @@ Pages.pricing = (function () {
     const mi = ctx.model.items[idx];
     card.addEventListener('input', function (e) {
       const el = e.target;
+      if (el.hasAttribute('data-sup-search')) {
+        const box = el.parentNode.querySelector('.sup-results');
+        box.innerHTML = supplierResultsHtml(ctx.d.items[idx], el.value.trim());
+        box.hidden = false;
+        el.setAttribute('aria-expanded', 'true');
+        return;
+      }
       if (el.hasAttribute('data-reason')) { mi.reason = el.value; markDirty(); refreshItem(idx); return; }
       if (el.hasAttribute('data-gp')) { mi.gp = el.value; markDirty(); refreshItem(idx); return; }
       const col = el.closest('.vcol');
@@ -460,23 +574,82 @@ Pages.pricing = (function () {
       const q = mi.quotes[Number(col.getAttribute('data-q'))];
       const f = el.getAttribute('data-f');
       q[f] = el.value;
-      if (f === 'vendor_name') {
-        const v = state.ref.vendors.filter(function (x) { return x.name.toLowerCase() === el.value.trim().toLowerCase(); })[0];
-        q.vendor_id = v ? v.vendor_id : '';
-        if (v && !q._defaulted) {   // fill vendor defaults once
-          q._defaulted = true;
-          q.currency = v.default_currency || q.currency;
-          if (v.default_vat_term) q.vat_term = v.default_vat_term;
-          $('[data-f="currency"]', col).value = q.currency;
-          $('[data-f="vat_term"]', col).value = q.vat_term;
-        }
+      (q._edited = q._edited || {})[f] = true;
+      if (q._auto && q._auto[f]) { delete q._auto[f]; el.classList.remove('auto'); }
+      if (f === 'currency' && el.value !== 'THB' && (!String(q.fx_rate || '').trim() || (q._auto && q._auto.fx_rate) || q._fxDefault)) {
+        const fx = (state.ref.fx_defaults || {})[el.value];
+        q.fx_rate = fx == null ? '' : fx;
+        q._fxDefault = fx != null;
+        const fxEl = $('[data-f="fx_rate"]', col);
+        if (fxEl) { fxEl.value = q.fx_rate; fxEl.disabled = false; fxEl.classList.toggle('auto', fx != null); }
       }
+      if (f === 'fx_rate') q._fxDefault = false;
       if (f === 'currency' && q.currency === 'THB') q.fx_rate = 1;
       markDirty();
       refreshItem(idx);
     });
     card.addEventListener('change', function (e) {
       if (e.target.type === 'radio') { mi.winner = e.target.value; markDirty(); refreshItem(idx); }
+    });
+    card.addEventListener('focusin', function (e) {
+      if (e.target.hasAttribute && e.target.hasAttribute('data-sup-search')) {
+        const box = e.target.parentNode.querySelector('.sup-results');
+        box.innerHTML = supplierResultsHtml(ctx.d.items[idx], e.target.value.trim());
+        box.hidden = false;
+      }
+    });
+    card.addEventListener('keydown', function (e) {
+      const el = e.target;
+      if (!el.hasAttribute || !el.hasAttribute('data-sup-search')) return;
+      const box = el.parentNode.querySelector('.sup-results');
+      const opts = $all('.sup-opt', box);
+      let i = opts.findIndex(function (o) { return o.classList.contains('active'); });
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (box.hidden) { box.hidden = false; return; }
+        i = e.key === 'ArrowDown' ? Math.min(i + 1, opts.length - 1) : Math.max(i - 1, 0);
+        opts.forEach(function (o, k) { o.classList.toggle('active', k === i); });
+        if (opts[i]) opts[i].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (opts[i]) opts[i].click();
+      } else if (e.key === 'Escape') {
+        box.hidden = true; el.setAttribute('aria-expanded', 'false');
+      }
+    });
+    card.addEventListener('click', function (e) {
+      const col = e.target.closest('.vcol');
+      if (!col) return;
+      const q = mi.quotes[Number(col.getAttribute('data-q'))];
+      const it = ctx.d.items[idx];
+      const pick = e.target.closest('[data-sup-pick]');
+      if (pick) {
+        const s = supplierById(pick.getAttribute('data-sup-pick'));
+        applySupplier(it, q, s).then(function () { markDirty(); rerenderItem(idx); focusPrice(idx, col.getAttribute('data-q')); });
+        return;
+      }
+      if (e.target.closest('[data-sup-new]')) {
+        const text = ($('[data-sup-search]', col) || {}).value || '';
+        SupplierForm.open({ quick: true, name: text.trim() }).then(function (s) {
+          if (!s) return;
+          s.cert_warnings = [];
+          state.ref.vendors = (state.ref.vendors || []).concat([s]);
+          return applySupplier(it, q, s).then(function () { markDirty(); rerenderItem(idx); focusPrice(idx, col.getAttribute('data-q')); });
+        });
+        return;
+      }
+      if (e.target.closest('[data-sup-change]')) {
+        q.vendor_id = ''; q.vendor_name = '';
+        markDirty(); rerenderItem(idx);
+        const inpEl = $('.vcol[data-q="' + col.getAttribute('data-q') + '"] [data-sup-search]', $('.card.item[data-item="' + idx + '"]', ctx.view));
+        if (inpEl) inpEl.focus();
+        return;
+      }
+      if (e.target.closest('[data-sup-savedef]')) saveSupplierDefaults(q);
+    });
+    document.addEventListener('click', function (e) {
+      if (!card.isConnected) return;
+      $all('.sup-results', card).forEach(function (box) { if (!box.parentNode.contains(e.target)) box.hidden = true; });
     });
     const add = $('[data-addq]', card);
     if (add) add.onclick = function () {
@@ -502,6 +675,11 @@ Pages.pricing = (function () {
     });
   }
 
+  function focusPrice(idx, qi) {
+    const el = $('.card.item[data-item="' + idx + '"] .vcol[data-q="' + qi + '"] [data-f="unit_price"]', ctx.view);
+    if (el) el.focus();
+  }
+
   function rerenderItem(idx, focusLast) {
     const old = $('.card.item[data-item="' + idx + '"]', ctx.view);
     const tmp = document.createElement('div');
@@ -514,7 +692,7 @@ Pages.pricing = (function () {
     refreshSummary();
     if (focusLast) {
       const cols = $all('.vcol', fresh);
-      const inpEl = cols.length && $('[data-f="vendor_name"]', cols[cols.length - 1]);
+      const inpEl = cols.length && $('[data-sup-search]', cols[cols.length - 1]);
       if (inpEl) inpEl.focus();
     }
   }
@@ -633,7 +811,7 @@ Pages.pricing = (function () {
       const calc = itemCalc(mi, it);
       if (!filled.length) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ยังไม่มีราคา vendor' });
       filled.forEach(function (q, k) {
-        if (!String(q.vendor_name).trim()) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ' vendor ที่ ' + (k + 1) + ': ใส่ชื่อ vendor' });
+        if (!String(q.vendor_name).trim()) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ' vendor ที่ ' + (k + 1) + ': เลือก Supplier' });
         if (!costs(q)) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ' vendor ที่ ' + (k + 1) + ': ราคา / อัตราแลกเปลี่ยน / ค่าเคลียร์ของ ไม่ถูกต้อง' });
       });
       if (filled.length && !calc.win) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ยังไม่ได้เลือกผู้ชนะ' });
@@ -692,8 +870,17 @@ Pages.pricing = (function () {
         if (!isCurrent()) return;
         // cost page: SR / SR Manager / GM / Admin only — everyone else goes to the ticket page (server sends them no cost anyway)
         if (!d.permissions.can_view_quotes) { go({ page: 'ticket', id: route.id }, true); return; }
-        ctx = { d: d, model: fromDetail(d), dirty: false, view: view };
+        ctx = { d: d, model: fromDetail(d), dirty: false, view: view, hints: null };
         render();
+        // last price per supplier for these products (hint only) — loaded after the page is on screen
+        if (d.permissions.can_edit_quotes) {
+          const mine = ctx;
+          api('supplierHints', d.ticket.ticket_id).then(function (h) {
+            if (ctx !== mine) return;
+            ctx.hints = h.hints;
+            $all('.card.item', ctx.view).forEach(function (card) { refreshItem(Number(card.getAttribute('data-item'))); });
+          }).catch(function () { /* hints are optional */ });
+        }
       }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
     }
   };

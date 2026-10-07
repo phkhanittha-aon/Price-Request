@@ -110,6 +110,7 @@ Pages.ticket = (function () {
           it.quotations.slice().sort(function (a, b) { return a.cost_rank - b.cost_rank; }).map(function (q) {
             return '<tr' + (q.is_selected ? ' style="background:#F1F8FB"' : '') + '><td class="main">' + esc(q.vendor_name) + ' ' +
               (q.is_selected ? '<span class="badge tag-win">✔ ผู้ชนะ</span> ' : '') + (q.is_cheapest ? '<span class="badge tag-cheap">ถูกที่สุด</span>' : '') +
+              (q.supplier_warnings || []).map(function (w) { return ' <span class="sla ' + (w.level === 'expired' ? 'breach' : 'warning') + '">⚠ ' + esc(w.name) + (w.level === 'expired' ? ' หมดอายุ' : ' ใกล้หมดอายุ') + '</span>'; }).join('') +
               (q.is_selected && q.selection_reason ? '<div class="small muted">เหตุผล: ' + esc(q.selection_reason) + '</div>' : '') + '</td>' +
               '<td class="num" data-label="ราคา/หน่วย">' + fmtNum(q.unit_price) + ' ' + esc(q.currency) + (q.currency !== 'THB' ? '<div class="small muted">@' + fmtNum(q.fx_rate) + '</div>' : '') + '</td>' +
               '<td data-label="VAT">' + esc(vatLabel(q.vat_term)) + '</td>' +
