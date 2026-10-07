@@ -1,70 +1,166 @@
 <!--
   File: PageTickets.html
-  Ticket list: scope (inbox / mine / queue / all), filters, search, SLA summary, paging.
-  Filtering happens on the server (listTickets) — the browser never receives tickets the user may not see.
+  Ticket list = ONE server call (listTicketBoard: every ticket this user may see, no prices) +
+  filtering, search, counts and paging in the browser. So tabs and search answer instantly,
+  nothing races, and the table never disappears while new data loads.
+  Default view = ALL tickets. Status tabs filter with one click; the advanced panel applies on "ใช้ตัวกรอง".
+  The filter lives in the URL (?page=tickets&scope=<tab>&q=…&stage=…) so Back / refresh / links keep it.
 -->
 <script>
 Pages.tickets = (function () {
-  const TITLES = { inbox: 'งานรอฉัน', mine: 'ของฉัน', queue: 'คิวรอ SR รับงาน', all: 'ใบขอราคาทั้งหมด' };
-  const filters = {};   // per scope, kept while the page is open
+  const PAGE_SIZE = 50;
+  const board = { rows: null, at: 0, seq: 0 };   // last board, kept while the app is open
 
-  function defaults(scope) {
-    return { scope: scope, q: '', status: '', outcome: '', stage: '', group_code: '', priority: '', date_from: '', date_to: '', sr: '', requestor: '',
-      sort: (scope === 'inbox' || scope === 'queue') ? 'urgency' : 'updated_desc', page: 1 };
+  /* ---------- tabs (one click) ---------- */
+  const TABS = [
+    { id: 'all', label: 'ทั้งหมด', test: function () { return true; } },
+    { id: 'inbox', label: 'รอฉัน', test: function (r) { return r.is_inbox; } },
+    { id: 'mine', label: 'ของฉัน', roles: ['sales', 'sr'], test: function (r) { return r.is_mine; } },
+    { id: 'queue', label: 'คิวรอรับงาน', roles: ['sr', 'sr_manager', 'admin'], test: function (r) { return r.stage === 'pending_assign'; } },
+    { id: 'req', label: 'รออนุมัติฝั่งขาย', test: function (r) { return ['pending_manager', 'returned', 'pending_gm'].indexOf(r.stage) !== -1; } },
+    { id: 'src', label: 'SR กำลังหาราคา', test: function (r) { return ['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(r.stage) !== -1; } },
+    { id: 'rev', label: 'รอตรวจราคา', test: function (r) { return ['pending_sr_manager', 'pending_gm_price'].indexOf(r.stage) !== -1; } },
+    { id: 'ack', label: 'ส่งถึง Sales', test: function (r) { return r.stage === 'awaiting_sales_ack'; } },
+    { id: 'follow', label: '📌 ส่งตามหลัง', test: function (r) { return r.is_follow_up && r.outcome === 'open'; } },
+    { id: 'closed', label: 'ปิดงาน', test: function (r) { return r.stage === 'closed'; } },
+    { id: 'rejected', label: 'ไม่อนุมัติ / ยกเลิก', test: function (r) { return r.outcome === 'rejected'; } }
+  ];
+  function tabsFor() {
+    return TABS.filter(function (t) { return !t.roles || t.roles.indexOf(state.me.role) !== -1; });
   }
 
-  function title(scope) {
-    if (scope === 'mine') return state.me.role === 'sr' ? 'งานของฉัน' : 'ใบขอราคาของฉัน';
-    return TITLES[scope] || TITLES.all;
+  /* ---------- filter state <-> route ---------- */
+  const ADV = ['stage', 'requestor', 'sr', 'outcome', 'group', 'prio', 'from', 'to'];
+  function fromRoute(route) {
+    const f = { tab: route.scope || 'all', q: route.q || '', sort: route.sort || '' };
+    if (route.follow) f.tab = 'follow';                       // old menu links
+    if (!tabsFor().some(function (t) { return t.id === f.tab; })) f.tab = 'all';
+    ADV.forEach(function (k) { f[k] = route[k] || ''; });
+    return f;
+  }
+  function toRoute(f) {
+    const r = { page: 'tickets' };
+    if (f.tab && f.tab !== 'all') r.scope = f.tab;
+    if (f.q) r.q = f.q;
+    if (f.sort) r.sort = f.sort;
+    ADV.forEach(function (k) { if (f[k]) r[k] = f[k]; });
+    return r;
+  }
+  function saveRoute(f) {
+    const r = toRoute(f);
+    state.route = cleanRoute(r);
+    google.script.history.replace(state.route, state.route);
+    renderNav();
   }
 
-  function filterBar(f) {
-    const st = state.ref.status_labels;
-    const sg = state.ref.stage_labels;
-    return '<div class="card"><div class="row">' +
-      '<label class="field" style="flex:2 1 260px"><span>ค้นหา</span><input type="search" id="f-q" placeholder="เลขที่ใบ / ชื่อเรื่อง / สินค้า / ลูกค้า" value="' + esc(f.q) + '"></label>' +
-      '<label class="field"><span>ผลการเสนอราคา</span><select id="f-outcome"><option value="">ทั้งหมด</option>' +
-      [['done', '✓ เสนอราคาจบแล้ว'], ['open', '⏳ ยังไม่จบ'], ['rejected', '✕ ไม่อนุมัติ / ยกเลิก']].map(function (o) {
-        return '<option value="' + o[0] + '"' + (f.outcome === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
-      '<label class="field"><span>สถานะ</span><select id="f-status"><option value="">ทั้งหมด</option>' +
-      Object.keys(st).map(function (k) { return '<option value="' + k + '"' + (f.status === k ? ' selected' : '') + '>' + esc(st[k]) + '</option>'; }).join('') + '</select></label>' +
-      '<label class="field"><span>เรียงตาม</span><select id="f-sort">' +
-      [['urgency', 'เร่งด่วนก่อน (SLA)'], ['updated_desc', 'อัปเดตล่าสุด'], ['created_desc', 'สร้างล่าสุด'], ['due_asc', 'วันที่ต้องการราคา']]
-        .map(function (o) { return '<option value="' + o[0] + '"' + (f.sort === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
-      '</div><details' + (f.stage || f.group_code || f.priority || f.date_from || f.date_to || f.sr || f.requestor ? ' open' : '') + '><summary class="small" style="cursor:pointer;color:var(--brand)">ตัวกรองเพิ่มเติม</summary><div class="row" style="margin-top:8px">' +
-      '<label class="field"><span>ขั้นตอน</span><select id="f-stage"><option value="">ทั้งหมด</option>' +
-      Object.keys(sg).map(function (k) { return '<option value="' + k + '"' + (f.stage === k ? ' selected' : '') + '>' + esc(sg[k]) + '</option>'; }).join('') + '</select></label>' +
-      '<label class="field"><span>กลุ่มสินค้า</span><select id="f-group">' + groupOptions(f.group_code, true) + '</select></label>' +
-      '<label class="field"><span>ความเร่งด่วน</span><select id="f-prio"><option value="">ทั้งหมด</option>' +
-      [['urgent', 'ด่วนมาก'], ['high', 'สูง'], ['normal', 'ปกติ'], ['low', 'ต่ำ']].map(function (o) {
-        return '<option value="' + o[0] + '"' + (f.priority === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
-      (state.me.role !== 'sales' ? '<label class="field"><span>ผู้ขอ (Sales)</span><select id="f-req"><option value="">ทั้งหมด</option>' +
-        (state.ref.sales_users || []).map(function (u) { return '<option value="' + esc(u.email) + '"' + (f.requestor === u.email ? ' selected' : '') + '>' + esc(u.full_name) + '</option>'; }).join('') +
-        '</select></label>' : '') +
-      (state.me.role !== 'sales' ? '<label class="field"><span>SR ผู้รับงาน</span><select id="f-sr"><option value="">ทั้งหมด</option>' +
-        state.ref.sr_users.map(function (u) { return '<option value="' + esc(u.email) + '"' + (f.sr === u.email ? ' selected' : '') + '>' + esc(u.full_name) + '</option>'; }).join('') +
-        '</select></label>' : '') +
-      '<label class="field"><span>สร้างตั้งแต่</span><input type="date" id="f-from" value="' + esc(f.date_from) + '"></label>' +
-      '<label class="field"><span>ถึง</span><input type="date" id="f-to" value="' + esc(f.date_to) + '"></label>' +
-      '</div><button class="btn sm" id="f-clear">ล้างตัวกรอง</button></details></div>';
-  }
-
-  function rowsHtml(d) {
-    if (!d.rows.length) {
-      return '<div class="card empty">' + (state.route.scope === 'inbox' ? 'ไม่มีงานรอคุณอยู่ตอนนี้ 🎉' : 'ไม่พบใบขอราคาตามเงื่อนไขนี้') +
-        (state.me.role === 'sales' ? '<p><button class="btn primary" onclick="App.go({page:\'new\'})">+ สร้างใบขอราคา</button></p>' : '') + '</div>';
+  /* ---------- filtering (pure, in the browser) ---------- */
+  function rootOf(code) {
+    const g = state.ref.product_groups;
+    let c = code;
+    for (let i = 0; i < 10; i++) {
+      const x = g.filter(function (y) { return y.code === c; })[0];
+      if (!x || !x.parent_code) return c;
+      c = x.parent_code;
     }
-    const s = d.sla_counts;
-    let html = '<p class="small"><b>' + fmtInt(d.total) + '</b> ใบ' +
-      (s.breach ? ' · <span class="sla breach">⛔ เกิน SLA ' + s.breach + '</span>' : '') +
-      (s.warning ? ' · <span class="sla warning">⚠ ใกล้ครบ ' + s.warning + '</span>' : '') + '</p>';
-    html += '<div class="card" style="padding:0"><div class="tbl-wrap"><table class="tbl stack"><thead><tr>' +
+    return c;
+  }
+  function advMatch(r, f) {
+    if (f.stage && r.stage !== f.stage) return false;
+    if (f.requestor && r.requestor_email !== f.requestor) return false;
+    if (f.sr && r.sr_email !== f.sr) return false;
+    if (f.outcome && r.outcome !== f.outcome) return false;
+    if (f.prio && r.priority !== f.prio) return false;
+    if (f.group && r.group_codes.indexOf(f.group) === -1 && r.root_codes.indexOf(f.group) === -1) return false;
+    const day = String(r.created_at || '').slice(0, 10);
+    if (f.from && day < f.from) return false;
+    if (f.to && day > f.to) return false;
+    return true;
+  }
+  function textMatch(r, q) {
+    if (!q) return true;
+    const hay = (r.ticket_no + ' ' + r.title + ' ' + r.customer_name + ' ' + r.item_names + ' ' + r.requestor_name + ' ' + (r.sr_name || '')).toLowerCase();
+    return q.toLowerCase().split(/\s+/).filter(String).every(function (w) { return hay.indexOf(w) !== -1; });
+  }
+  const SORTS = {
+    smart: function (a, b) {   // open work first, the most urgent on top; finished work last, newest first
+      const openA = a.outcome === 'open' ? 0 : 1, openB = b.outcome === 'open' ? 0 : 1;
+      if (openA !== openB) return openA - openB;
+      if (!openA) {
+        const rank = { breach: 0, warning: 1, ok: 2, none: 3, done: 4 };
+        return (rank[a.sla_status] - rank[b.sla_status]) || (b.stage_age_hours - a.stage_age_hours);
+      }
+      return a.updated_at < b.updated_at ? 1 : -1;
+    },
+    updated_desc: function (a, b) { return a.updated_at < b.updated_at ? 1 : -1; },
+    created_desc: function (a, b) { return a.created_at < b.created_at ? 1 : -1; },
+    due_asc: function (a, b) { return (a.due_date || '9999') < (b.due_date || '9999') ? -1 : 1; }
+  };
+  const SORT_LABEL = { smart: 'งานค้างและเร่งด่วนก่อน', updated_desc: 'อัปเดตล่าสุด', created_desc: 'สร้างล่าสุด', due_asc: 'วันที่ต้องการราคา' };
+
+  /* ---------- view ---------- */
+  function shell(f) {
+    return '<div class="page-head"><h1>ใบเสนอราคา</h1>' +
+      (state.me.role === 'sales' ? '<button class="btn primary" data-new>+ สร้างใบขอราคา</button>' : '') + '</div>' +
+      '<div class="card list-bar">' +
+      '<div class="tabs" role="tablist" id="t-tabs"></div>' +
+      '<div class="list-tools"><input type="search" id="f-q" placeholder="ค้นหา เลขที่ใบ / ลูกค้า / สินค้า / Sales / SR" value="' + esc(f.q) + '" aria-label="ค้นหา">' +
+      '<button class="btn" id="f-adv" aria-expanded="false">⚙ ตัวกรองเพิ่มเติม <span class="count" id="f-adv-n" hidden></span></button></div>' +
+      '<div class="chips" id="t-chips"></div></div>' +
+      '<div id="t-results" class="t-results">' + loadingHtml() + '</div>';
+  }
+
+  function tabsHtml(rows, f) {
+    return tabsFor().map(function (t) {
+      const n = rows.filter(t.test).length;
+      const on = f.tab === t.id;
+      return '<button type="button" role="tab" class="tab' + (on ? ' on' : '') + '" aria-selected="' + on + '" data-tab="' + t.id + '">' +
+        esc(t.label) + ' <span class="n">' + fmtInt(n) + '</span></button>';
+    }).join('');
+  }
+
+  function nameOf(list, email) {
+    const u = (list || []).filter(function (x) { return x.email === email; })[0];
+    return u ? u.full_name : email;
+  }
+  function chipsHtml(f) {
+    const sg = state.ref.stage_labels;
+    const items = [];
+    if (f.stage) items.push(['stage', 'ขั้นตอน: ' + (sg[f.stage] || f.stage)]);
+    if (f.outcome) items.push(['outcome', 'ผล: ' + ({ done: 'เสนอราคาจบแล้ว', open: 'ยังไม่จบ', rejected: 'ไม่อนุมัติ / ยกเลิก' }[f.outcome] || f.outcome)]);
+    if (f.requestor) items.push(['requestor', 'Sales: ' + nameOf(state.ref.sales_users, f.requestor)]);
+    if (f.sr) items.push(['sr', 'SR: ' + nameOf(state.ref.sr_users, f.sr)]);
+    if (f.group) items.push(['group', 'กลุ่ม: ' + (groupName(f.group) || f.group)]);
+    if (f.prio) items.push(['prio', 'ความเร่งด่วน: ' + ({ urgent: 'ด่วนมาก', high: 'สูง', normal: 'ปกติ', low: 'ต่ำ' }[f.prio] || f.prio)]);
+    if (f.from || f.to) items.push(['date', 'สร้าง ' + (f.from ? fmtDate(f.from) : '…') + ' – ' + (f.to ? fmtDate(f.to) : '…')]);
+    if (f.sort) items.push(['sort', 'เรียง: ' + SORT_LABEL[f.sort]]);
+    if (f.q) items.unshift(['q', 'ค้นหา: “' + f.q + '”']);
+    if (!items.length) return '';
+    return items.map(function (c) {
+      return '<span class="chip">' + esc(c[1]) + '<button type="button" data-unchip="' + c[0] + '" aria-label="เอาตัวกรองนี้ออก">✕</button></span>';
+    }).join('') + '<button type="button" class="btn sm ghost" data-clear>ล้างทั้งหมด</button>';
+  }
+
+  function tableHtml(list, f, shown) {
+    if (!list.length) {
+      const filtered = f.q || ADV.some(function (k) { return f[k]; }) || f.tab !== 'all';
+      return '<div class="card empty">' + (f.tab === 'inbox' && !filtered ? 'ไม่มีงานรอคุณอยู่ตอนนี้ 🎉' : 'ไม่พบใบเสนอราคาตามเงื่อนไขนี้') +
+        (filtered ? '<p><button class="btn" data-clear>ล้างตัวกรองแล้วแสดงทั้งหมด</button></p>' : '') +
+        (state.me.role === 'sales' ? '<p><button class="btn primary" data-new>+ สร้างใบขอราคา</button></p>' : '') + '</div>';
+    }
+    const breach = list.filter(function (r) { return r.sla_status === 'breach'; }).length;
+    const warn = list.filter(function (r) { return r.sla_status === 'warning'; }).length;
+    const rows = list.slice(0, shown);
+    return '<p class="small list-sum"><b>' + fmtInt(list.length) + '</b> ใบ' +
+      (breach ? ' · <span class="sla breach">⛔ เกิน SLA ' + breach + '</span>' : '') +
+      (warn ? ' · <span class="sla warning">⚠ ใกล้ครบ ' + warn + '</span>' : '') + '</p>' +
+      '<div class="card" style="padding:0"><div class="tbl-wrap"><table class="tbl stack tlist"><thead><tr>' +
       '<th class="c-main">ใบขอราคา</th><th class="c-st">สถานะ / ขั้นตอน</th><th class="c-p">ผู้ขอ</th><th class="c-p">SR</th><th class="num c-n">รายการ</th><th class="c-t">ค้างในขั้นตอน</th><th class="c-t">อายุ / ต้องการ</th></tr></thead><tbody>' +
-      d.rows.map(function (r) {
+      rows.map(function (r) {
         return '<tr class="click" data-id="' + esc(r.ticket_id) + '" tabindex="0">' +
           '<td class="main"><div><b>' + esc(r.ticket_no) + '</b> ' + (r.priority !== 'normal' ? prioText(r.priority) : '') +
+          (r.is_inbox && r.outcome === 'open' ? ' <span class="badge tag-me">รอคุณ</span>' : '') +
           (r.revision_count ? ' <span class="badge">แก้ราคา ' + r.revision_count + '</span>' : '') +
-          (r.parent_ticket_no ? ' <span class="badge tag-follow">📌 ส่งตามหลังจาก ' + esc(r.parent_ticket_no) + '</span>' : '') + '</div>' +
+          (r.parent_ticket_no ? ' <span class="badge tag-follow">📌 จาก ' + esc(r.parent_ticket_no) + '</span>' : '') + '</div>' +
           '<div>' + esc(r.title) + '</div><div class="small muted">' + esc(r.item_names).slice(0, 120) + '</div></td>' +
           '<td data-label="สถานะ">' + statusBadge(r.status, r.status_label) + '<div class="small">' + esc(r.stage_label) + '</div></td>' +
           '<td data-label="ผู้ขอ">' + esc(r.requestor_name) + '</td>' +
@@ -72,59 +168,125 @@ Pages.tickets = (function () {
           '<td data-label="รายการ" class="num">' + r.item_count + '</td>' +
           '<td data-label="ค้างในขั้นตอน">' + (r.sla_status === 'done' ? '–' : fmtHours(r.stage_age_hours) + '<div class="small">' + slaBadge(r.sla_status) + '</div>') + '</td>' +
           '<td data-label="อายุ">' + r.age_days + ' วัน' + (r.due_date ? '<div class="small muted">ต้องการ ' + esc(fmtDate(r.due_date)) + '</div>' : '') + '</td></tr>';
-      }).join('') + '</tbody></table></div></div>';
-    const pages = Math.ceil(d.total / d.page_size);
-    if (pages > 1) {
-      html += '<div class="actions" style="justify-content:center">' +
-        '<button class="btn sm" id="pg-prev"' + (d.page <= 1 ? ' disabled' : '') + '>‹ ก่อนหน้า</button>' +
-        '<span class="small" style="align-self:center">หน้า ' + d.page + ' / ' + pages + '</span>' +
-        '<button class="btn sm" id="pg-next"' + (d.page >= pages ? ' disabled' : '') + '>ถัดไป ›</button></div>';
-    }
-    return html;
+      }).join('') + '</tbody></table></div></div>' +
+      (list.length > shown ? '<div class="actions" style="justify-content:center"><button class="btn" data-more>แสดงเพิ่มอีก ' +
+        fmtInt(Math.min(PAGE_SIZE, list.length - shown)) + ' ใบ (เหลือ ' + fmtInt(list.length - shown) + ')</button></div>' : '');
   }
 
+  /* ---------- advanced filter panel (applies only on "ใช้ตัวกรอง") ---------- */
+  function openAdvanced(f, apply) {
+    const sg = state.ref.stage_labels;
+    const opt = function (v, label, cur) { return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(label) + '</option>'; };
+    const root = document.createElement('div');
+    root.innerHTML = '<div class="overlay" data-close></div><aside class="drawer adv" role="dialog" aria-label="ตัวกรองเพิ่มเติม">' +
+      '<header><h3>ตัวกรองเพิ่มเติม</h3><button class="btn sm ghost" data-close aria-label="ปิด">✕</button></header><div class="adv-body">' +
+      '<label class="field"><span>ขั้นตอน</span><select id="a-stage">' + opt('', 'ทั้งหมด', f.stage) +
+        Object.keys(sg).map(function (k) { return opt(k, sg[k], f.stage); }).join('') + '</select></label>' +
+      '<label class="field"><span>กลุ่มสินค้า</span><select id="a-group">' + groupOptions(f.group, true) + '</select></label>' +
+      (state.me.role !== 'sales' ? '<label class="field"><span>Sales ผู้ขอ</span><select id="a-req">' + opt('', 'ทั้งหมด', f.requestor) +
+        (state.ref.sales_users || []).map(function (u) { return opt(u.email, u.full_name, f.requestor); }).join('') + '</select></label>' +
+        '<label class="field"><span>SR ผู้รับงาน</span><select id="a-sr">' + opt('', 'ทั้งหมด', f.sr) +
+        (state.ref.sr_users || []).map(function (u) { return opt(u.email, u.full_name, f.sr); }).join('') + '</select></label>' : '') +
+      '<label class="field"><span>ความเร่งด่วน</span><select id="a-prio">' + opt('', 'ทั้งหมด', f.prio) + opt('urgent', 'ด่วนมาก', f.prio) +
+        opt('high', 'สูง', f.prio) + opt('normal', 'ปกติ', f.prio) + opt('low', 'ต่ำ', f.prio) + '</select></label>' +
+      '<div class="row tight"><label class="field"><span>สร้างตั้งแต่</span><input type="date" id="a-from" value="' + esc(f.from) + '"></label>' +
+      '<label class="field"><span>ถึง</span><input type="date" id="a-to" value="' + esc(f.to) + '"></label></div>' +
+      '<label class="field"><span>เรียงตาม</span><select id="a-sort">' + opt('', SORT_LABEL.smart + ' (ค่าเริ่มต้น)', f.sort) +
+        ['updated_desc', 'created_desc', 'due_asc'].map(function (k) { return opt(k, SORT_LABEL[k], f.sort); }).join('') + '</select></label>' +
+      '</div><footer class="adv-foot"><button class="btn" id="a-reset">ล้าง</button><span class="sep"></span>' +
+      '<button class="btn primary" id="a-apply">ใช้ตัวกรอง</button></footer></aside>';
+    $('#modal-root').appendChild(root);
+    const close = function () { root.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = function (e) { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    $all('[data-close]', root).forEach(function (b) { b.onclick = close; });
+    const val = function (id) { const el = $('#' + id, root); return el ? el.value : ''; };
+    $('#a-reset', root).onclick = function () { $all('select, input', root).forEach(function (el) { el.value = ''; }); };
+    $('#a-apply', root).onclick = function () {
+      const next = { stage: val('a-stage'), group: val('a-group'), requestor: val('a-req'), sr: val('a-sr'), prio: val('a-prio'),
+        from: val('a-from'), to: val('a-to'), sort: val('a-sort') };
+      if (next.from && next.to && next.from > next.to) { toast('วันที่เริ่มต้องไม่เกินวันที่สิ้นสุด', 'err'); return; }
+      close();
+      apply(next);
+    };
+    const first = $('select', root);
+    if (first) first.focus();
+  }
+
+  /* ---------- page ---------- */
   return {
     render: function (view, route, isCurrent) {
-      const scope = route.scope || (state.me.role === 'sales' ? 'mine' : 'all');
-      const fromRoute = route.stage || route.requestor || route.sr || route.outcome || route.follow;
-      const fkey = scope + (route.follow ? ':follow' : '');
-      const f = filters[fkey] = fromRoute ? Object.assign(defaults(scope), {
-        stage: route.stage || '', requestor: route.requestor || '', sr: route.sr || '', outcome: route.outcome || '', follow_up: !!route.follow
-      }) : (filters[fkey] || defaults(scope));
-      view.innerHTML = '<div class="page-head"><h1>' + esc(f.follow_up ? 'รายการส่งตามหลังที่ยังค้าง' : title(scope)) + '</h1>' +
-        (state.me.role === 'sales' ? '<button class="btn primary" onclick="App.go({page:\'new\'})">+ สร้างใบขอราคา</button>' : '') +
-        '</div>' + filterBar(f) + '<div id="t-results">' + loadingHtml() + '</div>';
+      const f = fromRoute(route);
+      let shown = PAGE_SIZE;
+      // listeners go on this page's own wrapper (not on #view, which outlives the page)
+      view.innerHTML = '<div class="tickets-page">' + shell(f) + '</div>';
+      const pg = view.firstChild;
 
-      const load = function () {
-        const box = $('#t-results');
-        if (!box) return;
-        box.innerHTML = loadingHtml();
-        const q = { scope: scope, q: f.q, sort: f.sort, page: f.page, page_size: 50, group_code: f.group_code, priority: f.priority,
-          date_from: f.date_from, date_to: f.date_to, sr: f.sr, requestor: f.requestor, outcome: f.outcome, follow_up: !!f.follow_up,
-          status: f.status ? [f.status] : [], stage: f.stage ? [f.stage] : [] };
-        api('listTickets', q).then(function (d) {
-          if (!isCurrent()) return;
-          box.innerHTML = rowsHtml(d);
-          $all('tr.click', box).forEach(function (tr) {
-            const open = function () { go({ page: 'ticket', id: tr.getAttribute('data-id') }); };
-            tr.onclick = open;
-            tr.onkeydown = function (e) { if (e.key === 'Enter') open(); };
-          });
-          if ($('#pg-prev')) $('#pg-prev').onclick = function () { f.page--; load(); };
-          if ($('#pg-next')) $('#pg-next').onclick = function () { f.page++; load(); };
-        }).catch(function (e) { if (isCurrent()) box.innerHTML = errorHtml(e, 'App.reload()'); });
+      const draw = function () {
+        if (!board.rows || !isCurrent()) return;
+        const base = board.rows.filter(function (r) { return advMatch(r, f) && textMatch(r, f.q); });
+        $('#t-tabs', pg).innerHTML = tabsHtml(base, f);
+        const tab = tabsFor().filter(function (t) { return t.id === f.tab; })[0] || TABS[0];
+        const list = base.filter(tab.test).sort(SORTS[f.sort] || SORTS.smart);
+        $('#t-results', pg).innerHTML = tableHtml(list, f, shown);
+        $('#t-chips', pg).innerHTML = chipsHtml(f);
+        const nAdv = ['stage', 'outcome', 'requestor', 'sr', 'group', 'prio', 'sort'].filter(function (k) { return f[k]; }).length + (f.from || f.to ? 1 : 0);
+        const badge = $('#f-adv-n', pg);
+        badge.hidden = !nAdv; badge.textContent = nAdv;
+      };
+      const update = function (patch) {
+        Object.assign(f, patch);
+        shown = PAGE_SIZE;
+        saveRoute(f);
+        draw();
       };
 
-      const bind = function (id, key, ev) {
-        const el = $('#' + id);
-        if (!el) return;
-        el.addEventListener(ev || 'change', function () { f[key] = el.value; f.page = 1; load(); });
-      };
-      $('#f-q').addEventListener('input', debounce(function () { f.q = $('#f-q').value.trim(); f.page = 1; load(); }, 400));
-      bind('f-status', 'status'); bind('f-outcome', 'outcome'); bind('f-req', 'requestor'); bind('f-sort', 'sort'); bind('f-stage', 'stage'); bind('f-group', 'group_code');
-      bind('f-prio', 'priority'); bind('f-sr', 'sr'); bind('f-from', 'date_from'); bind('f-to', 'date_to');
-      $('#f-clear').onclick = function () { filters[scope] = defaults(scope); Pages.tickets.render(view, route, isCurrent); };
-      load();
+      // one delegated handler: survives every redraw of tabs / chips / table
+      pg.addEventListener('click', function (e) {
+        const t = e.target.closest('[data-tab], [data-unchip], [data-clear], [data-more], [data-new], tr.click');
+        if (!t) return;
+        if (t.hasAttribute('data-tab')) update({ tab: t.getAttribute('data-tab') });
+        else if (t.hasAttribute('data-unchip')) {
+          const k = t.getAttribute('data-unchip');
+          if (k === 'q') $('#f-q', pg).value = '';
+          update(k === 'date' ? { from: '', to: '' } : { [k]: '' });
+        } else if (t.hasAttribute('data-clear')) {
+          $('#f-q', pg).value = '';
+          const blank = { tab: 'all', q: '', sort: '' };
+          ADV.forEach(function (k) { blank[k] = ''; });
+          update(blank);
+        } else if (t.hasAttribute('data-more')) { shown += PAGE_SIZE; draw(); }
+        else if (t.hasAttribute('data-new')) go({ page: 'new' });
+        else go({ page: 'ticket', id: t.getAttribute('data-id') });
+      });
+      pg.addEventListener('keydown', function (e) {
+        const tr = e.target.closest('tr.click');
+        if (tr && e.key === 'Enter') go({ page: 'ticket', id: tr.getAttribute('data-id') });
+      });
+      $('#f-q', pg).addEventListener('input', debounce(function () { update({ q: $('#f-q', pg).value.trim() }); }, 150));
+      $('#f-adv', pg).onclick = function () { openAdvanced(f, update); };
+
+      // show what we have at once, then refresh in the background (cheap: the server caches per data version).
+      // A late answer never overwrites a newer one.
+      if (board.rows) draw();
+      {
+        const seq = ++board.seq;
+        const res = $('#t-results', pg);
+        if (board.rows && res) res.classList.add('refreshing');
+        api('listTicketBoard').then(function (d) {
+          if (seq !== board.seq) return;
+          board.rows = d.rows;
+          board.at = Date.now();
+          draw();
+        }).catch(function (e) {
+          if (seq !== board.seq || !isCurrent()) return;
+          if (board.rows) toast('โหลดรายการล่าสุดไม่สำเร็จ — แสดงข้อมูลเดิม: ' + e.error, 'err');
+          else $('#t-results', pg).innerHTML = errorHtml(e, 'App.reload()');
+        }).then(function () {
+          const r = $('#t-results', pg);
+          if (r) r.classList.remove('refreshing');
+        });
+      }
     }
   };
 })();

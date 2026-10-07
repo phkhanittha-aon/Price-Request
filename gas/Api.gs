@@ -361,3 +361,70 @@ function myOpenFollowUps_(u) {
     return true;
   }).sort(function (a, b) { return new Date(a.created_at) - new Date(b.created_at); });
 }
+
+// =============================================================================
+// Ticket board — ONE call returns every ticket the user may see; the page filters,
+// searches and counts in the browser (no round trip per filter = no lag, no race).
+// =============================================================================
+
+const BOARD_TTL_SEC_ = 300;
+const BOARD_CHUNK_ = 90000;   // CacheService: 100 KB per value
+
+/**
+ * Rows = summaryRow_ (no prices) + flags for the status tabs.
+ * Cached per user for 5 minutes; any write to tickets / items / users / settings starts a
+ * new data version, so a cached list is never older than the last change.
+ */
+function listTicketBoard() {
+  return api_('listTicketBoard', function () {
+    const u = currentUser_();
+    const key = 'brd:' + dataVersion_() + ':' + u.email;
+    const cached = boardCacheGet_(key);
+    if (cached) { cached.cached = true; return cached; }
+    const now = new Date();
+    const ctx = listContext_();
+    const rows = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return canSeeTicket_(u, t); }).map(function (t) {
+      const r = summaryRow_(t, ctx, now);
+      r.is_inbox = isAssignee_(u, t, ctx);
+      r.is_mine = u.role === 'sr' ? t.sr_email === u.email : t.requestor_email === u.email;
+      r.is_follow_up = !!t.parent_ticket_id;
+      r.outcome = outcome_(t);
+      r.priority = String(t.priority);
+      return r;
+    });
+    const out = { rows: rows, generated_at: now.toISOString(), cached: false };
+    boardCachePut_(key, out);
+    return out;
+  });
+}
+
+function boardCacheGet_(key) {
+  try {
+    const c = CacheService.getScriptCache();
+    const head = c.get(key);
+    if (!head) return null;
+    const n = Number(head);
+    let s = '';
+    for (let i = 0; i < n; i++) {
+      const part = c.get(key + ':' + i);
+      if (part === null) return null;
+      s += part;
+    }
+    return JSON.parse(s);
+  } catch (e) {
+    return null;   // a cache problem only costs a fresh read
+  }
+}
+
+function boardCachePut_(key, obj) {
+  try {
+    const s = JSON.stringify(obj);
+    if (s.length > BOARD_CHUNK_ * 20) return;   // > ~1.8 MB: just don't cache
+    const c = CacheService.getScriptCache();
+    const n = Math.ceil(s.length / BOARD_CHUNK_) || 1;
+    for (let i = 0; i < n; i++) c.put(key + ':' + i, s.slice(i * BOARD_CHUNK_, (i + 1) * BOARD_CHUNK_), BOARD_TTL_SEC_);
+    c.put(key, String(n), BOARD_TTL_SEC_);
+  } catch (e) {
+    console.warn('board cache put failed', e);
+  }
+}

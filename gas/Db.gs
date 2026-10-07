@@ -98,8 +98,26 @@ function toCell_(v) {
 }
 
 /** Append objects as rows (one setValues call). Returns the objects. */
+/** Tabs whose change makes cached ticket lists stale (see listTicketBoard). */
+const BOARD_TABS_ = ['Tickets', 'TicketItems', 'Users', 'Departments', 'ProductGroups', 'Settings'];
+let DATA_DIRTY_ = false;
+function markDataChanged_(tab) {
+  if (BOARD_TABS_.indexOf(tab) === -1) return;
+  if (LOCK_DEPTH_ > 0) DATA_DIRTY_ = true;   // bumped once when the lock is released
+  else bumpDataVersion_();
+}
+/** A new data version = every cached ticket list is ignored from now on. */
+function bumpDataVersion_() {
+  DATA_DIRTY_ = false;
+  PropertiesService.getScriptProperties().setProperty('DATA_VERSION', String(Date.now()) + '-' + Math.floor(Math.random() * 1e6));
+}
+function dataVersion_() {
+  return PropertiesService.getScriptProperties().getProperty('DATA_VERSION') || '0';
+}
+
 function insertRows_(tab, objs) {
   if (!objs.length) return objs;
+  markDataChanged_(tab);
   const meta = headers_(tab);
   const width = meta.headers.length;
   const data = objs.map(function (o) {
@@ -125,6 +143,7 @@ function insertRow_(tab, obj) {
  * Returns the merged row object.
  */
 function updateRow_(tab, keyValue, patch) {
+  markDataChanged_(tab);
   const meta = headers_(tab);
   const sh = meta.sheet;
   const lastRow = sh.getLastRow();
@@ -170,6 +189,7 @@ function withLock_(fn) {
   } finally {
     LOCK_DEPTH_--;
     invalidate_();
+    if (DATA_DIRTY_) bumpDataVersion_();
     lock.releaseLock();
   }
 }

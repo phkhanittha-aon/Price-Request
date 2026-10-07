@@ -27,6 +27,7 @@ function runAcceptanceTests() {
     runOrgCases_(results);
     runSellPriceCases_(results);
     runFollowUpCases_(results);
+    runBoardCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -1071,5 +1072,39 @@ function runFollowUpCases_(results) {
     ok(menuFor_(userByEmail_(U.salesFood3)).some(function (m) { return m.key === 'follow' && m.route.follow === '1'; }), 'Menu has “ส่งตามหลัง (ค้าง)”');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: FOLLOW_UP — ' + e.message + '\n' + e.stack);
+  }
+}
+
+// =============================================================================
+// Ticket board (list page): one call, visibility, tab flags, cache invalidation
+// =============================================================================
+function runBoardCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  try {
+    const all = rows_(TAB.TICKETS).map(normTicket_);
+    const gm = as(U.gm, function () { return must(listTicketBoard()); });
+    ok(gm.rows.length === all.length, 'Board: GM gets every ticket in one call (' + gm.rows.length + ')');
+    const s1 = as(U.salesFood1, function () { return must(listTicketBoard()); });
+    ok(s1.rows.length > 0 && s1.rows.every(function (r) { return r.requestor_email === U.salesFood1; }), 'Board: Sales gets only own tickets');
+    ok(!/unit_price|net_unit_cost|clearance|landed|gp_percent|sell_price/.test(JSON.stringify(s1)), 'Board rows carry no price or cost fields');
+    const row = gm.rows[0];
+    ok(['is_inbox', 'is_mine', 'is_follow_up', 'outcome', 'stage', 'sla_status'].every(function (k) { return k in row; }), 'Board rows carry the flags the tabs need');
+    const again = as(U.gm, function () { return must(listTicketBoard()); });
+    ok(again.cached === true && again.rows.length === gm.rows.length, 'Second call is served from cache');
+    const before = dataVersion_();
+    const t = rows_(TAB.TICKETS).map(normTicket_).filter(function (x) { return x.stage === 'pending_gm'; })[0];
+    must(as(U.gm, function () { return transitionTicket(t.ticket_id, 'gm_approve', '', { expected_version: t.version }); }));
+    ok(dataVersion_() !== before, 'A workflow write starts a new data version');
+    const fresh = as(U.gm, function () { return must(listTicketBoard()); });
+    ok(fresh.cached === false && fresh.rows.filter(function (r) { return r.ticket_id === t.ticket_id; })[0].stage === 'pending_assign',
+      'After a change the board is rebuilt (no stale stage)');
+  } catch (e) {
+    results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: BOARD — ' + e.message + '\n' + e.stack);
   }
 }
