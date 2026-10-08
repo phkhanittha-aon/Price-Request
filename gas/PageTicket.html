@@ -96,7 +96,7 @@ Pages.ticket = (function () {
     if (t.stage === 'pending_assign' && (d.me.role === 'sr' || d.me.role === 'sr_manager')) html += queueCheck(d);
     const isGm = d.me.role === 'gm';
     if (t.stage === 'pending_gm') {
-      html += '<div class="notice side-sales"><b>🛒 อนุมัติฝั่งขาย</b>' + (isGm ? ' — ตรวจคำขอของ Sales: ลูกค้า สินค้า ปริมาณ และราคาเป้าหมาย ก่อนส่งให้ SR หาราคา' : ' — รอ GM อนุมัติคำขอราคา') + '</div>';
+      html += '<div class="notice side-sales"><b>🛒 อนุมัติฝั่งขาย</b>' + (isGm ? ' — ตรวจคำขอของ Sales: ลูกค้า สินค้า ปริมาณ และราคาที่ลูกค้าคาดหวัง ก่อนส่งให้ SR หาราคา' : ' — รอ GM อนุมัติคำขอราคา') + '</div>';
     }
     if (t.stage === 'pending_gm_price') {
       html += '<div class="notice side-buy"><b>📦 อนุมัติฝั่งซื้อ</b>' + (isGm ? ' — ตรวจราคาซื้อจาก vendor, ต้นทุนถึงคลัง, GP และราคาขาย (SR Manager ตรวจแล้ว) ก่อนส่งราคาขายถึง Sales' : ' — SR Manager อนุมัติแล้ว รอ GM อนุมัติราคา') + '</div>';
@@ -130,7 +130,7 @@ Pages.ticket = (function () {
         '<dt>% Net Weight</dt><dd>' + esc(it.net_weight || '–') + '</dd><dt>ขนาด (Size)</dt><dd>' + esc(it.size || '–') + '</dd>' +
         '<dt>แพคย่อย (Packing Size)</dt><dd>' + esc(it.packing_size || '–') + '</dd>' +
         '<dt>ปริมาณต่อเดือน</dt><dd><b>' + fmtNum(it.qty) + ' ' + esc(it.uom) + '</b></dd>' +
-        '<dt>ราคาเป้าหมาย</dt><dd>' + (it.target_price ? fmtMoney(it.target_price) + ' บาท/กก.' : 'ไม่มี (0)') + '</dd></dl>' +
+        '<dt>ราคาที่ลูกค้าคาดหวัง</dt><dd>' + (it.target_price ? fmtMoney(it.target_price) + ' บาท/' + esc(it.uom) : 'ลูกค้ายังไม่ระบุ') + '</dd></dl>' +
         picturesHtml(d, it) +
         (it.spec ? '<div class="small">Spec: ' + esc(it.spec) + '</div>' : '') +
         (it.description ? '<div class="small muted" style="white-space:pre-wrap">' + esc(it.description) + '</div>' : '');
@@ -152,7 +152,7 @@ Pages.ticket = (function () {
               '<td data-label="เงื่อนไข" class="small">' + [q.brand, q.origin_country ? 'Origin ' + q.origin_country : '', incoLabel(q.incoterm), q.packing,
                 q.shelf_life ? 'อายุ ' + q.shelf_life : '', q.moq != null ? 'MOQ ' + fmtNum(q.moq) : '', q.lead_time_days != null ? 'Lead ' + q.lead_time_days + ' วัน' : '',
                 q.payment_term, q.valid_until ? 'ยืนราคาถึง ' + fmtDate(q.valid_until) : ''].filter(Boolean).map(esc).join(' · ') + '</td></tr>';
-          }).join('') + '</tbody></table></div>' + sellHtml(it);
+          }).join('') + '</tbody></table></div>' + photoReviewHtml(d, it) + sellHtml(it);
       } else if (!showQ && it.sales_pricing) {
         html += salesSellHtml(it);
       } else if (!showQ && ['on_process'].indexOf(d.ticket.status) !== -1) {
@@ -175,7 +175,7 @@ Pages.ticket = (function () {
       '<tr class="sub"><td>= ต้นทุนถึงคลัง</td><td class="num">' + fmtMoney(p.landed_cost_thb) + '</td><td class="u">' + u + '</td></tr>' +
       '<tr><td>+ กำไร GP ' + fmtNum(p.gp_percent) + '%' + (p.gp_is_default ? ' <span class="small muted">(ค่าเริ่มต้น)</span>' : '') + '</td><td class="num">' + fmtMoney(p.profit_thb) + '</td><td class="u">' + u + '</td></tr>' +
       '<tr class="total"><td>= ราคาขาย</td><td class="num">' + fmtMoney(p.sell_price_thb) + '</td><td class="u">' + u + '</td></tr>' +
-      '<tr class="ref"><td>ราคาเป้าหมายลูกค้า</td><td class="num">' + (p.target_price ? fmtMoney(p.target_price) : 'ไม่มี') + '</td><td class="u">' + diff + '</td></tr>' +
+      '<tr class="ref"><td>ราคาที่ลูกค้าคาดหวัง</td><td class="num">' + (p.target_price ? fmtMoney(p.target_price) : 'ไม่มี') + '</td><td class="u">' + diff + '</td></tr>' +
       '</tbody></table></div>';
   }
 
@@ -199,7 +199,7 @@ Pages.ticket = (function () {
       p.shelf_life ? 'อายุ ' + p.shelf_life : '', p.moq != null ? 'MOQ ' + fmtNum(p.moq) : '', p.lead_time_days != null ? 'Lead ' + p.lead_time_days + ' วัน' : '']
       .filter(Boolean).map(esc).join(' · ');
     return '<div class="sell sales-sell"><div class="sell-price"><span class="lbl">ราคาขาย</span><b>' + fmtMoney(p.sell_price_thb) + '</b> <span class="u">' + u + '</span></div>' +
-      '<dl class="kv small"><dt>ราคาเป้าหมายลูกค้า</dt><dd>' + (p.target_price ? fmtMoney(p.target_price) + ' ' + u + ' ' + diff : 'ไม่มี') + '</dd>' +
+      '<dl class="kv small"><dt>ราคาที่ลูกค้าคาดหวัง</dt><dd>' + (p.target_price ? fmtMoney(p.target_price) + ' ' + u + ' ' + diff : 'ไม่มี') + '</dd>' +
       (p.valid_until ? '<dt>ยืนราคาถึง</dt><dd>' + esc(fmtDate(p.valid_until)) + '</dd>' : '') +
       (terms ? '<dt>รายละเอียดสินค้า</dt><dd>' + terms + '</dd>' : '') + '</dl></div>';
   }
@@ -210,8 +210,21 @@ Pages.ticket = (function () {
     return v ? v.label : k;
   }
 
+  /** Supplier product photos per offer (winner first) — what SR Manager / GM look at before approving. */
+  function photoReviewHtml(d, it) {
+    const rows = it.quotations.slice().sort(function (a, b) { return (b.is_selected - a.is_selected) || (a.cost_rank - b.cost_rank); })
+      .map(function (q) { return { q: q, list: Photos.of(d.attachments, q.quote_id) }; })
+      .filter(function (r) { return r.list.length; });
+    if (!rows.length) return '<div class="small muted" style="margin-top:6px">📷 ยังไม่มีรูปสินค้าจาก Supplier</div>';
+    return '<div class="prev-photos"><h4>📷 รูปสินค้าจาก Supplier</h4>' + rows.map(function (r) {
+      return '<div class="prev-row' + (r.q.is_selected ? ' win' : '') + '"><div class="small"><b>' + esc(r.q.vendor_name) + '</b>' +
+        (r.q.is_selected ? ' <span class="badge tag-win">✔ ผู้ชนะ</span>' : '') + '</div>' +
+        Photos.html(r.list, { quoteId: r.q.quote_id, editable: false, compact: true }) + '</div>';
+    }).join('') + '</div>';
+  }
+
   function picturesHtml(d, it) {
-    const pics = d.attachments.filter(function (a) { return a.item_id === it.item_id; });
+    const pics = d.attachments.filter(function (a) { return a.item_id === it.item_id && a.category !== 'quote_photo'; });
     if (!pics.length) return '';
     return '<div class="small" style="margin-top:4px">รูปภาพสินค้า: ' + pics.map(function (a) {
       return '<a href="#" data-open="' + esc(a.attachment_id) + '">' + (/^image\//.test(a.mime_type) ? '🖼️ ' : '📄 ') + esc(a.file_name) + '</a>';
@@ -235,9 +248,12 @@ Pages.ticket = (function () {
 
   function attachmentsHtml(d) {
     const p = d.permissions;
-    let html = '<div class="card"><h3>ไฟล์แนบ (' + d.attachments.length + ')</h3>';
-    if (!d.attachments.length) html += '<div class="muted small">ยังไม่มีไฟล์แนบ</div>';
-    html += d.attachments.map(function (a) {
+    const files = d.attachments.filter(function (a) { return a.category !== 'quote_photo'; });   // supplier photos: gallery per offer above
+    const nPhotos = d.attachments.length - files.length;
+    let html = '<div class="card"><h3>ไฟล์แนบ (' + files.length + ')</h3>';
+    if (!files.length) html += '<div class="muted small">ยังไม่มีไฟล์แนบ</div>';
+    if (nPhotos) html += '<div class="small muted" style="margin-bottom:6px">📷 รูปสินค้าจาก Supplier ' + nPhotos + ' รูป แสดงใต้ตารางเทียบราคาของแต่ละรายการ</div>';
+    html += files.map(function (a) {
       const mine = a.uploaded_by === state.me.email;
       return '<div class="actions" style="align-items:center;padding:6px 0;border-bottom:1px solid var(--line)">' +
         '<span>📎 <a href="#" data-open="' + esc(a.attachment_id) + '">' + esc(a.file_name) + '</a> <span class="small muted">' +
@@ -255,7 +271,7 @@ Pages.ticket = (function () {
 
   const FIELD_LABEL = {
     title: 'ชื่อเรื่อง', description: 'รายละเอียด', customer_name: 'ลูกค้า', priority: 'ความเร่งด่วน', due_date: 'วันที่ต้องการ',
-    product_group_code: 'กลุ่มสินค้า', product_name: 'ชื่อสินค้า', spec: 'Spec', qty: 'จำนวน', uom: 'หน่วย', target_price: 'ราคาเป้าหมาย',
+    product_group_code: 'กลุ่มสินค้า', product_name: 'ชื่อสินค้า', spec: 'Spec', qty: 'จำนวน', uom: 'หน่วย', target_price: 'ราคาที่ลูกค้าคาดหวัง',
     target_currency: 'สกุลเงินเป้าหมาย', vendor_id: 'รหัส vendor', vendor_name: 'Vendor', unit_price: 'ราคาต่อหน่วย', currency: 'สกุลเงิน',
     fx_rate: 'อัตราแลกเปลี่ยน', vat_term: 'VAT', vat_rate: 'อัตรา VAT', moq: 'MOQ', lead_time_days: 'Lead time (วัน)', payment_term: 'เงื่อนไขชำระเงิน',
     valid_until: 'ยืนราคาถึง', remark: 'หมายเหตุ', clearance_thb: 'ค่าเคลียร์ของ (บาท/หน่วย)', gp_percent: 'GP %', attachment_file_id: 'ไฟล์ใบเสนอราคา', is_checked: 'ติ๊กแล้ว', note: 'หมายเหตุ'
@@ -312,7 +328,7 @@ Pages.ticket = (function () {
     }
     if (ui.fields) {
       const auto = completeness(d).filter(function (r) { return !r.ok; }).map(function (r) { return r.key; });
-      const REQ_FIELDS = ['รูปภาพสินค้า', 'สเปก / Grade / ขนาด', '% Net Weight', 'Packing', 'ปริมาณ', 'ราคาเป้าหมาย', 'เอกสารที่ต้องการ',
+      const REQ_FIELDS = ['รูปภาพสินค้า', 'สเปก / Grade / ขนาด', '% Net Weight', 'Packing', 'ปริมาณ', 'ราคาที่ลูกค้าคาดหวัง', 'เอกสารที่ต้องการ',
         'ประเทศปลายทาง / กลุ่มลูกค้า', 'วันที่ต้องการ (เร็วเกินไป)', 'อื่นๆ (ระบุในเหตุผล)'];
       html = '<p class="small">เลือกข้อมูลที่ยังขาด (ระบบติ๊กให้ตามที่ตรวจพบ)</p><div class="miss-grid">' + REQ_FIELDS.map(function (f) {
         return '<label class="chk-inline"><input type="checkbox" class="dlg-miss" value="' + esc(f) + '"' + (auto.indexOf(f) !== -1 ? ' checked' : '') + '> ' + esc(f) + '</label>';
@@ -347,6 +363,7 @@ Pages.ticket = (function () {
 
   function bind(view, d) {
     const t = d.ticket;
+    Photos.bind(view, { attachments: function () { return d.attachments; } });
     $all('[data-action]', view).forEach(function (b) { b.onclick = function () { runAction(view, d, b.getAttribute('data-action')); }; });
     $all('[data-nav]', view).forEach(function (b) { b.onclick = function () { go({ page: b.getAttribute('data-nav'), id: t.ticket_id }); }; });
     $all('[data-copy]', view).forEach(function (b) { b.onclick = function () { go({ page: 'new', copy: t.ticket_id }); }; });

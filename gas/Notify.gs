@@ -91,6 +91,104 @@ function ticketLink_(t, page) {
 
 /** Pseudo-recipient for the Lark group that is told when a price is finished (GM approved). */
 const PRICE_GROUP_KEY_ = '#price_group';
+/** Pseudo-recipient for the management Lark group (SR / SR Manager / GM — purchasing-side approvals). */
+const MGMT_GROUP_KEY_ = '#mgmt_group';
+
+/**
+ * Automatic Lark group messages. Each event goes to ONE group:
+ *   sales = LARK_PRICE_GROUP_CHAT_ID (blank → LARK_GROUP_CHAT_ID) — the group with every Sales
+ *   mgmt  = LARK_MGMT_GROUP_CHAT_ID  (blank → not sent)            — SR, SR Manager, GM
+ * Which events are sent: Settings › lark_group_events (JSON list of keys; default = all).
+ * RULE: a group message NEVER carries a price, cost, vendor name, GP or a free-text comment
+ * (comments may talk about cost). It says what happened, to which request, and links to the app,
+ * where each person sees only what their role allows.
+ */
+const GROUP_EVENTS_ = {
+  new_request:    { group: 'sales', icon: '🆕', color: 'blue',      label: 'คำขอราคาใหม่' },
+  sales_approved: { group: 'sales', icon: '🛒', color: 'turquoise', label: 'GM อนุมัติฝั่งขายแล้ว — เข้าคิว SR' },
+  sr_claimed:     { group: 'sales', icon: '🙋', color: 'turquoise', label: 'SR รับงานแล้ว' },
+  queue_return:   { group: 'sales', icon: '↩️', color: 'orange',    label: 'SR ตีกลับ — ข้อมูลไม่ครบ' },
+  need_info:      { group: 'sales', icon: '❓', color: 'orange',    label: 'SR ขอข้อมูลเพิ่ม' },
+  rejected:       { group: 'sales', icon: '⛔', color: 'red',       label: 'ไม่อนุมัติคำขอราคา' },
+  price_done:     { group: 'sales', icon: '✅', color: 'green',     label: 'ทำราคาเสร็จแล้ว' },
+  follow_up:      { group: 'sales', icon: '📌', color: 'orange',    label: 'แยกรายการส่งราคาตามหลัง' },
+  deal_won:       { group: 'sales', icon: '🎉', color: 'green',     label: 'ปิดการขายได้' },
+  price_review:   { group: 'mgmt',  icon: '🧾', color: 'purple',    label: 'ราคารอ SR Manager ตรวจ' },
+  gm_buy:         { group: 'mgmt',  icon: '📦', color: 'purple',    label: 'ราคารอ GM อนุมัติฝั่งซื้อ' },
+  price_returned: { group: 'mgmt',  icon: '🔁', color: 'orange',    label: 'ตีกลับให้ SR แก้ราคา' },
+  revision:       { group: 'mgmt',  icon: '✏️', color: 'orange',    label: 'Sales ขอให้ปรับราคา' }
+};
+const GROUP_KEY_OF_ = { sales: PRICE_GROUP_KEY_, mgmt: MGMT_GROUP_KEY_ };
+
+/** transition → group event (null = no group message). */
+function groupEventOfTransition_(action, saved) {
+  if (saved.stage === 'rejected' && (action === 'manager_reject' || action === 'gm_reject')) return 'rejected';
+  return {
+    gm_approve: 'sales_approved', claim: 'sr_claimed', queue_return: 'queue_return', request_info: 'need_info',
+    submit_quote: 'price_review', srm_approve: 'gm_buy', srm_return: 'price_returned', gm_price_return: 'price_returned',
+    gm_price_approve: 'price_done', request_revision: 'revision'
+  }[action] || null;
+}
+
+function groupEventsEnabled_() {
+  const v = setting_('lark_group_events', null);
+  return Array.isArray(v) ? v : Object.keys(GROUP_EVENTS_);
+}
+
+/** Item lines for a group message: product + spec only (no price, no vendor). */
+function groupItemLines_(t) {
+  return activeItemsOf_(t.ticket_id).map(function (it) {
+    if (it.quote_status) return '• ' + itemStatusLine_(it).replace(/\*\*/g, '');
+    const spec = [it.size, it.packing_size].filter(Boolean).join(' · ');
+    return '• #' + it.line_no + ' ' + it.product_name + (spec ? ' (' + spec + ')' : '') + ' — ' + fmtQty_(it.qty) + ' ' + it.uom + '/เดือน';
+  });
+}
+
+function fmtQty_(n) {
+  const v = Number(n);
+  return isFinite(v) ? String(Math.round(v * 100) / 100).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '-';
+}
+
+/**
+ * Queue one group message for `event` (skipped when the event is switched off in Settings).
+ * extra: { lines: [...] } — structured, price-free facts only.
+ */
+function enqueueGroupEvent_(event, t, extra) {
+  const ev = GROUP_EVENTS_[event];
+  if (!ev || groupEventsEnabled_().indexOf(event) === -1) return 0;
+  const x = extra || {};
+  const req = userByEmail_(t.requestor_email);
+  const sr = t.sr_email ? userByEmail_(t.sr_email) : null;
+  const actor = safeEmail_() ? userByEmail_(safeEmail_()) : null;
+  const head = [
+    'ลูกค้า: **' + (t.customer_name || '-') + '**' + (t.customer_group ? ' · ' + t.customer_group : '') +
+      (t.destination_country && t.destination_country !== 'ไทย' ? ' · ปลายทาง ' + t.destination_country : ''),
+    'Sales: ' + (req ? req.full_name : t.requestor_email) + (sr ? ' · SR: ' + sr.full_name : '') +
+      (actor && event !== 'new_request' ? ' · โดย ' + actor.full_name : '')
+  ];
+  if (event === 'new_request' && t.due_date) head.push('ต้องการราคาภายใน ' + fmtDate_(t.due_date, 'dd/MM/yyyy') + (t.priority === 'urgent' || t.priority === 'high' ? ' · ⚡ ด่วน' : ''));
+  const body = head.join('\n') + '\n\n' + (x.items === false ? '' : groupItemLines_(t).join('\n')) +
+    ((x.lines || []).length ? '\n\n' + x.lines.join('\n') : '') +
+    (event === 'price_done' ? '\n\nราคาขายส่งถึง Sales ผู้ขอทาง Lark ส่วนตัวแล้ว · ดูรายละเอียดในระบบ' : '');
+  insertRows_(TAB.NOTIFICATIONS, [{
+    notif_id: uuid_(), user_email: GROUP_KEY_OF_[ev.group], ticket_id: t.ticket_id, type: 'group_' + event,
+    title: ev.icon + ' [' + t.ticket_no + '] ' + ev.label + ' — ' + (t.customer_name || t.title),
+    body: body.slice(0, 1500), link: ticketLink_(t, 'ticket'), is_read: false, read_at: '', created_at: new Date(),
+    lark_status: 'pending', lark_attempts: 0, lark_error: '', lark_sent_at: ''
+  }]);
+  return 1;
+}
+
+/** Facts for the management group when a price goes to review: how many offers / photos (never vendor names or prices). */
+function reviewFacts_(t) {
+  const items = activeItemsOf_(t.ticket_id).filter(function (it) { return !it.quote_status; });
+  let offers = 0;
+  let photos = 0;
+  items.forEach(function (it) {
+    activeQuotesOfItem_(it.item_id).forEach(function (q) { offers++; photos += quotePhotos_(q.quote_id).length; });
+  });
+  return ['Supplier ที่เสนอ: ' + offers + ' ราย · รูปสินค้า ' + photos + ' รูป — เปิดในระบบเพื่อดูราคาและรูปก่อนอนุมัติ'];
+}
 
 /**
  * Selling price lines of ONE ticket (winning offer only) — for the requesting Sales' own DM.
@@ -108,28 +206,9 @@ function sellPriceLines_(t) {
   });
 }
 
-/**
- * Queue one Lark group message: "price finished" — status only, NO prices at all.
- * The group holds every Sales, and a Sales may only see the price of their own request
- * (they get it in their own DM and in the app). Sent by dispatchNotifications().
- */
+/** "Price finished" group message — status only, NO prices (kept as a named helper for callers / tests). */
 function enqueuePriceDoneGroup_(t) {
-  const lines = activeItemsOf_(t.ticket_id).map(function (it) {
-    if (it.quote_status) return '• ' + itemStatusLine_(it).replace(/\*\*/g, '');
-    const spec = [it.size, it.packing_size].filter(Boolean).join(' · ');
-    return '• #' + it.line_no + ' ' + it.product_name + (spec ? ' (' + spec + ')' : '');
-  });
-  const req = userByEmail_(t.requestor_email);
-  const sr = userByEmail_(t.sr_email);
-  insertRows_(TAB.NOTIFICATIONS, [{
-    notif_id: uuid_(), user_email: PRICE_GROUP_KEY_, ticket_id: t.ticket_id, type: 'price_done_group',
-    title: '✅ [' + t.ticket_no + '] ทำราคาเสร็จแล้ว — ' + (t.customer_name || t.title),
-    body: 'ลูกค้า: ' + (t.customer_name || '-') + ' · Sales: ' + (req ? req.full_name : t.requestor_email) +
-      ' · SR: ' + (sr ? sr.full_name : (t.sr_email || '-')) + '\n\n' + lines.join('\n') +
-      '\n\nราคาขายส่งถึง Sales ผู้ขอทาง Lark ส่วนตัวแล้ว · ดูรายละเอียดในระบบ',
-    link: ticketLink_(t, 'ticket'), is_read: false, read_at: '', created_at: new Date(),
-    lark_status: 'pending', lark_attempts: 0, lark_error: '', lark_sent_at: ''
-  }]);
+  return enqueueGroupEvent_('price_done', t);
 }
 
 /** 1234.5 → "1,234.50" (Lark message text). */

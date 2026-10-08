@@ -208,6 +208,10 @@ function pollData_(u) {
   }).length;
   const out = { inbox: inbox, unread: unread, server_time: new Date().toISOString(),
     follow_up: myOpenFollowUps_(u).length };
+  if (u.role === 'sales' || u.role === 'manager') {
+    // deals waiting for a follow-up (Sales: own · Sales Manager: own department)
+    out.deals_due = dealRows_(u, false).filter(function (r) { return r.is_due && r.can_edit; }).length;
+  }
   if (u.role === 'gm') {
     const tickets = rows_(TAB.TICKETS).map(normTicket_);
     out.gm_sales = tickets.filter(function (t) { return t.stage === 'pending_gm' && t.manager_email !== u.email; }).length;

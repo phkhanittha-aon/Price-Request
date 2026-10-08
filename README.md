@@ -15,6 +15,7 @@ Workflow: **Sales → Manager → GM → SR (Sourcing) → Sales** พร้อ�
 | 3 | หน้าใบเสนอราคา SR (ฟอนต์ Prompt) + Prototype | ✅ [docs/phase3-pricing.md](docs/phase3-pricing.md) |
 | 4 | ฟอร์มขอราคา Food, Dashboard แบบง่าย, สายอนุมัติ Sales→(Sales Manager)→GM / SR→SR Manager→GM, ราคาขาย (ต้นทุน + ค่าเคลียร์ + GP) ต่อหน่วย, Sales เห็นเฉพาะราคาขายของตัวเอง, GM อนุมัติฝั่งขาย/ฝั่งซื้อ, ไม่เสนอ/ส่งตามหลัง | ✅ [docs/phase4-food-org.md](docs/phase4-food-org.md) |
 | 5 | ปรับ UX: รายการใบแบบแถบสถานะ (ไม่ค้าง), ฐานข้อมูล Supplier + ค้นหาเติมอัตโนมัติ, ค่าเริ่มต้น (USD = 35 ฯลฯ), หน้าแรกตามบทบาท | ✅ [docs/phase5-ux.md](docs/phase5-ux.md) |
+| 6 | รูปสินค้า Supplier (≤ 10 รูป/เจ้า) ให้ผู้บริหารดูตอนอนุมัติ, แจ้งเตือนกลุ่ม Lark อัตโนมัติ (กลุ่ม Sales / ผู้บริหาร), ติดตามการขาย New Item, สรุป GP & อัตราปิดการขาย | ✅ [docs/phase6-photos-deals-gp.md](docs/phase6-photos-deals-gp.md) |
 
 ## โครงสร้าง
 

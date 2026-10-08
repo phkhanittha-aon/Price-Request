@@ -1,0 +1,168 @@
+<!--
+  File: PageDeals.html
+  ติดตามการขาย (New Item follow-up): every item that got a GM-approved selling price.
+  Shows what Sales needs to follow up: product the customer is interested in, volume per month,
+  the price the customer expects vs the price we quoted, the deal status and the next follow-up date.
+  No cost data here (the server never sends it) — GP is on PageGp for GM / SR Manager / Admin.
+  Data: listDeals() once; tabs / search / filters run in the browser.
+-->
+<script>
+Pages.deals = (function () {
+  let data = null, user = '';
+  const f = { tab: 'todo', q: '', sales: '', group: '' };
+  const TABS = [
+    ['todo', 'ต้องติดตาม'], ['open', 'ยังไม่จบ'], ['won', 'ปิดการขายได้'], ['lost', 'ไม่ได้งาน'], ['all', 'ทั้งหมด']
+  ];
+  const ST_CLS = { '': 'd-new', follow: 'd-follow', sample: 'd-sample', won: 'd-won', lost: 'd-lost' };
+
+  function inTab(r, tab) {
+    if (tab === 'todo') return r.is_due;
+    if (tab === 'open') return r.is_open;
+    if (tab === 'won' || tab === 'lost') return r.deal_status === tab;
+    return true;
+  }
+  function filtered() {
+    const q = f.q.toLowerCase();
+    return data.rows.filter(function (r) {
+      if (f.sales && r.requestor_email !== f.sales) return false;
+      if (f.group && r.customer_group !== f.group) return false;
+      if (q && (r.ticket_no + ' ' + r.customer_name + ' ' + r.product_name + ' ' + r.size + ' ' + r.requestor_name).toLowerCase().indexOf(q) === -1) return false;
+      return true;
+    });
+  }
+  function statusChip(r) {
+    return '<span class="dchip ' + ST_CLS[r.deal_status] + '">' + esc(r.deal_status_label) + '</span>';
+  }
+  function nextText(r) {
+    if (!r.is_open) return r.deal_closed_at ? '<span class="small muted">' + (r.deal_status === 'won' ? 'ปิดได้ ' : 'ปิดงาน ') + esc(fmtDate(r.deal_closed_at)) + '</span>' : '';
+    if (r.deal_next_date) return '<span class="small ' + (r.is_due ? 'sla breach' : 'muted') + '">' + (r.is_due ? '⏰ ' : '') + 'ติดตาม ' + esc(fmtDate(r.deal_next_date)) + '</span>';
+    return r.is_due ? '<span class="small sla breach">⏰ ถึงกำหนดอัปเดต</span>' : '<span class="small muted">เสนอราคา ' + esc(fmtDate(r.quoted_ymd)) + '</span>';
+  }
+  function priceCell(r) {
+    const diff = r.target_diff_pct == null ? '' : (r.target_diff_pct > 0
+      ? '<div class="small sla breach">▲ สูงกว่าที่ลูกค้าคาด ' + fmtNum(r.target_diff_pct) + '%</div>'
+      : '<div class="small sla ok">✓ ' + (r.target_diff_pct < 0 ? 'ต่ำกว่าที่ลูกค้าคาด ' + fmtNum(-r.target_diff_pct) + '%' : 'เท่าที่ลูกค้าคาด') + '</div>');
+    return '<b>' + fmtMoney(r.sell_price_thb) + '</b> <span class="small muted">บาท/' + esc(r.uom) + '</span>' + diff;
+  }
+
+  function draw(view) {
+    const base = filtered();
+    const count = function (tab) { return base.filter(function (r) { return inTab(r, tab); }).length; };
+    const won = count('won'), lost = count('lost');
+    const rows = base.filter(function (r) { return inTab(r, f.tab); });
+    const salesOpts = data.can_see_everyone ? data.rows.reduce(function (m, r) { m[r.requestor_email] = r.requestor_name; return m; }, {}) : {};
+    const groups = data.rows.map(function (r) { return r.customer_group; }).filter(function (g, i, a) { return g && a.indexOf(g) === i; });
+    let html = reportTabs('deals') + '<div class="page-head"><div><h1>ติดตามการขาย</h1><div class="small muted">ทุกรายการที่ GM อนุมัติราคาแล้ว · อัปเดตว่าลูกค้าซื้อหรือไม่ เพื่อดูแนวโน้มการปิดการขาย</div></div></div>';
+    html += '<div class="tiles deal-tiles">' +
+      '<button class="tile" data-tab="all"><span class="v">' + fmtInt(base.length) + '</span><span class="l">รายการที่เสนอราคา</span><span class="p">สินค้าที่ลูกค้าสนใจ</span></button>' +
+      '<button class="tile' + (count('todo') ? ' bad' : '') + '" data-tab="todo"><span class="v">' + fmtInt(count('todo')) + '</span><span class="l">ถึงกำหนดติดตาม</span><span class="p">วันนัดถึงแล้ว / ยังไม่อัปเดตเกิน ' + data.follow_days + ' วัน</span></button>' +
+      '<button class="tile" data-tab="won"><span class="v">' + fmtInt(won) + '</span><span class="l">ปิดการขายได้</span><span class="p">อัตราปิด ' + (base.length ? Math.round(won / base.length * 100) : 0) + '% ของที่เสนอ' +
+        (won + lost ? ' · ชนะ ' + Math.round(won / (won + lost) * 100) + '% ของที่ตัดสินแล้ว' : '') + '</span></button>' +
+      '<button class="tile" data-tab="lost"><span class="v">' + fmtInt(lost) + '</span><span class="l">ไม่ได้งาน</span><span class="p">ดูเหตุผลเพื่อปรับราคา / สินค้า</span></button>' +
+      '</div>';
+    html += '<div class="card"><div class="tabs" role="tablist">' + TABS.map(function (t) {
+      return '<button type="button" role="tab" class="tab' + (f.tab === t[0] ? ' on' : '') + '" data-tab="' + t[0] + '" aria-selected="' + (f.tab === t[0]) + '">' + esc(t[1]) +
+        ' <span class="n">' + count(t[0]) + '</span></button>';
+    }).join('') + '</div>' +
+      '<div class="row deal-filters" style="margin-top:10px"><input type="search" id="dl-q" placeholder="ค้นหา ลูกค้า / สินค้า / เลขที่ใบ" value="' + esc(f.q) + '">' +
+      (Object.keys(salesOpts).length > 1 ? '<select id="dl-sales"><option value="">Sales ทุกคน</option>' + Object.keys(salesOpts).map(function (e) {
+        return '<option value="' + esc(e) + '"' + (f.sales === e ? ' selected' : '') + '>' + esc(salesOpts[e]) + '</option>';
+      }).join('') + '</select>' : '') +
+      (groups.length > 1 ? '<select id="dl-group"><option value="">ทุกกลุ่มลูกค้า</option>' + groups.map(function (g) {
+        return '<option' + (f.group === g ? ' selected' : '') + '>' + esc(g) + '</option>';
+      }).join('') + '</select>' : '') + '</div></div>';
+    if (!rows.length) {
+      html += '<div class="card empty">' + (data.rows.length ? 'ไม่มีรายการในแท็บนี้' : 'ยังไม่มีรายการที่ได้ราคาจาก GM — เมื่อราคาส่งถึง Sales แล้ว รายการจะมาอยู่ที่นี่') + '</div>';
+    } else {
+      html += '<div class="card"><div class="tbl-wrap"><table class="tbl stack deals"><thead><tr><th>สินค้าที่ลูกค้าสนใจ</th><th>ลูกค้า</th>' +
+        '<th class="num">ปริมาณ/เดือน</th><th class="num">ราคาที่ลูกค้าคาดหวัง</th><th class="num">ราคาที่เสนอ</th><th>สถานะการขาย</th><th></th></tr></thead><tbody>' +
+        rows.map(function (r) {
+          return '<tr class="' + (r.is_due ? 'due' : '') + '"><td class="main"><b>' + esc(r.product_name) + '</b>' +
+            '<div class="small muted">' + esc([r.size, r.packing_size, r.net_weight ? 'NW ' + r.net_weight : ''].filter(Boolean).join(' · ')) + '</div>' +
+            '<div class="small"><a href="#" data-ticket="' + esc(r.ticket_id) + '">' + esc(r.ticket_no) + '</a> #' + r.line_no + ' · เสนอ ' + esc(fmtDate(r.quoted_ymd)) + '</div></td>' +
+            '<td data-label="ลูกค้า">' + esc(r.customer_name) + '<div class="small muted">' + esc([r.customer_group, r.destination_country && r.destination_country !== 'ไทย' ? '→ ' + r.destination_country : ''].filter(Boolean).join(' ')) + '</div>' +
+              (data.can_see_everyone ? '<div class="small muted">Sales ' + esc(r.requestor_name) + '</div>' : '') + '</td>' +
+            '<td class="num" data-label="ปริมาณ/เดือน"><b>' + fmtNum(r.qty) + '</b> <span class="small muted">' + esc(r.uom) + '</span></td>' +
+            '<td class="num" data-label="ราคาที่ลูกค้าคาดหวัง">' + (r.target_price ? fmtMoney(r.target_price) + ' <span class="small muted">บาท/' + esc(r.uom) + '</span>' : '<span class="small muted">ไม่ระบุ</span>') + '</td>' +
+            '<td class="num" data-label="ราคาที่เสนอ">' + priceCell(r) + '</td>' +
+            '<td data-label="สถานะการขาย">' + statusChip(r) + '<div>' + nextText(r) + '</div>' +
+              (r.deal_reason ? '<div class="small">เหตุผล: ' + esc(r.deal_reason) + '</div>' : '') +
+              (r.deal_note ? '<div class="small muted dnote">' + esc(r.deal_note) + '</div>' : '') + '</td>' +
+            '<td class="act">' + (r.can_edit ? '<button class="btn sm' + (r.is_due ? ' primary' : '') + '" data-upd="' + esc(r.item_id) + '">อัปเดต</button>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table></div></div>';
+    }
+    view.innerHTML = html;
+    bind(view);
+  }
+
+  function bind(view) {
+    bindReportTabs(view);
+    $all('[data-tab]', view).forEach(function (b) { b.onclick = function () { f.tab = b.getAttribute('data-tab'); draw(view); }; });
+    const q = $('#dl-q', view);
+    if (q) q.oninput = debounce(function () { f.q = q.value.trim(); draw(view); const n = $('#dl-q', view); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 250);
+    if ($('#dl-sales', view)) $('#dl-sales', view).onchange = function (e) { f.sales = e.target.value; draw(view); };
+    if ($('#dl-group', view)) $('#dl-group', view).onchange = function (e) { f.group = e.target.value; draw(view); };
+    $all('[data-ticket]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-ticket') }); }; });
+    $all('[data-upd]', view).forEach(function (b) {
+      b.onclick = function () { edit(view, data.rows.filter(function (r) { return r.item_id === b.getAttribute('data-upd'); })[0]); };
+    });
+  }
+
+  /** Update dialog: status → (lost: reason) / (follow, sample: next date) + note. */
+  function edit(view, r) {
+    const statuses = data.statuses.filter(function (s) { return s.key; });
+    const cur = r.deal_status || 'follow';
+    const defNext = todayYmd(data.follow_days);
+    const html = '<div class="small muted" style="margin:-4px 0 10px">' + esc(r.customer_name) + ' · ' + fmtNum(r.qty) + ' ' + esc(r.uom) + '/เดือน · เสนอ ' +
+        fmtMoney(r.sell_price_thb) + ' บาท/' + esc(r.uom) + '</div>' +
+      '<div class="deal-st" role="radiogroup" aria-label="สถานะการขาย">' + statuses.map(function (s) {
+        return '<label class="dchip-opt ' + ST_CLS[s.key] + '"><input type="radio" name="dst" value="' + s.key + '"' + (s.key === cur ? ' checked' : '') + '><span>' + esc(s.label) + '</span></label>';
+      }).join('') + '</div>' +
+      '<label class="field" data-show="lost"><span>เหตุผลที่ไม่ได้งาน <span class="req">*</span></span><select id="d-reason"><option value="">— เลือก —</option>' +
+        data.lost_reasons.map(function (x) { return '<option' + (r.deal_reason === x ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select></label>' +
+      '<label class="field" data-show="follow sample"><span>ติดตามครั้งถัดไป</span><input type="date" id="d-next" min="' + todayYmd(0) + '" value="' + esc(r.deal_next_date && r.deal_next_date >= todayYmd(0) ? r.deal_next_date : defNext) + '">' +
+        '<small class="hint">ระบบจะขึ้นในแท็บ “ต้องติดตาม” เมื่อถึงวันนี้</small></label>' +
+      '<label class="field"><span>หมายเหตุ <span class="muted" data-noteopt>(ไม่บังคับ)</span></span><textarea id="d-note" maxlength="2000" placeholder="เช่น ลูกค้าขอทดลอง 1 ลัง / คู่แข่งเสนอ …">' + esc(r.deal_note) + '</textarea></label>';
+    const sync = function (root) {
+      const st = ($('input[name="dst"]:checked', root) || {}).value;
+      $all('[data-show]', root).forEach(function (el) { el.hidden = el.getAttribute('data-show').split(' ').indexOf(st) === -1; });
+    };
+    dialog({
+      title: 'อัปเดตผลการขาย — ' + r.product_name, html: html, confirmText: 'บันทึก',
+      onOpen: function (root) { sync(root); $all('input[name="dst"]', root).forEach(function (x) { x.onchange = function () { sync(root); }; }); },
+      validate: function (root) {
+        const st = ($('input[name="dst"]:checked', root) || {}).value;
+        if (!st) return 'กรุณาเลือกสถานะ';
+        if (st === 'lost' && !$('#d-reason', root).value) return 'กรุณาเลือกเหตุผลที่ไม่ได้งาน';
+        if (st === 'lost' && $('#d-reason', root).value === 'อื่นๆ' && !$('#d-note', root).value.trim()) return 'เลือก “อื่นๆ” กรุณาระบุรายละเอียดในหมายเหตุ';
+        if ((st === 'follow' || st === 'sample') && $('#d-next', root).value && $('#d-next', root).value < todayYmd(0)) return 'วันติดตามต้องไม่เป็นวันที่ผ่านมาแล้ว';
+        return null;
+      }
+    }).then(function (res) {
+      if (!res) return;
+      const root = res.root;
+      const st = $('input[name="dst"]:checked', root).value;
+      api('updateDeal', r.item_id, { status: st, reason: st === 'lost' ? $('#d-reason', root).value : '',
+        next_date: st === 'follow' || st === 'sample' ? $('#d-next', root).value : '', note: $('#d-note', root).value.trim() })
+        .then(function (out) {
+          data.rows = data.rows.map(function (x) { return x.item_id === r.item_id && out.deal ? out.deal : x; });
+          toast(st === 'won' ? '🎉 บันทึกว่าปิดการขายได้ — แจ้ง SR และกลุ่มแล้ว' : 'บันทึกผลการขายแล้ว', 'ok');
+          draw(view);
+          refreshPoll();
+        }).catch(function (e) { toast(e.error, 'err', 8000); });
+    });
+  }
+
+  return {
+    render: function (view, route, isCurrent) {
+      if (data && user === state.me.email) draw(view); else view.innerHTML = loadingHtml('กำลังโหลดรายการติดตามการขาย...');
+      const who = state.me.email;
+      api('listDeals').then(function (d) {
+        if (!data || user !== who) f.tab = d.rows.some(function (r) { return r.is_due && r.can_edit; }) ? 'todo' : 'open';
+        data = d; user = who;
+        if (isCurrent()) draw(view);
+      }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+    }
+  };
+})();
+</script>

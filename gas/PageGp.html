@@ -1,0 +1,207 @@
+<!--
+  File: PageGp.html
+  สรุป GP & การปิดการขาย (GM / SR Manager / Admin — cost data, never Sales / Sales Manager).
+  Every item with a GM-approved selling price = one quoted line: landed cost, GP %, profit per unit,
+  volume per month and the deal status Sales recorded (ติดตามการขาย).
+    อัตราปิดการขาย = ปิดได้ ÷ รายการที่เสนอ        Win rate = ปิดได้ ÷ (ปิดได้ + ไม่ได้งาน)
+    GP % (ถ่วงน้ำหนัก) = Σ(กำไร/หน่วย × ปริมาณ/เดือน) ÷ Σ(ราคาขาย × ปริมาณ/เดือน)
+  Data: getGpSummary() once; period / group / Sales filters run in the browser.
+-->
+<script>
+Pages.gp = (function () {
+  let data = null, user = '';
+  const f = { period: '6', group: '', sales: '' };
+  const PERIODS = [['3', '3 เดือน'], ['6', '6 เดือน'], ['12', '12 เดือน'], ['year', 'ปีนี้'], ['all', 'ทั้งหมด']];
+
+  function monthsBack(n) {
+    const t = todayYmd(0);
+    let y = Number(t.slice(0, 4)), m = Number(t.slice(5, 7));
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      out.unshift(y + '-' + ('0' + m).slice(-2));
+      m--; if (!m) { m = 12; y--; }
+    }
+    return out;
+  }
+  function months(rows) {
+    if (f.period === 'all') {
+      const ms = rows.map(function (r) { return r.quoted_month; }).sort();
+      if (!ms.length) return monthsBack(6);
+      const first = ms[0];
+      const all = monthsBack(240);
+      return all.slice(all.indexOf(first) === -1 ? 0 : all.indexOf(first));
+    }
+    if (f.period === 'year') return monthsBack(Number(todayYmd(0).slice(5, 7)));
+    return monthsBack(Number(f.period));
+  }
+  function stats(rows) {
+    const s = { n: rows.length, won: 0, lost: 0, open: 0, sell: 0, profit: 0, wonSell: 0, wonProfit: 0, openProfit: 0, lostSell: 0 };
+    rows.forEach(function (r) {
+      const sell = r.sell_price_thb * r.qty, profit = r.profit_thb * r.qty;
+      s.sell += sell; s.profit += profit;
+      if (r.deal_status === 'won') { s.won++; s.wonSell += sell; s.wonProfit += profit; }
+      else if (r.deal_status === 'lost') { s.lost++; s.lostSell += sell; }
+      else { s.open++; s.openProfit += profit; }
+    });
+    s.close = s.n ? s.won / s.n * 100 : null;
+    s.win = s.won + s.lost ? s.won / (s.won + s.lost) * 100 : null;
+    s.gp = s.sell ? s.profit / s.sell * 100 : null;
+    s.wonGp = s.wonSell ? s.wonProfit / s.wonSell * 100 : null;
+    return s;
+  }
+  const pct = function (v) { return v == null ? '–' : (Math.round(v * 10) / 10).toFixed(1) + '%'; };
+  const baht = function (v) { return fmtInt(Math.round(v)); };
+
+  function scoped() {
+    const ms = months(data.rows);
+    const from = ms[0];
+    return {
+      months: ms,
+      rows: data.rows.filter(function (r) {
+        return r.quoted_month >= from && (!f.group || r.customer_group === f.group) && (!f.sales || r.requestor_email === f.sales);
+      })
+    };
+  }
+
+  function trend(ms, rows) {
+    const by = {};
+    ms.forEach(function (m) { by[m] = []; });
+    rows.forEach(function (r) { if (by[r.quoted_month]) by[r.quoted_month].push(r); });
+    const st = ms.map(function (m) { return { m: m, s: stats(by[m]) }; });
+    const max = Math.max.apply(null, st.map(function (x) { return x.s.n; }).concat([1]));
+    const bars = st.map(function (x) {
+      const h = function (n) { return (n / max * 100) + '%'; };
+      return '<div class="tcol"><div class="tval small">' + (x.s.n ? pct(x.s.close) : '') + '</div><div class="tbar" data-tip="' +
+        esc(fmtMonth(x.m) + ' · เสนอ ' + x.s.n + ' · ปิดได้ ' + x.s.won + ' · ไม่ได้ ' + x.s.lost + ' · รอ ' + x.s.open + ' · GP ' + pct(x.s.gp)) + '">' +
+        '<i class="b-open" style="height:' + h(x.s.open) + '"></i><i class="b-lost" style="height:' + h(x.s.lost) + '"></i><i class="b-won" style="height:' + h(x.s.won) + '"></i></div>' +
+        '<div class="tlab small">' + esc(fmtMonth(x.m)) + '</div><div class="tgp small muted">' + (x.s.n ? 'GP ' + pct(x.s.gp) : '') + '</div></div>';
+    }).join('');
+    return '<div class="card"><div class="card-head"><h3>แนวโน้มรายเดือน</h3><div class="legend small"><span><i class="b-won"></i>ปิดได้</span><span><i class="b-lost"></i>ไม่ได้งาน</span>' +
+      '<span><i class="b-open"></i>ยังไม่จบ</span></div></div><p class="small muted" style="margin-top:-4px">ความสูง = จำนวนรายการที่เสนอราคา · ตัวเลขบน = อัตราปิดการขาย · ล่าง = GP % ที่เสนอ</p>' +
+      '<div class="trend" style="--n:' + ms.length + '">' + bars + '</div>' +
+      groupTable('รายเดือน', st.slice().reverse().filter(function (x) { return x.s.n; }).map(function (x) { return { label: fmtMonth(x.m), s: x.s }; })) + '</div>';
+  }
+
+  function groupTable(title, list) {
+    if (!list.length) return '';
+    return '<div class="tbl-wrap"><table class="tbl stack gpt"><thead><tr><th>' + esc(title) + '</th><th class="num">เสนอ</th><th class="num">ปิดได้</th><th class="num">ไม่ได้</th>' +
+      '<th class="num">ยังไม่จบ</th><th class="num">อัตราปิด</th><th class="num">Win rate</th><th class="num">GP % เสนอ</th><th class="num">GP % ปิดได้</th><th class="num">กำไร/เดือน ที่ปิดได้ (฿)</th></tr></thead><tbody>' +
+      list.map(function (x) {
+        const s = x.s;
+        return '<tr><td class="main">' + esc(x.label) + '</td><td class="num" data-label="เสนอ">' + s.n + '</td><td class="num" data-label="ปิดได้"><b>' + s.won + '</b></td>' +
+          '<td class="num" data-label="ไม่ได้">' + s.lost + '</td><td class="num" data-label="ยังไม่จบ">' + s.open + '</td>' +
+          '<td class="num" data-label="อัตราปิด">' + pct(s.close) + '</td><td class="num" data-label="Win rate">' + pct(s.win) + '</td>' +
+          '<td class="num" data-label="GP % เสนอ">' + pct(s.gp) + '</td><td class="num" data-label="GP % ปิดได้">' + pct(s.wonGp) + '</td>' +
+          '<td class="num" data-label="กำไร/เดือน ที่ปิดได้">' + baht(s.wonProfit) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  function breakdown(rows, key, labelOf) {
+    const by = {};
+    rows.forEach(function (r) { const k = r[key] || '–'; (by[k] = by[k] || []).push(r); });
+    return Object.keys(by).map(function (k) { return { label: labelOf ? labelOf(by[k][0], k) : k, s: stats(by[k]) }; })
+      .sort(function (a, b) { return b.s.n - a.s.n; });
+  }
+
+  function lostReasons(rows) {
+    const lost = rows.filter(function (r) { return r.deal_status === 'lost'; });
+    if (!lost.length) return '';
+    const by = {};
+    lost.forEach(function (r) { by[r.deal_reason || 'ไม่ระบุ'] = (by[r.deal_reason || 'ไม่ระบุ'] || 0) + 1; });
+    const keys = Object.keys(by).sort(function (a, b) { return by[b] - by[a]; });
+    return '<div class="card"><h3>เหตุผลที่ไม่ได้งาน (' + lost.length + ' รายการ)</h3><ul class="hbars">' + keys.map(function (k) {
+      return '<li><span class="hl">' + esc(k) + '</span><span class="hb"><i style="width:' + (by[k] / lost.length * 100) + '%"></i></span><b>' + by[k] + '</b></li>';
+    }).join('') + '</ul></div>';
+  }
+
+  function detail(rows) {
+    const list = rows.slice(0, 200);
+    return '<div class="card"><div class="card-head"><h3>รายการที่เสนอราคา (' + rows.length + ')</h3><button class="btn sm" id="gp-csv">⬇ ดาวน์โหลด CSV</button></div>' +
+      '<div class="tbl-wrap"><table class="tbl stack gpd"><thead><tr><th>สินค้า</th><th>ลูกค้า</th><th class="num">ปริมาณ/เดือน</th><th class="num">ต้นทุนถึงคลัง</th>' +
+      '<th class="num">ราคาขาย</th><th class="num">GP %</th><th class="num">กำไร/เดือน (฿)</th><th>สถานะการขาย</th></tr></thead><tbody>' +
+      list.map(function (r) {
+        return '<tr><td class="main"><b>' + esc(r.product_name) + '</b><div class="small muted">' + esc([r.size, r.packing_size].filter(Boolean).join(' · ')) + '</div>' +
+          '<div class="small"><a href="#" data-ticket="' + esc(r.ticket_id) + '">' + esc(r.ticket_no) + '</a> · ' + esc(fmtDate(r.quoted_ymd)) + ' · ' + esc(r.vendor_name) + '</div></td>' +
+          '<td data-label="ลูกค้า">' + esc(r.customer_name) + '<div class="small muted">' + esc(r.customer_group) + ' · ' + esc(r.requestor_name) + '</div></td>' +
+          '<td class="num" data-label="ปริมาณ/เดือน">' + fmtNum(r.qty) + ' <span class="small muted">' + esc(r.uom) + '</span></td>' +
+          '<td class="num" data-label="ต้นทุนถึงคลัง">' + fmtMoney(r.landed_cost_thb) + '</td>' +
+          '<td class="num" data-label="ราคาขาย"><b>' + fmtMoney(r.sell_price_thb) + '</b>' + (r.target_price ? '<div class="small muted">คาด ' + fmtMoney(r.target_price) + '</div>' : '') + '</td>' +
+          '<td class="num" data-label="GP %">' + pct(r.gp_percent) + '</td>' +
+          '<td class="num" data-label="กำไร/เดือน">' + baht(r.profit_thb * r.qty) + '</td>' +
+          '<td data-label="สถานะการขาย"><span class="dchip d-' + (r.deal_status || 'new') + '">' + esc(r.deal_status_label) + '</span>' +
+            (r.deal_reason ? '<div class="small muted">' + esc(r.deal_reason) + '</div>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>' + (rows.length > list.length ? '<p class="small muted">แสดง 200 รายการล่าสุด · ดาวน์โหลด CSV เพื่อดูทั้งหมด</p>' : '') + '</div>';
+  }
+
+  function csv(rows) {
+    const cols = [['quoted_ymd', 'วันที่ GM อนุมัติราคา'], ['ticket_no', 'เลขที่ใบ'], ['line_no', 'รายการ'], ['customer_name', 'ลูกค้า'], ['customer_group', 'กลุ่มลูกค้า'],
+      ['destination_country', 'ปลายทาง'], ['requestor_name', 'Sales'], ['sr_name', 'SR'], ['product_name', 'สินค้า'], ['size', 'Size'], ['packing_size', 'Packing'],
+      ['qty', 'ปริมาณ/เดือน'], ['uom', 'หน่วย'], ['target_price', 'ราคาที่ลูกค้าคาดหวัง'], ['vendor_name', 'Supplier'], ['landed_cost_thb', 'ต้นทุนถึงคลัง/หน่วย'],
+      ['sell_price_thb', 'ราคาขาย/หน่วย'], ['gp_percent', 'GP %'], ['profit_thb', 'กำไร/หน่วย'], ['monthly_profit', 'กำไร/เดือน'],
+      ['deal_status_label', 'สถานะการขาย'], ['deal_reason', 'เหตุผล'], ['deal_note', 'หมายเหตุ']];
+    const cell = function (v) { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const lines = [cols.map(function (c) { return cell(c[1]); }).join(',')].concat(rows.map(function (r) {
+      const x = Object.assign({ monthly_profit: Math.round(r.profit_thb * r.qty * 100) / 100 }, r);
+      return cols.map(function (c) { return cell(x[c[0]]); }).join(',');
+    }));
+    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'gp-summary-' + todayYmd(0) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+
+  function draw(view) {
+    const sc = scoped();
+    const rows = sc.rows;
+    const s = stats(rows);
+    const sales = data.rows.reduce(function (m, r) { m[r.requestor_email] = r.requestor_name; return m; }, {});
+    const groups = data.rows.map(function (r) { return r.customer_group; }).filter(function (g, i, a) { return g && a.indexOf(g) === i; });
+    let html = reportTabs('gp') + '<div class="page-head"><div><h1>สรุป GP & การปิดการขาย</h1><div class="small muted">รายการที่ GM อนุมัติราคาแล้ว · ผลการขายจากหน้า “ติดตามการขาย” ของ Sales · ข้อมูลต้นทุน — เห็นเฉพาะ GM / SR Manager / Admin</div></div>' +
+      '<div class="actions">' + PERIODS.map(function (p) { return '<button class="btn sm' + (f.period === p[0] ? ' primary' : '') + '" data-period="' + p[0] + '">' + p[1] + '</button>'; }).join('') + '</div></div>';
+    html += '<div class="row gp-filters">' +
+      (groups.length ? '<select id="gp-group"><option value="">ทุกกลุ่มลูกค้า</option>' + groups.map(function (g) { return '<option' + (f.group === g ? ' selected' : '') + '>' + esc(g) + '</option>'; }).join('') + '</select>' : '') +
+      (Object.keys(sales).length ? '<select id="gp-sales"><option value="">Sales ทุกคน</option>' + Object.keys(sales).map(function (e) {
+        return '<option value="' + esc(e) + '"' + (f.sales === e ? ' selected' : '') + '>' + esc(sales[e]) + '</option>';
+      }).join('') + '</select>' : '') + '<span class="small muted">' + esc(fmtMonth(sc.months[0])) + ' – ' + esc(fmtMonth(sc.months[sc.months.length - 1])) + '</span></div>';
+    const kpi = function (v, l, p, cls) { return '<div class="tile kpi ' + (cls || '') + '"><span class="v">' + v + '</span><span class="l">' + l + '</span><span class="p">' + p + '</span></div>'; };
+    html += '<div class="tiles gp-kpi">' +
+      kpi(fmtInt(s.n), 'รายการที่เสนอราคา', 'มูลค่าขาย ' + baht(s.sell) + ' ฿/เดือน') +
+      kpi(pct(s.gp), 'GP % ที่เสนอ', 'กำไรขั้นต้น ' + baht(s.profit) + ' ฿/เดือน (ถ้าปิดได้ทั้งหมด)') +
+      kpi(fmtInt(s.won) + ' <small>(' + pct(s.close) + ')</small>', 'ปิดการขายได้', 'Win rate ' + pct(s.win) + ' ของที่ตัดสินแล้ว (' + (s.won + s.lost) + ')', 'k-won') +
+      kpi(pct(s.wonGp), 'GP % ของที่ปิดได้', 'กำไรขั้นต้น <b>' + baht(s.wonProfit) + '</b> ฿/เดือน', 'k-won') +
+      kpi(fmtInt(s.open), 'รอปิด (Pipeline)', 'กำไรที่รอปิด ' + baht(s.openProfit) + ' ฿/เดือน', 'k-open') +
+      '</div>';
+    if (!data.rows.length) {
+      html += '<div class="card empty">ยังไม่มีรายการที่ GM อนุมัติราคา</div>';
+    } else {
+      html += trend(sc.months, rows);
+      html += '<div class="card"><h3>แยกตามกลุ่มลูกค้า</h3>' + (groupTable('กลุ่มลูกค้า', breakdown(rows, 'customer_group')) || '<p class="small muted">ไม่มีข้อมูลในช่วงนี้</p>') + '</div>' +
+        '<div class="card"><h3>แยกตาม Sales</h3>' + (groupTable('Sales', breakdown(rows, 'requestor_email', function (r) { return r.requestor_name; })) || '<p class="small muted">ไม่มีข้อมูลในช่วงนี้</p>') + '</div>';
+      html += lostReasons(rows);
+      html += rows.length ? detail(rows) : '<div class="card empty">ไม่มีรายการในช่วงที่เลือก</div>';
+    }
+    view.innerHTML = html;
+    bindReportTabs(view);
+    $all('[data-period]', view).forEach(function (b) { b.onclick = function () { f.period = b.getAttribute('data-period'); draw(view); }; });
+    if ($('#gp-group', view)) $('#gp-group', view).onchange = function (e) { f.group = e.target.value; draw(view); };
+    if ($('#gp-sales', view)) $('#gp-sales', view).onchange = function (e) { f.sales = e.target.value; draw(view); };
+    if ($('#gp-csv', view)) $('#gp-csv', view).onclick = function () { csv(rows); };
+    $all('[data-ticket]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-ticket') }); }; });
+  }
+
+  return {
+    render: function (view, route, isCurrent) {
+      if (!state.ref.can_view_gp) { go({ page: 'home' }, true); return; }
+      if (data && user === state.me.email) draw(view); else view.innerHTML = loadingHtml('กำลังสรุป GP...');
+      const who = state.me.email;
+      api('getGpSummary').then(function (d) {
+        data = d; user = who;
+        if (isCurrent()) draw(view);
+      }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+    }
+  };
+})();
+</script>

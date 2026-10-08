@@ -37,7 +37,7 @@ const TRANSITION_ACTIONS = ['resubmit', 'cancel', 'manager_approve', 'manager_re
 const ACTION_LABEL_TH = {
   create: 'สร้างใบขอราคา', resubmit: 'ส่งใบขอราคาอีกครั้ง', cancel: 'ยกเลิกใบขอราคา',
   manager_approve: 'Sales Manager อนุมัติ', manager_reject: 'Sales Manager ไม่อนุมัติ', manager_return: 'Sales Manager ส่งกลับแก้ไข',
-  gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
+  deal_update: 'อัปเดตผลการขาย', gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
   request_info: 'SR ขอข้อมูลเพิ่ม', respond_info: 'Sales ส่งข้อมูลเพิ่ม', doc_complete: 'SR ตรวจเอกสารครบ',
   submit_quote: 'SR ส่งราคาให้ SR Manager ตรวจ', srm_approve: 'SR Manager อนุมัติราคา', srm_return: 'SR Manager ส่งกลับให้แก้ราคา',
   gm_price_approve: 'GM อนุมัติฝั่งซื้อ (ราคา → ส่งถึง Sales)', gm_price_return: 'GM ฝั่งซื้อ ส่งกลับให้แก้ราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
@@ -149,6 +149,7 @@ function createTicket(payload) {
       const t = normTicket_(ticket);
       enqueueNotifications_(stageAssignees_(t), t, 'approval_required',
         '[' + t.ticket_no + '] ใบขอราคาใหม่รออนุมัติ', t.title + ' — ' + u.full_name, ticketLink_(t));
+      enqueueGroupEvent_('new_request', t);
       return { ticket: publicTicket_(t), duplicate: false };
     });
   });
@@ -455,7 +456,15 @@ function doTransition_(ticketId, action, comment, payload) {
   } else {
     enqueueNotifications_(recipients, saved, notifyType, nTitle, nBody + (note ? '\n' + note : ''), ticketLink_(saved, page));
   }
-  if (action === 'gm_price_approve') enqueuePriceDoneGroup_(saved);
+  const groupEvent = groupEventOfTransition_(action, saved);
+  if (groupEvent) {
+    const lines = [];
+    if ((action === 'queue_return' || action === 'request_info') && meta && meta.missing_items && meta.missing_items.length) {
+      lines.push('ข้อมูลที่ต้องเพิ่ม: ' + meta.missing_items.join(', '));
+    }
+    if (groupEvent === 'price_review' || groupEvent === 'gm_buy') Array.prototype.push.apply(lines, reviewFacts_(saved));
+    enqueueGroupEvent_(groupEvent, saved, { lines: lines });
+  }
 
   return { ticket: publicTicket_(saved) };
 }
@@ -550,7 +559,7 @@ function ticketDetail_(u, t) {
     });
     const attachments = findAll_(TAB.ATTACHMENTS, 'ticket_id', t.ticket_id)
       .filter(function (a) { return !toBool_(a.is_deleted); })
-      .filter(function (a) { return a.category !== 'quotation' || showQuotes; })
+      .filter(function (a) { return COST_FILE_CATEGORIES_.indexOf(String(a.category)) === -1 || showQuotes; })
       .map(function (a) {
         return {
           attachment_id: String(a.attachment_id), item_id: String(a.item_id || ''), quote_id: String(a.quote_id || ''),
@@ -677,7 +686,7 @@ function validateItem_(raw, groups, lineNo) {
       packing_size: requireText_(r.packing_size, 'ขนาดของแพคย่อย (Packing Size)', 100),
       qty: toNumber_(r.qty, 'ปริมาณที่ลูกค้าต้องการต่อเดือน (Qty)', { gt: 0 }),
       uom: oneOf_(r.uom, UNITS, 'หน่วย (Unit)'),
-      target_price: toNumber_(r.target_price, 'ราคาเป้าหมาย (THB/Kg) — ถ้าไม่มีให้ใส่ 0', { min: 0 }),
+      target_price: toNumber_(r.target_price, 'ราคาที่ลูกค้าคาดหวัง (บาท/หน่วย) — ถ้าลูกค้ายังไม่บอกให้ใส่ 0', { min: 0 }),
       target_currency: 'THB',
       spec: cleanText_(r.spec, CFG.MAX_TEXT),
       description: cleanText_(r.description, CFG.MAX_TEXT)
@@ -703,7 +712,10 @@ function activeItemsOf_(ticketId) {
         sell_price_thb: r.sell_price_thb === '' || r.sell_price_thb === undefined ? null : Number(r.sell_price_thb),
         target_currency: String(r.target_currency || 'THB'),
         quote_status: String(r.quote_status || ''), quote_status_reason: String(r.quote_status_reason || ''),
-        follow_up_ticket_id: String(r.follow_up_ticket_id || '')
+        follow_up_ticket_id: String(r.follow_up_ticket_id || ''),
+        deal_status: String(r.deal_status || ''), deal_reason: String(r.deal_reason || ''), deal_note: String(r.deal_note || ''),
+        deal_next_date: r.deal_next_date ? fmtDate_(r.deal_next_date) : '', deal_updated_by: String(r.deal_updated_by || ''),
+        deal_updated_at: isoOrBlank_(r.deal_updated_at), deal_closed_at: isoOrBlank_(r.deal_closed_at)
       };
     })
     .sort(function (a, b) { return a.line_no - b.line_no; });
@@ -748,7 +760,7 @@ const PRICE_REVIEW_ACTIONS_ = ['submit_quote', 'srm_approve', 'srm_return', 'gm_
 function salesTimeline_(timeline) {
   return timeline.filter(function (l) {
     if (COST_LOG_ACTIONS_.indexOf(l.action) !== -1) return false;
-    if (l.metadata && l.metadata.category === 'quotation') return false;
+    if (l.metadata && COST_FILE_CATEGORIES_.indexOf(String(l.metadata.category)) !== -1) return false;
     return true;
   }).map(function (l) {
     if (PRICE_REVIEW_ACTIONS_.indexOf(l.action) !== -1) {

@@ -20,7 +20,7 @@ const vm = require('vm');
 const crypto = require('crypto');
 
 const OWNER = 'owner@example.co.th';
-const FILE_ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify', 'Workflow', 'Editing', 'Suppliers',
+const FILE_ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify', 'Workflow', 'Editing', 'Suppliers', 'Deals',
   'Api', 'Files', 'Lark', 'Jobs', 'Code', 'Setup', 'Tests'];
 
 // ------------------------------------------------------------------ Sheets mock

@@ -53,7 +53,7 @@ Pages.dashboard = (function () {
   function draw(view, d) {
     const k = d.kpi;
     const listScope = state.me.role === 'sales' || state.me.role === 'sr' ? 'mine' : 'all';
-    let html = '<div class="page-head"><h1>รายงาน</h1><div class="actions">' +
+    let html = reportTabs('dashboard') + '<div class="page-head"><h1>ภาพรวมใบขอราคา</h1><div class="actions">' +
       PRESETS.map(function (p) { return '<button class="btn sm' + (range.key === p[0] ? ' primary' : '') + '" data-range="' + p[0] + '">' + p[1] + '</button>'; }).join('') +
       '</div></div><p class="muted small" style="margin-top:-6px">แสดง: <b>' + esc(d.scope_note) + '</b>' +
       (d.range.from ? ' · สร้างระหว่าง ' + esc(fmtDate(d.range.from)) + ' – ' + esc(fmtDate(d.range.to)) : ' · ทุกช่วงเวลา') + ' · แตะตัวเลขเพื่อดูรายการ</p>';
@@ -105,6 +105,7 @@ Pages.dashboard = (function () {
   }
 
   function bind(view, listScope) {
+    bindReportTabs(view);
     const open = function (extra) { go(Object.assign({ page: 'tickets', scope: listScope }, extra)); };
     $all('[data-range]', view).forEach(function (b) {
       b.onclick = function () { range = presetRange(b.getAttribute('data-range')); Pages.dashboard.render(view, state.route, function () { return true; }); };

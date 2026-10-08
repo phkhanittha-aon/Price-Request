@@ -7,7 +7,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.08-3';
+const APP_VERSION = '2026.10.08-4';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -26,6 +26,7 @@ const CFG = {
     LARK_HOST: 'LARK_HOST',
     LARK_GROUP_CHAT_ID: 'LARK_GROUP_CHAT_ID',
     LARK_PRICE_GROUP_CHAT_ID: 'LARK_PRICE_GROUP_CHAT_ID',
+    LARK_MGMT_GROUP_CHAT_ID: 'LARK_MGMT_GROUP_CHAT_ID',
     WEBAPP_URL: 'WEBAPP_URL'
   }
 };
@@ -119,7 +120,9 @@ const SCHEMA = {
            // Selling price set by SR (appended): GP % of selling price, selling price per unit (stored at submit)
            'gp_percent', 'sell_price_thb',
            // SR decision per item (appended): '' = quote · 'not_offered' = will not quote · 'follow_up' = split to a new ticket
-           'quote_status', 'quote_status_reason', 'follow_up_ticket_id']
+           'quote_status', 'quote_status_reason', 'follow_up_ticket_id',
+           // Sales follow-up after the price (appended v2026.10.08-4): did the customer buy? (see Deals.gs)
+           'deal_status', 'deal_reason', 'deal_note', 'deal_next_date', 'deal_updated_by', 'deal_updated_at', 'deal_closed_at']
   },
   Quotations: {
     key: 'quote_id',
@@ -212,6 +215,12 @@ const STAGE_LABEL_TH = {
 };
 
 const OPEN_STATUSES = ['requested', 'on_process', 'completed'];
+/**
+ * Sales outcome of ONE quoted item (New Item follow-up). '' = not updated yet.
+ * follow / sample are still open; won / lost are decided.
+ */
+const DEAL_STATUSES = ['follow', 'sample', 'won', 'lost'];
+const DEAL_STATUS_LABEL_TH = { '': 'ยังไม่อัปเดต', follow: 'กำลังติดตาม', sample: 'ส่งตัวอย่าง / ทดลองสินค้า', won: 'ปิดการขายได้', lost: 'ไม่ได้งาน' };
 const VAT_TERMS = ['ex_vat', 'no_vat', 'include_vat'];
 const VAT_TERM_LABEL = { ex_vat: 'Ex VAT', no_vat: 'No VAT', include_vat: 'Include VAT' };
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
@@ -220,7 +229,11 @@ const UNITS = ['กก.', 'ตัน', 'กล่อง', 'แพ็ค', 'ถ�
 /** Delivery terms on a vendor quotation (food imports are usually CIF / CFR; local suppliers deliver). */
 const INCOTERMS = ['EXW', 'FCA', 'FOB', 'CFR', 'CIF', 'DAP', 'DDP', 'DELIVERED'];
 const INCOTERM_LABEL = { EXW: 'EXW', FCA: 'FCA', FOB: 'FOB', CFR: 'CFR (C&F)', CIF: 'CIF', DAP: 'DAP', DDP: 'DDP', DELIVERED: 'ส่งถึงคลัง MGS' };
-const ATTACHMENT_CATEGORIES = ['request', 'info_response', 'quotation', 'other'];
+const ATTACHMENT_CATEGORIES = ['request', 'info_response', 'quotation', 'quote_photo', 'other'];
+/** Purchasing-side files (vendor quotation documents + supplier product photos): cost roles only, never Sales. */
+const COST_FILE_CATEGORIES_ = ['quotation', 'quote_photo'];
+/** Supplier product photos: images only, at most `max_photos_per_quote` (default 10) per supplier offer. */
+const PHOTO_MIME_TYPES_ = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 
 /** Default rows for the Settings tab (value column stores JSON text). */
 const DEFAULT_SETTINGS = [
@@ -232,6 +245,14 @@ const DEFAULT_SETTINGS = [
   ['sla_warning_ratio', '0.8', 'เตือนเมื่อใช้เวลาเกินสัดส่วนนี้ของ SLA'],
   ['currencies', JSON.stringify(['THB', 'USD', 'CNY', 'EUR', 'JPY', 'SGD']), 'สกุลเงินใน dropdown'],
   ['max_upload_mb', '20', 'ขนาดไฟล์แนบสูงสุดต่อไฟล์ (MB)'],
+  ['lark_group_events', JSON.stringify(['new_request', 'sales_approved', 'sr_claimed', 'queue_return', 'need_info', 'rejected', 'price_done',
+    'follow_up', 'deal_won', 'price_review', 'gm_buy', 'price_returned', 'revision']),
+    'เหตุการณ์ที่ส่งเข้ากลุ่ม Lark อัตโนมัติ (ลบคีย์ออกเพื่อปิด) · กลุ่ม Sales: new_request, sales_approved, sr_claimed, queue_return, need_info, rejected, price_done, follow_up, deal_won · ' +
+    'กลุ่มผู้บริหาร: price_review, gm_buy, price_returned, revision · ข้อความกลุ่มไม่มีราคา/ต้นทุน/ชื่อ Supplier'],
+  ['deal_lost_reasons', JSON.stringify(['ราคาสูงกว่าคู่แข่ง', 'ราคาสูงกว่าที่ลูกค้าคาดหวัง', 'สเปก / คุณภาพไม่ตรง', 'MOQ สูงเกินไป',
+    'Lead time ไม่ทัน', 'ลูกค้าเลื่อน / ยกเลิกโครงการ', 'ลูกค้าไม่ตอบกลับ', 'อื่นๆ']), 'เหตุผลที่ไม่ได้งาน (dropdown ในหน้าติดตามการขาย)'],
+  ['deal_follow_days', '7', 'ถ้า Sales ไม่ได้ระบุวันติดตาม ระบบนัดติดตามครั้งถัดไป = วันนี้ + จำนวนวันนี้ · ราคาที่ส่งถึง Sales แล้วเกินจำนวนวันนี้โดยยังไม่อัปเดต = ถึงกำหนดติดตาม'],
+  ['max_photos_per_quote', '10', 'จำนวนรูปสินค้าสูงสุดต่อ Supplier 1 เจ้า (ต่อใบเสนอราคา 1 รายการ)'],
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
   ['fx_defaults', JSON.stringify({ USD: 35 }), 'อัตราแลกเปลี่ยนเริ่มต้น (บาทต่อ 1 หน่วย) ที่เติมให้ในหน้าใบเสนอราคา · SR แก้ได้ทุกใบ · สกุลที่ไม่มีในนี้ SR กรอกเอง'],
   ['default_validity_days', '30', 'จำนวนวันยืนราคาเริ่มต้น เมื่อ Supplier ไม่ได้ระบุ'],

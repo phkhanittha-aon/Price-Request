@@ -7,7 +7,7 @@
  *                      the Drive folder for attachments. Safe to run again any time:
  *                      it only ADDS missing tabs/columns, never deletes or reorders.
  *   seedMasterData() — departments, Food product groups + checklist templates, vendors.
- *   seedDemoData()   — demo users (all roles) + 4 demo tickets driven through the real workflow.
+ *   seedDemoData()   — demo users (all roles) + 13 demo tickets driven through the real workflow (incl. price history + deal outcomes).
  *                      DEV / UAT ONLY — edit DEMO_DOMAIN first.
  */
 
@@ -15,8 +15,8 @@ const DEMO_DOMAIN = 'example.co.th';   // ← change to your company domain befo
 
 const DATE_COLS_ = ['created_at', 'updated_at', 'ts', 'stage_entered_at', 'submitted_at', 'manager_approved_at',
   'gm_approved_at', 'assigned_at', 'doc_checked_at', 'completed_at', 'closed_at', 'rejected_at', 'cancelled_at',
-  'checked_at', 'uploaded_at', 'deleted_at', 'read_at', 'lark_sent_at'];
-const DAY_COLS_ = ['due_date', 'valid_until'];
+  'checked_at', 'uploaded_at', 'deleted_at', 'read_at', 'lark_sent_at', 'deal_updated_at', 'deal_closed_at'];
+const DAY_COLS_ = ['due_date', 'valid_until', 'deal_next_date'];
 const NUMBER_COLS_ = ['qty', 'target_price', 'unit_price', 'fx_rate', 'vat_rate', 'moq', 'lead_time_days',
   'net_unit_cost', 'net_unit_cost_thb', 'gross_unit_price_thb', 'line_no', 'version', 'revision_count',
   'sort_order', 'size_bytes', 'log_id', 'stage_duration_sec', 'last_no', 'lark_attempts'];
@@ -367,5 +367,47 @@ function seedDemoTickets_() {
     must(selectQuotation(q.quote_id, ''));
   });
   go(U.sr1, t.ticket_id, 'submit_quote');
-  return 'demo tickets +6';
+
+  // (G–M) Price history for ติดตามการขาย + สรุป GP: priced over the last months, with the deal outcome Sales recorded
+  const priced = function (sales, key, header, item, quote, gp, monthsAgo, deal) {
+    const x = req(sales, key, header, [Object.assign({ net_weight: '100%', packing_size: '10 kg/ctn', uom: 'กก.' }, item)]);
+    if (ticketById_(x.ticket_id).stage === 'pending_manager') go(U.mgrFood, x.ticket_id, 'manager_approve');
+    go(U.gm, x.ticket_id, 'gm_approve');
+    go(U.sr2, x.ticket_id, 'claim');
+    as(U.sr2, function () { checklistOf_(x.ticket_id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+    go(U.sr2, x.ticket_id, 'doc_complete');
+    as(U.sr2, function () {
+      const it = activeItemsOf_(x.ticket_id)[0];
+      const qid = Utilities.getUuid();
+      must(saveSourcingDraft(x.ticket_id, [{ item_id: it.item_id, gp_percent: gp, winner_quote_id: qid,
+        quotes: [Object.assign({ quote_id: qid, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }, quote)] }]));
+    });
+    go(U.sr2, x.ticket_id, 'submit_quote');
+    go(U.srManager, x.ticket_id, 'srm_approve');
+    go(U.gm, x.ticket_id, 'gm_price_approve');
+    const when = new Date(Date.now() - monthsAgo * 30.5 * 86400000);
+    updateRow_(TAB.TICKETS, x.ticket_id, { gm_price_approved_at: when });
+    if (deal && deal.status !== 'follow') go(sales, x.ticket_id, 'accept');
+    if (deal) {
+      const it = activeItemsOf_(x.ticket_id)[0];
+      as(sales, function () { must(updateDeal(it.item_id, deal)); });
+      if (deal.status === 'won' || deal.status === 'lost') updateRow_(TAB.ITEMS, it.item_id, { deal_closed_at: new Date(when.getTime() + 12 * 86400000) });
+    }
+    return x;
+  };
+  priced(U.salesFood1, 'seed-G', { customer_name: 'ร้านอาหาร ครัวทะเล' }, { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว Vannamei PD', size: '41/50', qty: 600, target_price: 280 },
+    { vendor_id: 'V-0001', vendor_name: 'Andaman Seafood Co., Ltd.', unit_price: 235 }, 15, 5, { status: 'won', note: 'สั่งประจำทุกเดือน' });
+  priced(U.salesFood2, 'seed-H', { customer_name: 'โรงแรม แกรนด์ บีช' }, { product_group_code: 'FOOD-FISH', product_name: 'ปลาแซลมอน Fillet', size: '1.2–1.8 kg', qty: 250, target_price: 520 },
+    { vendor_id: 'V-0002', vendor_name: 'Nordic Salmon AS', unit_price: 12.2, currency: 'EUR', fx_rate: 39.5, vat_term: 'no_vat', clearance_thb: 18 }, 12, 4, { status: 'lost', reason: 'ราคาสูงกว่าคู่แข่ง', note: 'คู่แข่งเสนอ 545' });
+  priced(U.salesFood3, 'seed-I', { customer_name: 'โรงแรม ซีวิว' }, { product_group_code: 'FOOD-CEPHALOPOD', product_name: 'หมึกกล้วย IQF', size: 'U/10', qty: 900, target_price: 170 },
+    { vendor_id: 'V-0003', vendor_name: 'บริษัท ซีฟู้ด เทรดดิ้ง จำกัด', unit_price: 138 }, 15, 3, { status: 'won' });
+  priced(U.salesFood1, 'seed-J', { customer_name: 'ร้านซูชิ ABC' }, { product_group_code: 'FOOD-FISH', product_name: 'ปลาซาบะนอร์เวย์ Fillet', size: '150–200 g', qty: 200, target_price: 0 },
+    { vendor_id: 'V-0002', vendor_name: 'Nordic Salmon AS', unit_price: 3.6, currency: 'EUR', fx_rate: 39.5, vat_term: 'no_vat', clearance_thb: 9 }, 18, 2, { status: 'lost', reason: 'ลูกค้าเลื่อน / ยกเลิกโครงการ' });
+  priced(U.salesFood2, 'seed-K', { customer_name: 'ภัตตาคาร ทะเลทอง' }, { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งแชบ๊วย HOSO', size: '21/25', qty: 150, target_price: 420 },
+    { vendor_id: 'V-0005', vendor_name: 'India Marine Exports Pvt. Ltd.', unit_price: 9.9, currency: 'USD', fx_rate: 35, vat_term: 'no_vat', clearance_thb: 15 }, 14, 1, { status: 'won' });
+  priced(U.salesFood3, 'seed-L', { customer_name: 'โรงแรม รอยัล ริเวอร์' }, { product_group_code: 'FOOD-FISH', product_name: 'ปลากะพงขาว Fillet', size: '200–300 g', qty: 400, target_price: 210 },
+    { vendor_id: 'V-0003', vendor_name: 'บริษัท ซีฟู้ด เทรดดิ้ง จำกัด', unit_price: 182 }, 15, 1, { status: 'sample', note: 'ส่งตัวอย่าง 5 กก. ให้เชฟทดลอง' });
+  priced(U.salesFood1, 'seed-M', { customer_name: 'ร้านอาหาร ครัวทะเล' }, { product_group_code: 'FOOD-CEPHALOPOD', product_name: 'ปลาหมึกกระดอง Cut', size: '40/60', qty: 300, target_price: 190 },
+    { vendor_id: 'V-0001', vendor_name: 'Andaman Seafood Co., Ltd.', unit_price: 158 }, 15, 0, null);
+  return 'demo tickets +13';
 }

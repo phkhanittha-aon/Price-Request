@@ -295,6 +295,7 @@ function deleteQuotationCore_(u, quoteId) {
   const t = ticketForUser_(u, q.ticket_id);
   if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน ในขั้นตอนหาราคา');
   updateRow_(TAB.QUOTATIONS, q.quote_id, { is_deleted: true, is_selected: false, selection_reason: '', updated_at: new Date() });
+  removeQuotePhotos_(u, String(q.quote_id));
   appendLog_({ ticket_id: t.ticket_id, action: 'quotation_deleted', actor_email: u.email, actor_role: u.role,
     metadata: { item_id: String(q.item_id), quote_id: String(q.quote_id), quote: normQuote_(q) } });
   return { deleted: true };
@@ -561,7 +562,8 @@ function splitFollowUp_(u, t, it, why, now) {
   const item = {};
   SCHEMA.TicketItems.cols.forEach(function (c) { item[c] = src[c] === undefined ? '' : src[c]; });
   Object.assign(item, { item_id: newItemId, ticket_id: ticketId, line_no: 1, quote_status: '', quote_status_reason: '',
-    follow_up_ticket_id: '', gp_percent: src.gp_percent === undefined ? '' : src.gp_percent, sell_price_thb: '', created_at: now, updated_at: now });
+    follow_up_ticket_id: '', gp_percent: src.gp_percent === undefined ? '' : src.gp_percent, sell_price_thb: '', created_at: now, updated_at: now,
+    deal_status: '', deal_reason: '', deal_note: '', deal_next_date: '', deal_updated_by: '', deal_updated_at: '', deal_closed_at: '' });
   insertRow_(TAB.ITEMS, item);
   // vendor prices + item pictures + quotation files move with the item
   const moved = activeQuotesOfItem_(it.item_id).map(function (q) {
@@ -584,5 +586,7 @@ function splitFollowUp_(u, t, it, why, now) {
   appendLog_({ ticket_id: ticketId, log_type: 'transition', action: 'create', actor_email: u.email, actor_role: u.role,
     to_status: ticket.status, to_stage: ticket.stage, comment: why,
     metadata: { ticket_no: ticket.ticket_no, item_count: 1, split_from: t.ticket_no, split_line_no: it.line_no } });
-  return normTicket_(ticket);
+  const fresh = normTicket_(ticket);
+  enqueueGroupEvent_('follow_up', fresh, { lines: ['แยกจากใบ ' + t.ticket_no + ' รายการที่ ' + it.line_no + ' — SR จะส่งราคารายการนี้ตามหลัง'] });
+  return fresh;
 }

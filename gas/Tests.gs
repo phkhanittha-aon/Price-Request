@@ -30,6 +30,7 @@ function runAcceptanceTests() {
     runBoardCases_(results);
     runSupplierCases_(results);
     runQueueReturnCases_(results);
+    runPhotoDealCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -366,8 +367,9 @@ function runCases_(results) {
 /** Fake UrlFetchApp: Drive resumable upload + permissions, Lark auth / user ids / messages. */
 function fakeHttp_() {
   const calls = [];
-  const resp = function (code, body, headers) {
+  const resp = function (code, body, headers, bytes) {
     return {
+      getContent: function () { return bytes || []; },
       getResponseCode: function () { return code; },
       getContentText: function () { return typeof body === 'string' ? body : JSON.stringify(body); },
       getAllHeaders: function () { return headers || {}; }
@@ -375,6 +377,8 @@ function fakeHttp_() {
   };
   return {
     calls: calls,
+    files: {},                // drive file id → { bytes, mime } (uploaded content, for previews)
+    parts: {},                // upload session → bytes received so far
     failOpenIds: {},          // open_id → true : Lark message call fails
     unknownEmails: {},        // email → true   : Lark has no such user
     fetch: function (url, opt) {
@@ -386,7 +390,18 @@ function fakeHttp_() {
       }
       if (url.indexOf('https://upload.fake/session/') === 0) {
         const m = /bytes (\d+)-(\d+)\/(\d+)/.exec(o.headers['Content-Range']);
-        return Number(m[2]) + 1 < Number(m[3]) ? resp(308, '') : resp(200, { id: 'drive-file-' + calls.length });
+        const parts = this.parts[url] = (this.parts[url] || []).concat(Array.prototype.slice.call(o.payload || []));
+        if (Number(m[2]) + 1 < Number(m[3])) return resp(308, '');
+        const id = 'drive-file-' + calls.length;
+        this.files[id] = { bytes: parts, mime: o.contentType || 'application/octet-stream' };
+        return resp(200, { id: id });
+      }
+      // photo previews: file metadata → thumbnail link → image bytes
+      const meta = /\/drive\/v3\/files\/([^/?]+)\?fields=thumbnailLink/.exec(url);
+      if (meta) return this.files[decodeURIComponent(meta[1])] ? resp(200, { thumbnailLink: 'https://thumb.fake/' + meta[1] + '=s220' }) : resp(404, {});
+      if (url.indexOf('https://thumb.fake/') === 0) {
+        const f = this.files[decodeURIComponent(url.slice(19).replace(/=s\d+$/, ''))];
+        return f ? resp(200, '', { 'Content-Type': f.mime }, f.bytes) : resp(404, {});
       }
       if (url.indexOf('/drive/v3/files/') !== -1 && url.indexOf('/permissions') !== -1) return resp(200, { id: 'perm' });
       if (url.indexOf('/auth/v3/tenant_access_token') !== -1) return resp(200, { code: 0, tenant_access_token: 'tok' });
@@ -939,8 +954,8 @@ function runSellPriceCases_(results) {
     ok(ready.length === 1 && String(ready[0].body).indexOf('337.62') !== -1 &&
       !/Andaman|270\.09|GP \d|\d%|ต้นทุน|เคลียร์/.test(String(ready[0].body)),
       'Requesting Sales gets the selling price of their own request in the DM — no cost / GP');
-    const grp = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === PRICE_GROUP_KEY_; });
-    ok(grp.length === 1 && grp[0].type === 'price_done_group' && String(grp[0].body).indexOf('กุ้งขาว') !== -1 &&
+    const grp = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === PRICE_GROUP_KEY_ && n.type === 'group_price_done'; });
+    ok(grp.length === 1 && String(grp[0].body).indexOf('กุ้งขาว') !== -1 &&
       !/337\.62|ราคาขาย \*|Andaman|270\.09|GP \d|\d%|ต้นทุน|เคลียร์/.test(String(grp[0].body)),
       'GM approval queues ONE Lark group message: status only — no price (other Sales are in the group)');
     // another Sales must not reach this request's price by any path
@@ -1067,7 +1082,7 @@ function runFollowUpCases_(results) {
     ok(byName('ปลาแซลมอน').sales_pricing && byName('ปลาแซลมอน').sales_pricing.sell_price_thb > 500, 'Quoted item still has its selling price');
     const dm = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return String(n.user_email) === U.salesFood3 && n.type === 'quote_ready'; })[0];
     ok(/ไม่เสนอราคา/.test(dm.body) && dm.body.indexOf(fu.ticket_no) !== -1, 'Sales DM lists not-offered and sent-later items');
-    const grp = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === PRICE_GROUP_KEY_; })[0];
+    const grp = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === PRICE_GROUP_KEY_ && n.type === 'group_price_done'; })[0];
     ok(/ไม่เสนอราคา/.test(grp.body) && grp.body.indexOf(fu.ticket_no) !== -1 && !/\d+\.\d\d/.test(grp.body), 'Group message shows the item statuses, still no prices');
 
     // 4) the follow-up is pending work everywhere
@@ -1268,5 +1283,210 @@ function runQueueReturnCases_(results) {
     expectErr(go(U.sr1, id, 'queue_return', 'x'), 'INVALID_STATE', 'No send-back after the job was accepted (use ขอข้อมูลเพิ่ม)');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: QUEUE_RETURN — ' + e.message + '\n' + e.stack);
+  }
+}
+
+// =============================================================================
+// Supplier photos (≤ 10 per offer) · automatic Lark group events · deal follow-up · GP summary
+// =============================================================================
+function runPhotoDealCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  const PNG = [137, 80, 78, 71, 13, 10, 26, 10];
+  const upload = function (email, meta, mime, name) {
+    return as(email, function () {
+      const b = beginUpload(Object.assign({ file_name: name || 'photo.png', mime_type: mime || 'image/png', size_bytes: PNG.length }, meta));
+      if (!b.ok) return b;
+      return uploadChunk(b.data.upload_id, 0, Utilities.base64Encode(PNG));
+    });
+  };
+  const groupMsgs = function (id, type) {
+    return findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return String(n.user_email).charAt(0) === '#' && (!type || n.type === 'group_' + type); });
+  };
+  const http = fakeHttp_();
+  TEST_HTTP_ = http;
+  TEST_DRIVE_ = fakeDrive_();
+  try {
+    // ---------- request → approvals → SR (group events on the way) ----------
+    const t = as(U.salesFood3, function () {
+      return must(createTicket({ customer_group: 'โรงแรม / จัดเลี้ยง', customer_name: 'โรงแรมรูปภาพ', due_date: inDays(3), items: [
+        { product_name: 'ปลาหมึกกล้วย IQF', net_weight: '90%', size: 'U/10', packing_size: '1 kg/bag', qty: 800, uom: 'กก.', target_price: 160 },
+        { product_name: 'กุ้งขาว HLSO', net_weight: '80%', size: '31/40', packing_size: '1 kg/pack', qty: 300, uom: 'กก.', target_price: 0 }] })).ticket;
+    });
+    const id = t.ticket_id;
+    const nr = groupMsgs(id, 'new_request');
+    ok(nr.length === 1 && nr[0].user_email === PRICE_GROUP_KEY_ && /ปลาหมึกกล้วย/.test(nr[0].body) && /800 กก\./.test(nr[0].body),
+      'Group: new request posted to the Sales group (customer, product, volume per month)');
+    must(go(U.mgrFood, id, 'manager_approve'));
+    must(go(U.gm, id, 'gm_approve'));
+    ok(groupMsgs(id, 'sales_approved').length === 1, 'Group: GM sales-side approval posted');
+    must(go(U.sr2, id, 'claim'));
+    ok(groupMsgs(id, 'sr_claimed').length === 1 && /SR:/.test(groupMsgs(id, 'sr_claimed')[0].body), 'Group: SR accepted the job');
+    as(U.sr2, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+    must(go(U.sr2, id, 'doc_complete'));
+    const items = activeItemsOf_(id);
+    const squid = items[0], shrimp = items[1];
+
+    // ---------- supplier photos ----------
+    const qa = Utilities.getUuid(), qb = Utilities.getUuid(), qs = Utilities.getUuid();
+    const meta = function (itemId, quoteId) { return { ticket_id: id, item_id: itemId, quote_id: quoteId, category: 'quote_photo' }; };
+    for (let n = 0; n < 10; n++) must(upload(U.sr2, meta(squid.item_id, qa), 'image/png', 'squid-' + n + '.png'), 'photo ' + n);
+    ok(quotePhotos_(qa).length === 10, 'Photo: SR attaches 10 photos to one supplier offer (still a draft on the pricing page)');
+    expectErr(upload(U.sr2, meta(squid.item_id, qa)), 'PHOTO_LIMIT', 'Photo: 11th photo for the same supplier is refused');
+    must(upload(U.sr2, meta(squid.item_id, qb), 'image/jpeg', 'b.jpg'));
+    ok(quotePhotos_(qb).length === 1, 'Photo: the limit is per supplier — another supplier can still add photos');
+    expectErr(upload(U.sr2, meta(squid.item_id, qa), 'application/pdf', 'spec.pdf'), 'FILE_TYPE', 'Photo: only image files');
+    expectErr(upload(U.sr2, { ticket_id: id, item_id: squid.item_id, category: 'quote_photo' }), 'VALIDATION', 'Photo: must belong to a supplier offer');
+    expectErr(upload(U.sr2, { ticket_id: id, quote_id: qa, category: 'quote_photo' }), 'VALIDATION', 'Photo: must belong to an item');
+    expectErr(upload(U.salesFood3, meta(squid.item_id, qa)), 'FORBIDDEN', 'Photo: Sales cannot attach supplier photos');
+    expectErr(upload(U.sr1, meta(squid.item_id, qa)), 'FORBIDDEN', 'Photo: only the assigned SR attaches');
+
+    const quote = function (qid, name, price) { return { quote_id: qid, vendor_name: name, unit_price: price, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }; };
+    must(as(U.sr2, function () {
+      return saveSourcingDraft(id, [
+        { item_id: squid.item_id, quotes: [quote(qa, 'Siam Squid Co., Ltd.', 120), quote(qb, 'Gulf Cephalopod Ltd.', 125)], winner_quote_id: qa },
+        { item_id: shrimp.item_id, quotes: [quote(qs, 'Andaman Shrimp Farm', 210)], winner_quote_id: qs }]);
+    }));
+    ok(String(findOne_(TAB.ATTACHMENTS, 'attachment_id', quotePhotos_(qa)[0].attachment_id).quote_id) === qa,
+      'Photo: photos stay linked when the draft offer is saved with the same id');
+    expectErr(upload(U.sr2, meta(shrimp.item_id, qa)), 'VALIDATION', 'Photo: cannot attach to a supplier of another item');
+
+    const srView = as(U.sr2, function () { return must(getTicket(id)); });
+    ok(srView.attachments.filter(function (a) { return a.category === 'quote_photo' && a.quote_id === qa; }).length === 10, 'Photo: SR sees the 10 photos of the offer');
+    const gmView = as(U.gm, function () { return must(getTicket(id)); });
+    ok(gmView.attachments.filter(function (a) { return a.category === 'quote_photo'; }).length === 11, 'Photo: GM sees every supplier photo for approval');
+    const salesView = as(U.salesFood3, function () { return must(getTicket(id)); });
+    ok(!salesView.attachments.some(function (a) { return a.category === 'quote_photo'; }), 'Photo: Sales never receives supplier photos');
+    const pid = quotePhotos_(qa)[0].attachment_id;
+    const pv = as(U.gm, function () { return must(getPhotoPreviews([pid], 'thumb')); });
+    ok(/^data:image\/png;base64,/.test(pv.previews[pid] || ''), 'Photo: GM gets an inline preview (served by the server, no Drive sharing)');
+    ok(as(U.gm, function () { return must(getPhotoPreviews([pid], 'large')); }).previews[pid], 'Photo: large preview for the full-screen viewer');
+    ok(!Object.keys(as(U.salesFood3, function () { return must(getPhotoPreviews([pid], 'thumb')); }).previews).length &&
+      !Object.keys(as(U.salesFood1, function () { return must(getPhotoPreviews([pid], 'thumb')); }).previews).length,
+      'Photo: Sales / other Sales get no preview');
+    expectErr(as(U.salesFood3, function () { return openAttachment(pid); }), 'NOT_FOUND', 'Photo: Sales cannot open the original file');
+    ok(!as(U.salesFood3, function () { return must(getTicket(id)); }).timeline.some(function (l) { return l.metadata && l.metadata.category === 'quote_photo'; }),
+      'Photo: uploads are not in the Sales timeline');
+
+    // removing a supplier removes its photos
+    must(as(U.sr2, function () {
+      return saveSourcingDraft(id, [{ item_id: squid.item_id, quotes: [quote(qa, 'Siam Squid Co., Ltd.', 120)], winner_quote_id: qa }]);
+    }));
+    ok(quotePhotos_(qb).length === 0 && quotePhotos_(qa).length === 10, 'Photo: deleting a supplier offer deletes its photos (others kept)');
+    const own = quotePhotos_(qa)[9];
+    must(as(U.sr2, function () { return deleteAttachment(own.attachment_id); }));
+    ok(quotePhotos_(qa).length === 9, 'Photo: SR removes one photo');
+    must(upload(U.sr2, meta(squid.item_id, qa)));
+    ok(quotePhotos_(qa).length === 10, 'Photo: after removing one, one more can be added');
+
+    // ---------- price review: management group gets counts, never names or prices ----------
+    must(go(U.sr2, id, 'submit_quote'));
+    const pr = groupMsgs(id, 'price_review');
+    ok(pr.length === 1 && pr[0].user_email === MGMT_GROUP_KEY_ && /รูปสินค้า 10 รูป/.test(pr[0].body) && /Supplier ที่เสนอ: 2 ราย/.test(pr[0].body),
+      'Group: management group told the price waits for SR Manager (2 offers, 10 photos)');
+    must(go(U.srManager, id, 'srm_approve'));
+    ok(groupMsgs(id, 'gm_buy').length === 1 && groupMsgs(id, 'gm_buy')[0].user_email === MGMT_GROUP_KEY_, 'Group: management group told the price waits for GM purchasing approval');
+    must(go(U.gm, id, 'gm_price_approve'));
+    ok(groupMsgs(id, 'price_done').length === 1 && groupMsgs(id, 'price_done')[0].user_email === PRICE_GROUP_KEY_, 'Group: price done posted to the Sales group');
+    const leaks = groupMsgs(id).filter(function (n) {
+      return /Siam Squid|Gulf Ceph|Andaman Shrimp|120|125|210|ราคาขาย \*\*|GP|ต้นทุน|กำไร/.test(String(n.title) + String(n.body));
+    });
+    ok(groupMsgs(id).length >= 6 && !leaks.length, 'Group: no group message carries a vendor name, price, cost or GP (' + groupMsgs(id).length + ' messages checked)');
+
+    // switching an event off
+    withLock_(function () { updateRow_(TAB.SETTINGS, 'lark_group_events', { value: JSON.stringify(['price_done']) }); });
+    const t2 = as(U.salesFood3, function () {
+      return must(createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'ร้านปิดแจ้งเตือน', due_date: inDays(3), items: [
+        { product_name: 'ปลาซาบะ', net_weight: '100%', size: 'M', packing_size: '10 kg', qty: 50, uom: 'กก.', target_price: 0 }] })).ticket;
+    });
+    ok(groupMsgs(t2.ticket_id).length === 0, 'Group: events switched off in Settings › lark_group_events are not sent');
+    withLock_(function () { updateRow_(TAB.SETTINGS, 'lark_group_events', { value: JSON.stringify(Object.keys(GROUP_EVENTS_)) }); });
+
+    // delivery: each pseudo-recipient goes to its own chat; no management chat → not sent
+    TEST_LARK_ = { app_id: 'a', app_secret: 'b', host: 'https://lark.test', group_chat_id: '', price_group_chat_id: 'oc_sales', mgmt_group_chat_id: 'oc_mgmt' };
+    const fh = fakeHttp_();
+    TEST_HTTP_ = fh;
+    for (let n = 0; n < 40; n++) { if (!withIdentity_(U.admin, function () { return dispatchNotifications(); }).claimed) break; }
+    const chats = fh.calls.filter(function (c) { return c.url.indexOf('receive_id_type=chat_id') !== -1; }).map(function (c) { return c.payload.receive_id; });
+    ok(String(findOne_(TAB.NOTIFICATIONS, 'notif_id', pr[0].notif_id).lark_status) === 'sent' && chats.indexOf('oc_mgmt') !== -1 && chats.indexOf('oc_sales') !== -1,
+      'Group: management events go to LARK_MGMT_GROUP_CHAT_ID, Sales events to the price group');
+    const card = larkCard_({ type: 'group_price_review', title: 'x', body: 'y', link: '' });
+    ok(card.header.template === 'purple' && larkCard_({ type: 'group_deal_won', title: 'x', body: 'y' }).header.template === 'green', 'Group: card colour per event');
+    TEST_LARK_ = { app_id: 'a', app_secret: 'b', host: 'https://lark.test', group_chat_id: '', price_group_chat_id: 'oc_sales', mgmt_group_chat_id: '' };
+    withLock_(function () { enqueueGroupEvent_('gm_buy', ticketById_(id)); });
+    for (let n = 0; n < 5; n++) { if (!withIdentity_(U.admin, function () { return dispatchNotifications(); }).claimed) break; }
+    ok(groupMsgs(id, 'gm_buy').some(function (n) { return String(n.lark_status) === 'no_group'; }), 'Group: management group not configured → message marked no_group (not sent to Sales)');
+    TEST_LARK_ = null;
+    TEST_HTTP_ = http;
+
+    // ---------- deal follow-up ----------
+    const deals = as(U.salesFood3, function () { return must(listDeals()); });
+    const mine = deals.rows.filter(function (r) { return r.ticket_id === id; });
+    ok(mine.length === 2 && mine.every(function (r) { return r.sell_price_thb > 0 && r.qty > 0 && !r.deal_status; }),
+      'Deals: both quoted items are follow-up lines (volume / month, expected price, quoted price)');
+    const sq = mine.filter(function (r) { return r.item_id === squid.item_id; })[0];
+    ok(sq.target_price === 160 && sq.qty === 800 && sq.uom === 'กก.' && sq.target_diff_pct !== null, 'Deals: expected price vs quoted price per unit');
+    ok(mine.every(function (r) { return !('landed_cost_thb' in r) && !('gp_percent' in r) && !('vendor_name' in r) && !('profit_thb' in r); }),
+      'Deals: Sales view carries no cost, GP or vendor');
+    ok(!as(U.salesFood1, function () { return must(listDeals()); }).rows.some(function (r) { return r.ticket_id === id; }), 'Deals: other Sales do not see them');
+    ok(as(U.mgrFood, function () { return must(listDeals()); }).rows.some(function (r) { return r.ticket_id === id && r.can_edit; }), 'Deals: Sales Manager of the department sees and can update');
+    expectErr(as(U.salesFood1, function () { return updateDeal(squid.item_id, { status: 'won' }); }), 'NOT_FOUND', 'Deals: other Sales cannot update');
+    expectErr(as(U.sr2, function () { return updateDeal(squid.item_id, { status: 'won' }); }), 'FORBIDDEN', 'Deals: SR cannot record the sales outcome');
+    expectErr(as(U.salesFood3, function () { return updateDeal(squid.item_id, { status: 'lost' }); }), 'VALIDATION', 'Deals: lost needs a reason');
+    expectErr(as(U.salesFood3, function () { return updateDeal(squid.item_id, { status: 'lost', reason: 'อื่นๆ' }); }), 'VALIDATION', 'Deals: “อื่นๆ” needs a note');
+    expectErr(as(U.salesFood3, function () { return updateDeal(squid.item_id, { status: 'follow', next_date: inDays(-2) }); }), 'VALIDATION', 'Deals: follow-up date cannot be in the past');
+    const f1 = as(U.salesFood3, function () { return must(updateDeal(squid.item_id, { status: 'sample', note: 'ลูกค้าขอทดลอง 1 ลัง' })); }).deal;
+    ok(f1.deal_status === 'sample' && f1.deal_next_date === inDays(7) && f1.is_open && !f1.is_due, 'Deals: sample sent → next follow-up defaults to today + 7 days');
+    const w = as(U.salesFood3, function () { return must(updateDeal(squid.item_id, { status: 'won', note: 'เริ่มสั่งเดือนหน้า' })); }).deal;
+    ok(w.deal_status === 'won' && w.deal_closed_at && !w.is_open && !w.deal_next_date, 'Deals: won → closed date recorded');
+    const won = groupMsgs(id, 'deal_won');
+    ok(won.length === 1 && /ปลาหมึกกล้วย/.test(won[0].body) && /800 กก\./.test(won[0].body) && !/\d+\.\d\d|บาท/.test(won[0].body),
+      'Deals: won is announced in the Sales group (product + volume, no price)');
+    ok(findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).some(function (n) { return n.user_email === U.sr2 && n.type === 'deal_won'; }), 'Deals: the SR learns the price sold');
+    as(U.salesFood3, function () { must(updateDeal(squid.item_id, { status: 'won', note: 'ยืนยันอีกครั้ง' })); });
+    ok(groupMsgs(id, 'deal_won').length === 1, 'Deals: saving won again does not repeat the announcement');
+    as(U.mgrFood, function () { must(updateDeal(shrimp.item_id, { status: 'lost', reason: 'ราคาสูงกว่าคู่แข่ง' })); });
+    ok(findAll_(TAB.LOGS, 'ticket_id', id).filter(function (l) { return l.action === 'deal_update'; }).length === 4, 'Deals: every update is in the audit log');
+    ok(as(U.salesFood3, function () { return must(getTicket(id)); }).timeline.some(function (l) { return l.action === 'deal_update'; }), 'Deals: Sales sees the outcome in the timeline');
+    expectErr(as(U.salesFood3, function () { return updateDeal(activeItemsOf_(t2.ticket_id)[0].item_id, { status: 'won' }); }), 'FORBIDDEN',
+      'Deals: no outcome before the price is approved');
+    ok(typeof pollData_(userByEmail_(U.salesFood3)).deals_due === 'number' && pollData_(userByEmail_(U.gm)).deals_due === undefined, 'Deals: poll gives Sales the follow-up count');
+    const sm = menuFor_(userByEmail_(U.salesFood3));
+    ok(sm.some(function (m) { return m.key === 'deals' && m.badge === 'deals_due'; }) && sm.length <= 5, 'Deals: Sales menu has “ติดตามการขาย” (still ≤ 5 items)');
+
+    // ---------- GP summary ----------
+    expectErr(as(U.salesFood3, function () { return getGpSummary(); }), 'FORBIDDEN', 'GP: Sales cannot open the GP summary');
+    expectErr(as(U.mgrFood, function () { return getGpSummary(); }), 'FORBIDDEN', 'GP: Sales Manager cannot open the GP summary (cost data)');
+    expectErr(as(U.sr2, function () { return getGpSummary(); }), 'FORBIDDEN', 'GP: SR cannot open the GP summary');
+    const gp = as(U.gm, function () { return must(getGpSummary()); });
+    const g1 = gp.rows.filter(function (r) { return r.item_id === squid.item_id; })[0];
+    const g2 = gp.rows.filter(function (r) { return r.item_id === shrimp.item_id; })[0];
+    ok(g1 && g1.deal_status === 'won' && g1.landed_cost_thb === 120 && g1.gp_percent === 15 && g1.sell_price_thb === 141.18 && g1.profit_thb === 21.18,
+      'GP: won line with landed cost 120 → selling 141.18 at GP 15% (profit 21.18 / unit)');
+    ok(g2 && g2.deal_status === 'lost' && g2.deal_reason === 'ราคาสูงกว่าคู่แข่ง' && g1.quoted_month === todayBkk_().slice(0, 7), 'GP: lost line with its reason, grouped by the month GM approved the price');
+    ok(as(U.srManager, function () { return must(getGpSummary()); }).rows.length === gp.rows.length && as(U.admin, function () { return must(getGpSummary()); }).rows.length === gp.rows.length,
+      'GP: SR Manager and Admin see the same summary');
+    ok(as(U.gm, function () { return must(getBootstrap()); }).ref.can_view_gp && !as(U.mgrFood, function () { return must(getBootstrap()); }).ref.can_view_gp, 'GP: page offered only to GM / SR Manager / Admin');
+    ok(['PageHome', 'PageSuppliers', 'PageDeals', 'PageGp'].every(function (n) { return PARTIALS_.indexOf(n) !== -1; }) &&
+      ['deals', 'gp'].every(function (p) { return PAGES_.indexOf(p) !== -1; }), 'Every page file is allowed by include_ (web app renders)');
+  } catch (e) {
+    results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: PHOTO_DEAL — ' + e.message + '\n' + e.stack);
+  } finally {
+    TEST_HTTP_ = null;
+    TEST_DRIVE_ = null;
+    TEST_LARK_ = null;
   }
 }

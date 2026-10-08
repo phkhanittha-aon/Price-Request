@@ -199,7 +199,7 @@ const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome'
 function cleanRoute(p) {
   const r = {};
   ROUTE_KEYS.forEach(function (k) { if (p && p[k]) r[k] = String(p[k]); });
-  if (!r.page || ['home', 'dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'].indexOf(r.page) === -1) r.page = 'home';
+  if (!r.page || ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'].indexOf(r.page) === -1) r.page = 'home';
   return r;
 }
 function go(route, replace) {
@@ -225,14 +225,38 @@ function render(route) {
   }
 }
 function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || '') + (r.follow || ''); }
-const PAGE_TITLE = { home: 'หน้าแรก', dashboard: 'รายงาน', suppliers: 'Supplier', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
+const PAGE_TITLE = { home: 'หน้าแรก', dashboard: 'รายงาน', gp: 'สรุป GP & การปิดการขาย', deals: 'ติดตามการขาย', suppliers: 'Supplier', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
+/** Tabs on top of the report pages: ภาพรวม · ติดตามการขาย · สรุป GP (only the ones this role may open). */
+function reportTabs(active) {
+  const role = state.me.role;
+  const tabs = [];
+  if (['manager', 'sr_manager', 'gm', 'admin'].indexOf(role) !== -1) tabs.push(['dashboard', '📊 ภาพรวมใบขอราคา']);
+  tabs.push(['deals', '🎯 ติดตามการขาย']);
+  if (state.ref.can_view_gp) tabs.push(['gp', '💹 สรุป GP & การปิดการขาย']);
+  if (tabs.length < 2) return '';
+  return '<nav class="rtabs" aria-label="รายงาน">' + tabs.map(function (t) {
+    return '<button type="button" class="rtab' + (t[0] === active ? ' on' : '') + '" data-rtab="' + t[0] + '"' + (t[0] === active ? ' aria-current="page"' : '') + '>' + esc(t[1]) + '</button>';
+  }).join('') + '</nav>';
+}
+function bindReportTabs(view) {
+  $all('[data-rtab]', view).forEach(function (b) { b.onclick = function () { go({ page: b.getAttribute('data-rtab') }); }; });
+}
+/** "2026-10" → "ต.ค. 69" */
+function fmtMonth(ym) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(ym || ''));
+  if (!m) return ym || '';
+  const TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+  return TH[Number(m[2]) - 1] + ' ' + String(Number(m[1]) + 543).slice(-2);
+}
+
 function renderNav() {
   initShell();
   const cur = state.route;
   let group = null;
   let activeItem = null;
   $('#nav').innerHTML = state.menu.map(function (m, i) {
-    const active = routeKey(cleanRoute(m.route)) === routeKey(cur) && !cur.id;
+    const reportPage = (cur.page === 'gp' || (cur.page === 'deals' && !state.menu.some(function (x) { return x.key === 'deals'; }))) && m.key === 'reports';
+    const active = (routeKey(cleanRoute(m.route)) === routeKey(cur) && !cur.id) || reportPage;
     if (active) activeItem = m;
     const n = m.badge ? Number(state.poll[m.badge] || 0) : 0;
     const count = n ? '<span class="count">' + n + '</span>' : '';
@@ -360,6 +384,192 @@ function uploadFile(file, meta, onProgress) {
       return next();
     });
 }
+
+/* ===== 7b. Supplier product photos (gallery + viewer + upload, ≤ max per supplier) ===== */
+/**
+ * Photos.html(list, opts)   list = attachments of ONE supplier offer (category quote_photo)
+ *   opts: { ticketId, itemId, quoteId, editable, max, compact }
+ * Photos.bind(root, opts)    wires every gallery under root (once): viewer, delete, upload.
+ *   opts: { attachments() → live array to update, onChange() → called after add / delete }
+ * Images are loaded through getPhotoPreviews (permission-checked on the server) and kept in memory.
+ */
+const Photos = (function () {
+  const cache = {};
+  const pending = {};
+  function maxPer() { return (state.ref && state.ref.max_photos_per_quote) || 10; }
+  function of(attachments, quoteId) {
+    return (attachments || []).filter(function (a) { return a.category === 'quote_photo' && a.quote_id === quoteId; });
+  }
+  function html(list, o) {
+    const max = o.max || maxPer();
+    const thumbs = list.map(function (a, i) {
+      return '<figure class="pth"><button type="button" class="pimg" data-ph="' + esc(a.attachment_id) + '" data-i="' + i + '" aria-label="ดูรูป ' + esc(a.file_name) + '">' +
+        '<img alt="" data-phid="' + esc(a.attachment_id) + '"' + (cache[a.attachment_id] ? ' src="' + cache[a.attachment_id] + '"' : '') + '></button>' +
+        (o.editable && a.uploaded_by === state.me.email ? '<button type="button" class="pdel" data-phdel="' + esc(a.attachment_id) + '" aria-label="ลบรูป">✕</button>' : '') + '</figure>';
+    }).join('');
+    const add = o.editable && list.length < max
+      ? '<label class="pth padd" title="แนบรูปสินค้า (สูงสุด ' + max + ' รูป)"><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,.heic" multiple hidden data-phup>' +
+        '<span class="plus">＋</span><small>รูป</small></label>' : '';
+    if (!list.length && !o.editable) return o.compact ? '' : '<div class="pgal empty small muted">ไม่มีรูปสินค้า</div>';
+    return '<div class="pgal' + (o.compact ? ' compact' : '') + '" data-pgal data-ticket="' + esc(o.ticketId || '') + '" data-item="' + esc(o.itemId || '') +
+      '" data-quote="' + esc(o.quoteId || '') + '">' +
+      '<div class="pgal-head small"><span>📷 รูปสินค้า</span><span class="muted" data-phcount>' + list.length + ' / ' + max + '</span></div>' +
+      '<div class="pgal-grid">' + thumbs + add + '</div><div class="pgal-prog"></div></div>';
+  }
+  /** Load thumbnails of every <img data-phid> under root that has no src yet (12 per call). */
+  function load(root) {
+    const imgs = $all('img[data-phid]', root).filter(function (im) { return !im.getAttribute('src'); });
+    imgs.forEach(function (im) { const id = im.getAttribute('data-phid'); if (cache[id]) im.src = cache[id]; });
+    const ids = imgs.map(function (im) { return im.getAttribute('data-phid'); })
+      .filter(function (id, i, a) { return !cache[id] && !pending[id] && a.indexOf(id) === i; });
+    for (let i = 0; i < ids.length; i += 12) {
+      const part = ids.slice(i, i + 12);
+      part.forEach(function (id) { pending[id] = true; });
+      api('getPhotoPreviews', part, 'thumb').then(function (r) {
+        part.forEach(function (id) {
+          delete pending[id];
+          const url = r.previews[id];
+          if (url) cache[id] = url;
+          $all('img[data-phid="' + id + '"]').forEach(function (im) {
+            if (url) im.src = url; else im.closest('.pimg').classList.add('nopv');
+          });
+        });
+      }).catch(function () { part.forEach(function (id) { delete pending[id]; }); });
+    }
+  }
+  /** Full-screen viewer with prev / next (arrow keys, swipe). */
+  function view(list, index) {
+    let i = index || 0;
+    const root = document.createElement('div');
+    root.className = 'overlay pview';
+    root.innerHTML = '<div class="pview-box" role="dialog" aria-modal="true" aria-label="รูปสินค้า">' +
+      '<div class="pview-top"><span class="small" data-cap></span><span class="sep"></span>' +
+      '<button type="button" class="btn sm" data-orig>เปิดไฟล์ต้นฉบับ</button><button type="button" class="btn sm" data-x aria-label="ปิด">✕</button></div>' +
+      '<div class="pview-stage"><button type="button" class="pnav prev" data-prev aria-label="รูปก่อนหน้า">‹</button>' +
+      '<img alt="" data-big><span class="spinner" data-spin></span>' +
+      '<button type="button" class="pnav next" data-next aria-label="รูปถัดไป">›</button></div>' +
+      '<div class="pview-strip">' + list.map(function (a, k) {
+        return '<button type="button" data-k="' + k + '"><img alt="" data-phid="' + esc(a.attachment_id) + '"' + (cache[a.attachment_id] ? ' src="' + cache[a.attachment_id] + '"' : '') + '></button>';
+      }).join('') + '</div></div>';
+    $('#modal-root').appendChild(root);
+    const big = $('[data-big]', root);
+    const show = function () {
+      const a = list[i];
+      $('[data-cap]', root).textContent = (i + 1) + ' / ' + list.length + ' · ' + a.file_name;
+      $all('.pview-strip button', root).forEach(function (b, k) { b.classList.toggle('on', k === i); });
+      big.src = cache[a.attachment_id] || '';
+      $('[data-spin]', root).style.display = '';
+      const want = a.attachment_id;
+      api('getPhotoPreviews', [want], 'large').then(function (r) {
+        if (list[i].attachment_id !== want) return;
+        if (r.previews[want]) big.src = r.previews[want];
+        $('[data-spin]', root).style.display = 'none';
+      }).catch(function () { $('[data-spin]', root).style.display = 'none'; });
+      $('[data-prev]', root).disabled = i === 0;
+      $('[data-next]', root).disabled = i === list.length - 1;
+    };
+    const close = function () { root.remove(); document.removeEventListener('keydown', onKey); };
+    const step = function (d) { const n = i + d; if (n >= 0 && n < list.length) { i = n; show(); } };
+    const onKey = function (e) { if (e.key === 'Escape') close(); if (e.key === 'ArrowLeft') step(-1); if (e.key === 'ArrowRight') step(1); };
+    document.addEventListener('keydown', onKey);
+    root.addEventListener('click', function (e) { if (e.target === root || e.target.classList.contains('pview-stage')) close(); });
+    $('[data-x]', root).onclick = close;
+    $('[data-prev]', root).onclick = function () { step(-1); };
+    $('[data-next]', root).onclick = function () { step(1); };
+    $all('.pview-strip button', root).forEach(function (b) { b.onclick = function () { i = Number(b.getAttribute('data-k')); show(); }; });
+    $('[data-orig]', root).onclick = function () {
+      api('openAttachment', list[i].attachment_id).then(function (r) { window.open(r.url, '_blank'); }).catch(function (e) { toast(e.error, 'err'); });
+    };
+    let x0 = null;
+    root.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+    root.addEventListener('touchend', function (e) {
+      if (x0 == null) return;
+      const dx = e.changedTouches[0].clientX - x0;
+      if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1);
+      x0 = null;
+    });
+    show();
+    load(root);
+  }
+  /** Phone photos are often 4–12 MB: shrink to ≤ 1600 px JPEG before upload (HEIC is sent as is). */
+  function shrink(file) {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 400 * 1024) return Promise.resolve(file);
+    return new Promise(function (resolve) {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = function () {
+        const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * k);
+        c.height = Math.round(img.naturalHeight * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(function (b) {
+          if (!b || b.size >= file.size) { resolve(file); return; }
+          resolve(new File([b], file.name.replace(/\.(png|webp|jpe?g)$/i, '') + '.jpg', { type: 'image/jpeg' }));
+        }, 'image/jpeg', 0.85);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+  function bind(root, o) {
+    $all('[data-pgal]', root).forEach(function (g) {
+      if (g.dataset.bound) return;
+      g.dataset.bound = '1';
+      const quoteId = g.getAttribute('data-quote');
+      const listNow = function () { return of(o.attachments(), quoteId); };
+      g.addEventListener('click', function (e) {
+        const del = e.target.closest('[data-phdel]');
+        if (del) {
+          e.preventDefault();
+          const id = del.getAttribute('data-phdel');
+          dialog({ title: 'ลบรูปนี้?', message: 'รูปจะถูกลบออกจาก Supplier เจ้านี้', confirmText: 'ลบรูป', danger: true }).then(function (ok) {
+            if (!ok) return;
+            api('deleteAttachment', id).then(function () {
+              const arr = o.attachments();
+              const k = arr.findIndex(function (a) { return a.attachment_id === id; });
+              if (k !== -1) arr.splice(k, 1);
+              toast('ลบรูปแล้ว', 'ok');
+              if (o.onChange) o.onChange(quoteId);
+            }).catch(function (err) { toast(err.error, 'err'); });
+          });
+          return;
+        }
+        const ph = e.target.closest('[data-ph]');
+        if (ph) { e.preventDefault(); view(listNow(), Number(ph.getAttribute('data-i'))); }
+      });
+      const input = $('[data-phup]', g);
+      if (input) input.onchange = function () {
+        const files = Array.prototype.slice.call(input.files || []);
+        input.value = '';
+        const room = maxPer() - listNow().length;
+        if (files.length > room) toast('แนบได้อีก ' + Math.max(room, 0) + ' รูป (สูงสุด ' + maxPer() + ' รูปต่อ Supplier) — เลือกเฉพาะ ' + Math.max(room, 0) + ' รูปแรก', 'err', 7000);
+        const prog = $('.pgal-prog', g);
+        let chain = Promise.resolve();
+        let added = 0;
+        files.slice(0, Math.max(room, 0)).forEach(function (f) {
+          chain = chain.then(function () {
+            const row = document.createElement('div');
+            row.innerHTML = '<div class="small">' + esc(f.name) + '</div><div class="progress"><div></div></div>';
+            prog.appendChild(row);
+            return shrink(f).then(function (small) {
+              return uploadFile(small, { ticket_id: g.getAttribute('data-ticket'), item_id: g.getAttribute('data-item'), quote_id: quoteId, category: 'quote_photo' },
+                function (p) { row.querySelector('.progress > div').style.width = Math.round(p * 100) + '%'; });
+            }).then(function (att) { o.attachments().push(att); added++; row.remove(); })
+              .catch(function (err) { toast(f.name + ': ' + err.error, 'err', 8000); row.remove(); });
+          });
+        });
+        chain.then(function () {
+          if (added) toast('แนบรูปแล้ว ' + added + ' รูป', 'ok');
+          if (o.onChange) o.onChange(quoteId);
+        });
+      };
+    });
+    load(root);
+  }
+  return { html: html, bind: bind, load: load, view: view, of: of, max: maxPer };
+})();
 
 /* ===== 8. Boot ===== */
 const App = {

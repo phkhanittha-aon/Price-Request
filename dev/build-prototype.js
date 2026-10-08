@@ -16,7 +16,7 @@ const path = require('path');
 const out = process.argv[2];
 if (!out) { console.error('usage: node dev/build-prototype.js <output.html>'); process.exit(2); }
 const gasDir = path.join(__dirname, '..', 'gas');
-const FILE_ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify', 'Workflow', 'Editing', 'Suppliers',
+const FILE_ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify', 'Workflow', 'Editing', 'Suppliers', 'Deals',
   'Api', 'Files', 'Lark', 'Jobs', 'Code', 'Setup', 'Tests'];
 
 const read = (f) => fs.readFileSync(path.join(gasDir, f), 'utf8');
@@ -55,6 +55,44 @@ ${gs}
   seedDemoData();
   TEST_HTTP_ = fakeHttp_();     // uploads go to a fake Drive
   TEST_DRIVE_ = fakeDrive_();
+  // sample supplier photos (drawn on a canvas) so the review gallery has something to show
+  (function seedPhotos() {
+    const draw = function (title, sub, hue, n) {
+      const c = document.createElement('canvas');
+      c.width = 640; c.height = 480;
+      const g = c.getContext('2d');
+      const grd = g.createLinearGradient(0, 0, 640, 480);
+      grd.addColorStop(0, 'hsl(' + hue + ',55%,62%)'); grd.addColorStop(1, 'hsl(' + (hue + 25) + ',60%,38%)');
+      g.fillStyle = grd; g.fillRect(0, 0, 640, 480);
+      g.fillStyle = 'rgba(255,255,255,.18)';
+      for (let i = 0; i < 6; i++) { g.beginPath(); g.ellipse(120 + i * 85, 250 + (i % 2) * 40, 70, 34, -0.4, 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = '#fff'; g.font = '600 34px Prompt, sans-serif'; g.fillText(title, 32, 70);
+      g.font = '24px Prompt, sans-serif'; g.fillText(sub, 32, 110);
+      g.font = '20px Prompt, sans-serif'; g.fillText('รูปตัวอย่าง ' + n + ' · Prototype', 32, 446);
+      const b64 = c.toDataURL('image/jpeg', 0.82).split(',')[1];
+      return { b64: b64, size: atob(b64).length };
+    };
+    const add = function (sr, ticketId, vendorPart, title, hue, count) {
+      const it = activeItemsOf_(ticketId)[0];
+      const q = activeQuotesOfItem_(it.item_id).filter(function (x) { return x.vendor_name.indexOf(vendorPart) !== -1; })[0];
+      if (!q) return;
+      for (let n = 1; n <= count; n++) {
+        const img = draw(title, q.vendor_name, hue + n * 6, n);
+        withIdentity_(sr, function () {
+          const b = beginUpload({ ticket_id: ticketId, item_id: it.item_id, quote_id: q.quote_id, category: 'quote_photo',
+            file_name: 'photo-' + n + '.jpg', mime_type: 'image/jpeg', size_bytes: img.size });
+          if (b.ok) uploadChunk(b.data.upload_id, 0, img.b64);
+        });
+      }
+    };
+    try {
+      const U0 = demoUsers_();
+      const f = rows_(TAB.TICKETS).filter(function (r) { return String(r.title).indexOf('ทะเลทอง') !== -1; })[0];
+      const e = rows_(TAB.TICKETS).filter(function (r) { return String(r.title).indexOf('ริเวอร์ไซด์') !== -1; })[0];
+      if (f) { add(U0.sr1, String(f.ticket_id), 'India', 'กุ้งแชบ๊วย HOSO 26/30', 12, 4); add(U0.sr1, String(f.ticket_id), 'ซีฟู้ด', 'กุ้งแชบ๊วย HOSO 26/30', 190, 2); }
+      if (e) add(U0.sr2, String(e.ticket_id), 'Ocean', 'กุ้งขาว Vannamei PD 41/50', 200, 3);
+    } catch (err) { console.warn('photo seed', err); }
+  })();
   const users = rows_(TAB.USERS).map(function (u) { return { email: String(u.email), name: String(u.full_name), role: String(u.role) }; });
   const byTitle = function (part) { const t = rows_(TAB.TICKETS).filter(function (r) { return String(r.title).indexOf(part) !== -1; })[0]; return t ? String(t.ticket_id) : ''; };
   const U = demoUsers_();

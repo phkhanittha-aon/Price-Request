@@ -131,7 +131,7 @@ Pages.pricing = (function () {
 
   function filesHtml(d) {
     const quoteFiles = d.attachments.filter(function (a) { return a.category === 'quotation'; });
-    const reqFiles = d.attachments.filter(function (a) { return a.category !== 'quotation'; });
+    const reqFiles = d.attachments.filter(function (a) { return a.category !== 'quotation' && a.category !== 'quote_photo'; });
     const list = function (arr) {
       return arr.length ? arr.map(function (a) {
         return '<div class="small">📎 <a href="#" data-open="' + esc(a.attachment_id) + '">' + esc(a.file_name) + '</a> <span class="muted">' + fileSize(a.size_bytes) + '</span></div>';
@@ -297,9 +297,32 @@ Pages.pricing = (function () {
         '<div class="row tight">' + f('Packing', inp('packing', q.packing, 'text', ' maxlength="200" placeholder="เช่น 1 kg × 10/ctn"', ro)) + f('อายุสินค้า', inp('shelf_life', q.shelf_life, 'text', ' maxlength="100" placeholder="เช่น 24 เดือน (-18°C)"', ro)) + '</div>' +
         f('เงื่อนไขส่งมอบ (Incoterm)', sel('incoterm', inco, q.incoterm, ro)) + '</div>'
         : '<div class="row tight">' + f('แบรนด์ / รุ่น', inp('brand', q.brand, 'text', ' maxlength="100"', ro)) + f('Packing', inp('packing', q.packing, 'text', ' maxlength="200"', ro)) + '</div>') +
+      galleryHtml(it, q, editable) +
       f('ไฟล์ใบเสนอราคา', sel('attachment_file_id', files, q.attachment_file_id, ro)) +
       f('หมายเหตุ', '<textarea data-f="remark" maxlength="2000"' + (ro ? ' disabled' : '') + '>' + esc(q.remark) + '</textarea>') +
       '</div>';
+  }
+
+  /** Product photos of this supplier offer (≤ max per supplier) — SR Manager / GM review them before approving. */
+  function galleryHtml(it, q, editable) {
+    return Photos.html(Photos.of(ctx.d.attachments, q.quote_id),
+      { ticketId: ctx.d.ticket.ticket_id, itemId: it.item_id, quoteId: q.quote_id, editable: editable && ctx.d.permissions.can_upload });
+  }
+  function refreshGallery(quoteId) {
+    const g = $('[data-pgal][data-quote="' + quoteId + '"]', ctx.view);
+    if (!g) return;
+    ctx.d.items.forEach(function (it, idx) {
+      const mi = ctx.model.items[idx];
+      const q = mi && mi.quotes.filter(function (x) { return x.quote_id === quoteId; })[0];
+      if (!q) return;
+      const box = document.createElement('div');
+      box.innerHTML = galleryHtml(it, q, ctx.d.permissions.can_edit_quotes);
+      g.replaceWith(box.firstChild);
+      bindPhotos();
+    });
+  }
+  function bindPhotos() {
+    Photos.bind(ctx.view, { attachments: function () { return ctx.d.attachments; }, onChange: refreshGallery });
   }
 
   /** Selling price breakdown per unit (values filled by refreshItem; GP input kept across refreshes). */
@@ -313,7 +336,7 @@ Pages.pricing = (function () {
         '" placeholder="' + esc(state.ref.default_gp_percent) + '"' + (editable ? '' : ' disabled') + ' aria-label="GP %"> % ของราคาขาย</td>' +
         '<td class="num" data-c="profit">–</td><td class="u">' + u + '</td></tr>' +
       '<tr class="total"><td>= ราคาขาย</td><td class="num" data-c="sell">–</td><td class="u">' + u + '</td></tr>' +
-      '<tr class="ref"><td>ราคาเป้าหมายลูกค้า</td><td class="num" data-c="target">–</td><td class="u" data-c="diff"></td></tr>' +
+      '<tr class="ref"><td>ราคาที่ลูกค้าคาดหวัง</td><td class="num" data-c="target">–</td><td class="u" data-c="diff"></td></tr>' +
       '</tbody></table></div>';
   }
 
@@ -347,7 +370,7 @@ Pages.pricing = (function () {
     return '<details class="card item" data-item="' + idx + '"' + (idx < 2 ? ' open' : '') + '>' +
       '<summary><div class="ihead"><div><b>#' + it.line_no + ' ' + esc(it.product_name) + '</b> <span class="badge">' + esc(it.product_group_name) + '</span>' +
       '<div class="small">' + fmtNum(it.qty) + ' ' + esc(it.uom) + '/เดือน · NW ' + esc(it.net_weight || '–') + ' · Size ' + esc(it.size || '–') +
-      ' · Pack ' + esc(it.packing_size || '–') + (it.target_price ? ' · เป้าหมาย ' + fmtMoney(it.target_price) + ' บาท/กก.' : ' · ไม่มีราคาเป้าหมาย') + '</div></div>' +
+      ' · Pack ' + esc(it.packing_size || '–') + (it.target_price ? ' · ลูกค้าคาดหวัง ' + fmtMoney(it.target_price) + ' บาท/' + esc(it.uom) : ' · ลูกค้ายังไม่บอกราคา') + '</div></div>' +
       '<span class="istatus"></span></div></summary>' +
       (it.description ? '<p class="small muted" style="white-space:pre-wrap">' + esc(it.description) + '</p>' : '') +
       (editable ? '<div class="item-tools"><span class="small muted">หาราคารายการนี้ไม่ได้ตอนนี้?</span>' +
@@ -373,6 +396,7 @@ Pages.pricing = (function () {
         '<button class="btn" id="pp-info">ขอข้อมูลเพิ่ม</button><button class="btn" id="pp-save">บันทึกร่าง</button>' +
         '<button class="btn primary" id="pp-submit">ส่งราคาให้ SR Manager ตรวจ</button></div>' : '');
     bind();
+    bindPhotos();
     $all('.card.item', view).forEach(function (card) { refreshItem(Number(card.getAttribute('data-item'))); });
     refreshSummary();
   }
@@ -454,7 +478,7 @@ Pages.pricing = (function () {
   }
   function summaryTable(rows) {
     return '<div class="tbl-wrap"><table class="tbl stack sumtbl"><thead><tr><th>สินค้า</th><th>ผู้ขาย (ผู้ชนะ)</th><th class="num">ต้นทุนสินค้า</th>' +
-      '<th class="num">ค่าเคลียร์ของ</th><th class="num">ต้นทุนถึงคลัง</th><th class="num">GP</th><th class="num">กำไร</th><th class="num">ราคาขาย</th><th class="num">ราคาเป้าหมาย</th></tr></thead><tbody>' +
+      '<th class="num">ค่าเคลียร์ของ</th><th class="num">ต้นทุนถึงคลัง</th><th class="num">GP</th><th class="num">กำไร</th><th class="num">ราคาขาย</th><th class="num">ราคาที่ลูกค้าคาดหวัง</th></tr></thead><tbody>' +
       rows.map(function (r) {
         const u = '/' + esc(r.it.uom);
         if (r.stat) {
@@ -470,7 +494,7 @@ Pages.pricing = (function () {
           '<td class="num" data-label="GP">' + (r.sp ? fmtNum(r.sp.gp) + '%' : '–') + '</td>' +
           '<td class="num" data-label="กำไร">' + (r.sp ? fmtMoney(r.sp.profit) + u : '–') + '</td>' +
           '<td class="num" data-label="ราคาขาย"><b>' + (r.sp ? fmtMoney(r.sp.sell) + u : '–') + '</b></td>' +
-          '<td class="num" data-label="ราคาเป้าหมาย">' + (r.it.target_price ? fmtMoney(r.it.target_price) + u : 'ไม่มี') + '</td></tr>';
+          '<td class="num" data-label="ราคาที่ลูกค้าคาดหวัง">' + (r.it.target_price ? fmtMoney(r.it.target_price) + u : 'ไม่มี') + '</td></tr>';
       }).join('') + '</tbody></table></div><p class="small muted" style="margin:6px 0 0">ราคาขาย = ต้นทุนถึงคลัง ÷ (1 − GP%) · ทุกตัวเลขเป็นบาทต่อหน่วย</p>';
   }
 
@@ -669,8 +693,10 @@ Pages.pricing = (function () {
           markDirty();
           rerenderItem(idx);
         };
-        if (isBlank(q)) { go(); return; }
-        dialog({ title: 'ลบ vendor', message: 'ลบราคาของ "' + (q.vendor_name || 'vendor นี้') + '"? (มีผลเมื่อกดบันทึก)', danger: true, confirmText: 'ลบ' })
+        const nPhotos = Photos.of(ctx.d.attachments, q.quote_id).length;
+        if (isBlank(q) && !nPhotos) { go(); return; }
+        dialog({ title: 'ลบ vendor', message: 'ลบราคาของ "' + (q.vendor_name || 'vendor นี้') + '"?' +
+          (nPhotos ? ' รูปสินค้า ' + nPhotos + ' รูปของเจ้านี้จะถูกลบด้วย' : '') + ' (มีผลเมื่อกดบันทึก)', danger: true, confirmText: 'ลบ' })
           .then(function (r) { if (r) go(); });
       };
     });
@@ -689,6 +715,7 @@ Pages.pricing = (function () {
     fresh.open = true;
     old.parentNode.replaceChild(fresh, old);
     bindItem(fresh);
+    bindPhotos();
     refreshItem(idx);
     refreshSummary();
     if (focusLast) {

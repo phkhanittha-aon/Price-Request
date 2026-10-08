@@ -67,10 +67,10 @@ Pages.new = Pages.edit = (function () {
       field('แพคย่อย', 'Packing Size', '<input type="text" data-k="packing_size" maxlength="100" placeholder="เช่น 1 Kg/Pack หรือ 500 g" value="' + esc(it.packing_size) + '">', { req: true }) +
       field('ปริมาณต่อเดือน', 'Qty / month', '<input type="number" inputmode="decimal" min="0" step="any" data-k="qty" placeholder="0" value="' + esc(it.qty) + '">', { req: true }) +
       field('หน่วย', 'Unit', '<select data-k="uom"><option value="">— เลือก —</option>' + units + '</select>', { req: true }) +
-      field('ราคาเป้าหมาย (บาท/กก.)', 'Target Price', '<input type="number" inputmode="decimal" min="0" step="any" data-k="target_price" placeholder="0.00" value="' +
+      field('ราคาที่ลูกค้าคาดหวัง (บาท/หน่วย)', 'Expected Price', '<input type="number" inputmode="decimal" min="0" step="any" data-k="target_price" placeholder="0.00" value="' +
         esc(it.no_target ? '' : it.target_price) + '"' + (it.no_target ? ' disabled' : '') + '>' +
-        '<label class="chk-inline no-target"><input type="checkbox" data-notarget="' + i + '"' + (it.no_target ? ' checked' : '') + '> ไม่มีราคาเป้าหมาย</label>',
-        { req: true, hint: 'ราคาที่ลูกค้าปิดซื้อได้' }) +
+        '<label class="chk-inline no-target"><input type="checkbox" data-notarget="' + i + '"' + (it.no_target ? ' checked' : '') + '> ลูกค้ายังไม่บอกราคา</label>',
+        { req: true, hint: 'ราคาที่ลูกค้าพร้อมซื้อ — ใช้ติดตามการขายหลังได้ราคา' }) +
       '<div class="field span-3"><span>รูปภาพสินค้า <em>Picture</em></span><div class="drop" data-drop="' + i + '">' +
       '<label class="btn sm"><input type="file" data-pic="' + i + '" multiple hidden accept="image/*,.pdf">＋ เลือกรูป / ไฟล์</label>' +
       '<span class="small muted">หรือลากไฟล์มาวางที่นี่ · รูปหรือ PDF ไม่เกิน ' + state.ref.max_upload_mb + ' MB</span>' +
@@ -164,7 +164,7 @@ Pages.new = Pages.edit = (function () {
       if (!get('qty').value || !(Number(get('qty').value) > 0)) mark(get('qty'), 'ปริมาณต้องมากกว่า 0');
       if (!get('uom').value) mark(get('uom'), 'เลือกหน่วย');
       const tp = $('[data-notarget]', row) && $('[data-notarget]', row).checked ? '0' : get('target_price').value;
-      if (tp === '') mark(get('target_price'), 'กรอกราคาเป้าหมาย หรือติ๊ก “ไม่มีราคาเป้าหมาย”');
+      if (tp === '') mark(get('target_price'), 'กรอกราคาที่ลูกค้าคาดหวัง หรือติ๊ก “ลูกค้ายังไม่บอกราคา”');
       else if (Number(tp) < 0) mark(get('target_price'), 'ต้องไม่ติดลบ');
     });
     $('#form-err', view).textContent = errors ? 'ยังกรอกไม่ครบ ' + errors + ' ช่อง (ไฮไลต์สีแดง)' : '';
@@ -424,7 +424,7 @@ Pages.new = Pages.edit = (function () {
             state.drafts['new'] = d;
             google.script.history.replace({ page: 'new' }, { page: 'new' });
             mount(view, d, 'new', null);
-            toast('คัดลอกจาก ' + o.ticket.ticket_no + ' แล้ว — ตรวจปริมาณและราคาเป้าหมายก่อนส่ง', 'ok', 7000);
+            toast('คัดลอกจาก ' + o.ticket.ticket_no + ' แล้ว — ตรวจปริมาณและราคาที่ลูกค้าคาดหวังก่อนส่ง', 'ok', 7000);
           }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
           return;
         }

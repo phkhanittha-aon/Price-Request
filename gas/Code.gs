@@ -6,7 +6,8 @@
  *   What it does : Price request workflow Sales → Manager → GM → SR → Sales (see docs/).
  *   Database     : spreadsheet in Script Property DB_SPREADSHEET_ID (created by setupDatabase()).
  *   Files        : Drive folder in Script Property DRIVE_ROOT_FOLDER_ID.
- *   Lark         : Script Properties LARK_APP_ID, LARK_APP_SECRET, (LARK_HOST, LARK_GROUP_CHAT_ID).
+ *   Lark         : Script Properties LARK_APP_ID, LARK_APP_SECRET, (LARK_HOST, LARK_GROUP_CHAT_ID,
+ *                  LARK_PRICE_GROUP_CHAT_ID, LARK_MGMT_GROUP_CHAT_ID) — group events: Notify.gs GROUP_EVENTS_.
  *   Roles        : tab "Users" (Admin edits). Department approvers: tab "Departments".manager_email.
  *   Deploy       : Deploy → Manage deployments → ✏️ → Version: New version → Deploy.
  *                  Saving the script does NOT update the live /exec URL.
@@ -15,8 +16,8 @@
  * Deployment settings: Execute as = Me (owner), Who has access = Anyone within <company domain>.
  */
 
-const PAGES_ = ['home', 'dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
-const PARTIALS_ = ['App', 'PageDashboard', 'PageTickets', 'PageTicket', 'PageForm', 'PagePricing'];
+const PAGES_ = ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
+const PARTIALS_ = ['App', 'PageHome', 'PageDashboard', 'PageGp', 'PageDeals', 'PageTickets', 'PageTicket', 'PageForm', 'PageSuppliers', 'PagePricing'];
 
 function doGet(e) {
   const t = HtmlService.createTemplateFromFile('Index');
@@ -54,13 +55,15 @@ function getBootstrap() {
 
 /**
  * Module menu (left sidebar) — at most 5 items per role. Status views (รอฉัน, ของฉัน, คิว, ส่งตามหลัง …)
- * are tabs on the ใบเสนอราคา page, not menu items; statistics live under รายงาน (managers only).
+ * are tabs on the ใบเสนอราคา page, not menu items; statistics live under รายงาน (managers only), which has
+ * its own tabs: ภาพรวม · ติดตามการขาย · สรุป GP (GP: GM / SR Manager / Admin — cost data).
  */
 function menuFor_(u) {
   const MAIN = 'เมนูหลัก';
   const m = [{ key: 'home', group: MAIN, icon: '🏠', label: 'หน้าแรก', route: { page: 'home' } }];
   m.push({ key: 'tickets', group: MAIN, icon: '📄', label: 'ใบเสนอราคา', route: { page: 'tickets' }, badge: 'inbox' });
   if (u.role === 'sales') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+  if (u.role === 'sales') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามการขาย', hint: 'ลูกค้าซื้อหรือยัง', route: { page: 'deals' }, badge: 'deals_due' });
   if (u.role === 'gm') {
     // two separate GM approvals: sales side (the request) and purchasing side (vendor price + selling price)
     m.push({ key: 'gm_sales', group: MAIN, icon: '🛒', label: 'อนุมัติฝั่งขาย', hint: 'คำขอราคาจาก Sales',
@@ -107,6 +110,9 @@ function referenceData_(me) {
     customer_groups: setting_('customer_groups', []),
     supplier_types: SUPPLIER_TYPES.map(function (k) { return { key: k, label: SUPPLIER_TYPE_LABEL[k] }; }),
     default_gp_percent: defaultGp_(),
+    deal_statuses: [''].concat(DEAL_STATUSES).map(function (k) { return { key: k, label: DEAL_STATUS_LABEL_TH[k] }; }),
+    deal_lost_reasons: setting_('deal_lost_reasons', []),
+    can_view_gp: !!me && GP_ROLES_.indexOf(me.role) !== -1,
     vat_terms: VAT_TERMS.map(function (k) { return { key: k, label: VAT_TERM_LABEL[k] }; }),
     incoterms: INCOTERMS.map(function (k) { return { key: k, label: INCOTERM_LABEL[k] }; }),
     priorities: PRIORITIES,
@@ -116,6 +122,7 @@ function referenceData_(me) {
     action_labels: ACTION_LABEL_TH,
     sla_hours: setting_('sla_hours', {}),
     max_upload_mb: Number(setting_('max_upload_mb', 20)),
+    max_photos_per_quote: maxPhotosPerQuote_(),
     allowed_mime_types: setting_('allowed_mime_types', []),
     upload_chunk_bytes: UPLOAD_CHUNK_BYTES
   };

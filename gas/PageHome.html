@@ -24,6 +24,7 @@ Pages.home = (function () {
     if (role === 'sales') {
       out.push({ label: '➕ สร้างใบขอราคา', route: { page: 'new' }, primary: true });
       out.push({ label: '📄 ใบขอราคาของฉัน', route: { page: 'tickets', scope: 'mine' } });
+      out.push({ label: '🎯 ติดตามการขาย', count: state.poll.deals_due || 0, route: { page: 'deals' } });
     }
     if (role === 'sr') {
       out.push({ label: '🧾 คิวรอรับงาน', count: n(function (r) { return r.stage === 'pending_assign'; }), route: { page: 'tickets', scope: 'queue' }, primary: true });
@@ -37,12 +38,14 @@ Pages.home = (function () {
     if (role === 'gm') {
       out.push({ label: '🛒 อนุมัติฝั่งขาย', count: n(function (r) { return r.stage === 'pending_gm' && r.is_inbox; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm' }, primary: true });
       out.push({ label: '📦 อนุมัติฝั่งซื้อ', count: n(function (r) { return r.stage === 'pending_gm_price'; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm_price' }, primary: true });
-      out.push({ label: '📊 รายงาน', route: { page: 'dashboard' } });
+      out.push({ label: '💹 สรุป GP', route: { page: 'gp' } });
     }
     if (role === 'manager') {
       out.push({ label: '✅ รออนุมัติ', count: n(function (r) { return r.stage === 'pending_manager' && r.is_inbox; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_manager' }, primary: true });
+      out.push({ label: '🎯 ติดตามการขาย', count: state.poll.deals_due || 0, route: { page: 'deals' } });
       out.push({ label: '📊 รายงาน', route: { page: 'dashboard' } });
     }
+    if (role === 'sr_manager') out.push({ label: '💹 สรุป GP', route: { page: 'gp' } });
     if (role === 'admin') {
       out.push({ label: '🏭 Supplier', route: { page: 'suppliers' } });
       out.push({ label: '📊 รายงาน', route: { page: 'dashboard' } });

@@ -468,6 +468,89 @@
     .item-row { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; background: #FBFCFD; }
     .item-row .head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 600; }
     .item-row .head .sep { flex: 1; }
+
+    /* ===== Supplier product photos (gallery per offer + full-screen viewer) ===== */
+    .pgal { margin: 10px 0 12px; padding: 10px; border: 1px dashed var(--line); border-radius: 10px; background: #FAFCFD; }
+    .pgal.compact { margin: 6px 0 0; padding: 0; border: 0; background: none; }
+    .pgal.compact .pgal-head { display: none; }
+    .pgal.empty { text-align: center; }
+    .pgal-head { display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: 500; }
+    .pgal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; }
+    .pgal.compact .pgal-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 120px)); gap: 8px; }
+    .pth { position: relative; margin: 0; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: #E9EFF1; }
+    .pth .pimg { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+    .pth img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .pth img:not([src]) { visibility: hidden; }
+    .pth .pimg:not(.nopv) { background: linear-gradient(110deg, #E9EFF1 30%, #F5F8F9 50%, #E9EFF1 70%) 0 0 / 200% 100%; animation: shimmer 1.2s linear infinite; }
+    .pth .pimg.nopv::after { content: '🖼️'; position: absolute; inset: 0; display: grid; place-items: center; font-size: 1.4rem; }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+    .pth .pimg:focus-visible { outline: 3px solid var(--brand); outline-offset: -3px; }
+    .pdel { position: absolute; top: 3px; right: 3px; width: 24px; height: 24px; border: 0; border-radius: 50%; background: rgba(16,38,46,.72); color: #fff;
+      font-size: .75rem; line-height: 24px; cursor: pointer; }
+    .padd { display: flex; flex-direction: column; align-items: center; justify-content: center; border: 2px dashed #B7CDD3; background: #fff; color: var(--brand); cursor: pointer; }
+    .padd:hover { border-color: var(--brand); background: var(--brand-soft); }
+    .padd .plus { font-size: 1.4rem; line-height: 1; }
+    .pgal-prog .progress { margin-top: 4px; }
+    .prev-photos { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+    .prev-photos h4 { margin: 0 0 6px; font-size: .92rem; }
+    .prev-row { padding: 6px 0; border-top: 1px solid var(--line); } .prev-row:first-of-type { border-top: 0; }
+    .prev-row.win { background: #F1F8FB; margin: 0 -12px; padding: 6px 12px; }
+    .overlay.pview { align-items: center; background: rgba(6, 16, 20, .9); }
+    .pview-box { display: flex; flex-direction: column; width: min(1100px, 100%); height: min(92vh, 100%); padding: 10px; color: #fff; }
+    .pview-top { display: flex; align-items: center; gap: 8px; } .pview-top .sep { flex: 1; }
+    .pview-top .btn { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.25); }
+    .pview-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; margin: 8px 0; }
+    .pview-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+    .pview-stage .spinner { position: absolute; right: 10px; bottom: 10px; }
+    .pnav { position: absolute; top: 50%; transform: translateY(-50%); width: 46px; height: 64px; border: 0; border-radius: 10px; background: rgba(255,255,255,.14);
+      color: #fff; font-size: 2rem; cursor: pointer; z-index: 1; } .pnav.prev { left: 0; } .pnav.next { right: 0; } .pnav:disabled { opacity: .2; cursor: default; }
+    .pview-strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+    .pview-strip button { flex: 0 0 56px; height: 56px; padding: 0; border: 2px solid transparent; border-radius: 6px; overflow: hidden; background: #24363c; cursor: pointer; }
+    .pview-strip button.on { border-color: var(--side-accent); }
+    .pview-strip img { width: 100%; height: 100%; object-fit: cover; }
+
+    /* ===== Report tabs · ติดตามการขาย · สรุป GP ===== */
+    .rtabs { display: flex; gap: 4px; margin: -4px 0 14px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .rtab { flex: none; min-height: 42px; padding: 8px 14px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); cursor: pointer; font-weight: 500; }
+    .rtab:hover { color: var(--text); } .rtab.on { color: var(--brand-dark); border-bottom-color: var(--brand); font-weight: 600; }
+    .rtab:focus-visible { outline: 3px solid var(--warn); outline-offset: -3px; }
+    .dchip { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .8rem; font-weight: 600; white-space: nowrap; border: 1px solid transparent; }
+    .d-new { background: #EEF2F3; color: var(--muted); border-color: var(--line); }
+    .d-follow { background: #E6F0FB; color: #1d5ea8; } .d-sample { background: #F2EAFB; color: #6a3aa6; }
+    .d-won { background: #E3F5E3; color: var(--ok-ink); } .d-lost { background: #FBE7E7; color: var(--danger-ink); }
+    .deal-tiles .tile, .gp-kpi .tile { grid-template-columns: 1fr; grid-template-areas: "v" "l" "p"; }
+    .deal-tiles .tile.bad .v { color: var(--danger-ink); }
+    .gp-kpi .tile { cursor: default; } .gp-kpi .tile .v small { font-size: .9rem; color: var(--muted); font-weight: 600; }
+    .gp-kpi .k-won .v { color: var(--ok-ink); } .gp-kpi .k-open .v { color: #1d5ea8; }
+    .deal-filters input[type=search] { flex: 1 1 240px; } .deal-filters select, .gp-filters select { flex: 0 1 220px; }
+    .gp-filters { align-items: center; margin-bottom: 12px; }
+    table.deals tr.due td { background: #FFF8EC; }
+    table.deals td.act { text-align: right; white-space: nowrap; }
+    .dnote { max-width: 260px; white-space: pre-wrap; }
+    .dialog .field[hidden] { display: none; }
+    .deal-st { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .dchip-opt { position: relative; cursor: pointer; }
+    .dchip-opt input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+    .dchip-opt span { display: inline-flex; align-items: center; min-height: 40px; padding: 6px 14px; border-radius: 999px; border: 2px solid transparent; font-weight: 600; }
+    .dchip-opt input:checked + span { border-color: currentColor; box-shadow: 0 0 0 3px rgba(15,110,140,.12); }
+    .dchip-opt input:focus-visible + span { outline: 3px solid var(--warn); }
+    .dchip-opt.d-follow span { background: #E6F0FB; color: #1d5ea8; } .dchip-opt.d-sample span { background: #F2EAFB; color: #6a3aa6; }
+    .dchip-opt.d-won span { background: #E3F5E3; color: var(--ok-ink); } .dchip-opt.d-lost span { background: #FBE7E7; color: var(--danger-ink); }
+    .dchip-opt { background: none; } .dchip-opt.d-follow, .dchip-opt.d-sample, .dchip-opt.d-won, .dchip-opt.d-lost { background: none; }
+    .trend { display: grid; grid-template-columns: repeat(var(--n), minmax(34px, 1fr)); gap: 6px; align-items: end; margin: 6px 0 14px; overflow-x: auto; }
+    .tcol { display: flex; flex-direction: column; align-items: center; min-width: 34px; }
+    .tbar { display: flex; flex-direction: column-reverse; width: 70%; max-width: 44px; height: 150px; background: #F1F5F6; border-radius: 6px 6px 0 0; overflow: hidden; }
+    .tbar i { display: block; width: 100%; }
+    .b-won { background: var(--series-3); } .b-lost { background: #e58a8a; } .b-open { background: #a9c9e8; }
+    .legend i.b-won, .legend i.b-lost, .legend i.b-open { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+    .legend span { margin-left: 10px; }
+    .tval { min-height: 1.2em; font-weight: 600; } .tlab { margin-top: 4px; white-space: nowrap; } .tgp { white-space: nowrap; font-size: .72rem; }
+    .hbars { list-style: none; margin: 0; padding: 0; }
+    .hbars li { display: grid; grid-template-columns: minmax(120px, 220px) 1fr 36px; gap: 10px; align-items: center; padding: 5px 0; font-size: .9rem; }
+    .hbars .hb { height: 12px; background: #F1F5F6; border-radius: 6px; overflow: hidden; } .hbars .hb i { display: block; height: 100%; background: #e58a8a; }
+    .hbars b { text-align: right; font-variant-numeric: tabular-nums; }
+    table.gpt td, table.gpd td { font-variant-numeric: tabular-nums; }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -503,6 +586,8 @@
   <?!= include_('App'); ?>
   <?!= include_('PageHome'); ?>
   <?!= include_('PageDashboard'); ?>
+  <?!= include_('PageDeals'); ?>
+  <?!= include_('PageGp'); ?>
   <?!= include_('PageTickets'); ?>
   <?!= include_('PageTicket'); ?>
   <?!= include_('PageForm'); ?>

@@ -472,6 +472,89 @@
     .item-row { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; background: #FBFCFD; }
     .item-row .head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 600; }
     .item-row .head .sep { flex: 1; }
+
+    /* ===== Supplier product photos (gallery per offer + full-screen viewer) ===== */
+    .pgal { margin: 10px 0 12px; padding: 10px; border: 1px dashed var(--line); border-radius: 10px; background: #FAFCFD; }
+    .pgal.compact { margin: 6px 0 0; padding: 0; border: 0; background: none; }
+    .pgal.compact .pgal-head { display: none; }
+    .pgal.empty { text-align: center; }
+    .pgal-head { display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: 500; }
+    .pgal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; }
+    .pgal.compact .pgal-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 120px)); gap: 8px; }
+    .pth { position: relative; margin: 0; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: #E9EFF1; }
+    .pth .pimg { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+    .pth img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .pth img:not([src]) { visibility: hidden; }
+    .pth .pimg:not(.nopv) { background: linear-gradient(110deg, #E9EFF1 30%, #F5F8F9 50%, #E9EFF1 70%) 0 0 / 200% 100%; animation: shimmer 1.2s linear infinite; }
+    .pth .pimg.nopv::after { content: '🖼️'; position: absolute; inset: 0; display: grid; place-items: center; font-size: 1.4rem; }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+    .pth .pimg:focus-visible { outline: 3px solid var(--brand); outline-offset: -3px; }
+    .pdel { position: absolute; top: 3px; right: 3px; width: 24px; height: 24px; border: 0; border-radius: 50%; background: rgba(16,38,46,.72); color: #fff;
+      font-size: .75rem; line-height: 24px; cursor: pointer; }
+    .padd { display: flex; flex-direction: column; align-items: center; justify-content: center; border: 2px dashed #B7CDD3; background: #fff; color: var(--brand); cursor: pointer; }
+    .padd:hover { border-color: var(--brand); background: var(--brand-soft); }
+    .padd .plus { font-size: 1.4rem; line-height: 1; }
+    .pgal-prog .progress { margin-top: 4px; }
+    .prev-photos { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+    .prev-photos h4 { margin: 0 0 6px; font-size: .92rem; }
+    .prev-row { padding: 6px 0; border-top: 1px solid var(--line); } .prev-row:first-of-type { border-top: 0; }
+    .prev-row.win { background: #F1F8FB; margin: 0 -12px; padding: 6px 12px; }
+    .overlay.pview { align-items: center; background: rgba(6, 16, 20, .9); }
+    .pview-box { display: flex; flex-direction: column; width: min(1100px, 100%); height: min(92vh, 100%); padding: 10px; color: #fff; }
+    .pview-top { display: flex; align-items: center; gap: 8px; } .pview-top .sep { flex: 1; }
+    .pview-top .btn { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.25); }
+    .pview-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; margin: 8px 0; }
+    .pview-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+    .pview-stage .spinner { position: absolute; right: 10px; bottom: 10px; }
+    .pnav { position: absolute; top: 50%; transform: translateY(-50%); width: 46px; height: 64px; border: 0; border-radius: 10px; background: rgba(255,255,255,.14);
+      color: #fff; font-size: 2rem; cursor: pointer; z-index: 1; } .pnav.prev { left: 0; } .pnav.next { right: 0; } .pnav:disabled { opacity: .2; cursor: default; }
+    .pview-strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+    .pview-strip button { flex: 0 0 56px; height: 56px; padding: 0; border: 2px solid transparent; border-radius: 6px; overflow: hidden; background: #24363c; cursor: pointer; }
+    .pview-strip button.on { border-color: var(--side-accent); }
+    .pview-strip img { width: 100%; height: 100%; object-fit: cover; }
+
+    /* ===== Report tabs · ติดตามการขาย · สรุป GP ===== */
+    .rtabs { display: flex; gap: 4px; margin: -4px 0 14px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .rtab { flex: none; min-height: 42px; padding: 8px 14px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); cursor: pointer; font-weight: 500; }
+    .rtab:hover { color: var(--text); } .rtab.on { color: var(--brand-dark); border-bottom-color: var(--brand); font-weight: 600; }
+    .rtab:focus-visible { outline: 3px solid var(--warn); outline-offset: -3px; }
+    .dchip { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .8rem; font-weight: 600; white-space: nowrap; border: 1px solid transparent; }
+    .d-new { background: #EEF2F3; color: var(--muted); border-color: var(--line); }
+    .d-follow { background: #E6F0FB; color: #1d5ea8; } .d-sample { background: #F2EAFB; color: #6a3aa6; }
+    .d-won { background: #E3F5E3; color: var(--ok-ink); } .d-lost { background: #FBE7E7; color: var(--danger-ink); }
+    .deal-tiles .tile, .gp-kpi .tile { grid-template-columns: 1fr; grid-template-areas: "v" "l" "p"; }
+    .deal-tiles .tile.bad .v { color: var(--danger-ink); }
+    .gp-kpi .tile { cursor: default; } .gp-kpi .tile .v small { font-size: .9rem; color: var(--muted); font-weight: 600; }
+    .gp-kpi .k-won .v { color: var(--ok-ink); } .gp-kpi .k-open .v { color: #1d5ea8; }
+    .deal-filters input[type=search] { flex: 1 1 240px; } .deal-filters select, .gp-filters select { flex: 0 1 220px; }
+    .gp-filters { align-items: center; margin-bottom: 12px; }
+    table.deals tr.due td { background: #FFF8EC; }
+    table.deals td.act { text-align: right; white-space: nowrap; }
+    .dnote { max-width: 260px; white-space: pre-wrap; }
+    .dialog .field[hidden] { display: none; }
+    .deal-st { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .dchip-opt { position: relative; cursor: pointer; }
+    .dchip-opt input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+    .dchip-opt span { display: inline-flex; align-items: center; min-height: 40px; padding: 6px 14px; border-radius: 999px; border: 2px solid transparent; font-weight: 600; }
+    .dchip-opt input:checked + span { border-color: currentColor; box-shadow: 0 0 0 3px rgba(15,110,140,.12); }
+    .dchip-opt input:focus-visible + span { outline: 3px solid var(--warn); }
+    .dchip-opt.d-follow span { background: #E6F0FB; color: #1d5ea8; } .dchip-opt.d-sample span { background: #F2EAFB; color: #6a3aa6; }
+    .dchip-opt.d-won span { background: #E3F5E3; color: var(--ok-ink); } .dchip-opt.d-lost span { background: #FBE7E7; color: var(--danger-ink); }
+    .dchip-opt { background: none; } .dchip-opt.d-follow, .dchip-opt.d-sample, .dchip-opt.d-won, .dchip-opt.d-lost { background: none; }
+    .trend { display: grid; grid-template-columns: repeat(var(--n), minmax(34px, 1fr)); gap: 6px; align-items: end; margin: 6px 0 14px; overflow-x: auto; }
+    .tcol { display: flex; flex-direction: column; align-items: center; min-width: 34px; }
+    .tbar { display: flex; flex-direction: column-reverse; width: 70%; max-width: 44px; height: 150px; background: #F1F5F6; border-radius: 6px 6px 0 0; overflow: hidden; }
+    .tbar i { display: block; width: 100%; }
+    .b-won { background: var(--series-3); } .b-lost { background: #e58a8a; } .b-open { background: #a9c9e8; }
+    .legend i.b-won, .legend i.b-lost, .legend i.b-open { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+    .legend span { margin-left: 10px; }
+    .tval { min-height: 1.2em; font-weight: 600; } .tlab { margin-top: 4px; white-space: nowrap; } .tgp { white-space: nowrap; font-size: .72rem; }
+    .hbars { list-style: none; margin: 0; padding: 0; }
+    .hbars li { display: grid; grid-template-columns: minmax(120px, 220px) 1fr 36px; gap: 10px; align-items: center; padding: 5px 0; font-size: .9rem; }
+    .hbars .hb { height: 12px; background: #F1F5F6; border-radius: 6px; overflow: hidden; } .hbars .hb i { display: block; height: 100%; background: #e58a8a; }
+    .hbars b { text-align: right; font-variant-numeric: tabular-nums; }
+    table.gpt td, table.gpd td { font-variant-numeric: tabular-nums; }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -697,7 +780,7 @@ var HtmlService = {};
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.08-3';
+const APP_VERSION = '2026.10.08-4';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -716,6 +799,7 @@ const CFG = {
     LARK_HOST: 'LARK_HOST',
     LARK_GROUP_CHAT_ID: 'LARK_GROUP_CHAT_ID',
     LARK_PRICE_GROUP_CHAT_ID: 'LARK_PRICE_GROUP_CHAT_ID',
+    LARK_MGMT_GROUP_CHAT_ID: 'LARK_MGMT_GROUP_CHAT_ID',
     WEBAPP_URL: 'WEBAPP_URL'
   }
 };
@@ -809,7 +893,9 @@ const SCHEMA = {
            // Selling price set by SR (appended): GP % of selling price, selling price per unit (stored at submit)
            'gp_percent', 'sell_price_thb',
            // SR decision per item (appended): '' = quote · 'not_offered' = will not quote · 'follow_up' = split to a new ticket
-           'quote_status', 'quote_status_reason', 'follow_up_ticket_id']
+           'quote_status', 'quote_status_reason', 'follow_up_ticket_id',
+           // Sales follow-up after the price (appended v2026.10.08-4): did the customer buy? (see Deals.gs)
+           'deal_status', 'deal_reason', 'deal_note', 'deal_next_date', 'deal_updated_by', 'deal_updated_at', 'deal_closed_at']
   },
   Quotations: {
     key: 'quote_id',
@@ -902,6 +988,12 @@ const STAGE_LABEL_TH = {
 };
 
 const OPEN_STATUSES = ['requested', 'on_process', 'completed'];
+/**
+ * Sales outcome of ONE quoted item (New Item follow-up). '' = not updated yet.
+ * follow / sample are still open; won / lost are decided.
+ */
+const DEAL_STATUSES = ['follow', 'sample', 'won', 'lost'];
+const DEAL_STATUS_LABEL_TH = { '': 'ยังไม่อัปเดต', follow: 'กำลังติดตาม', sample: 'ส่งตัวอย่าง / ทดลองสินค้า', won: 'ปิดการขายได้', lost: 'ไม่ได้งาน' };
 const VAT_TERMS = ['ex_vat', 'no_vat', 'include_vat'];
 const VAT_TERM_LABEL = { ex_vat: 'Ex VAT', no_vat: 'No VAT', include_vat: 'Include VAT' };
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
@@ -910,7 +1002,11 @@ const UNITS = ['กก.', 'ตัน', 'กล่อง', 'แพ็ค', 'ถ�
 /** Delivery terms on a vendor quotation (food imports are usually CIF / CFR; local suppliers deliver). */
 const INCOTERMS = ['EXW', 'FCA', 'FOB', 'CFR', 'CIF', 'DAP', 'DDP', 'DELIVERED'];
 const INCOTERM_LABEL = { EXW: 'EXW', FCA: 'FCA', FOB: 'FOB', CFR: 'CFR (C&F)', CIF: 'CIF', DAP: 'DAP', DDP: 'DDP', DELIVERED: 'ส่งถึงคลัง MGS' };
-const ATTACHMENT_CATEGORIES = ['request', 'info_response', 'quotation', 'other'];
+const ATTACHMENT_CATEGORIES = ['request', 'info_response', 'quotation', 'quote_photo', 'other'];
+/** Purchasing-side files (vendor quotation documents + supplier product photos): cost roles only, never Sales. */
+const COST_FILE_CATEGORIES_ = ['quotation', 'quote_photo'];
+/** Supplier product photos: images only, at most `max_photos_per_quote` (default 10) per supplier offer. */
+const PHOTO_MIME_TYPES_ = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 
 /** Default rows for the Settings tab (value column stores JSON text). */
 const DEFAULT_SETTINGS = [
@@ -922,6 +1018,14 @@ const DEFAULT_SETTINGS = [
   ['sla_warning_ratio', '0.8', 'เตือนเมื่อใช้เวลาเกินสัดส่วนนี้ของ SLA'],
   ['currencies', JSON.stringify(['THB', 'USD', 'CNY', 'EUR', 'JPY', 'SGD']), 'สกุลเงินใน dropdown'],
   ['max_upload_mb', '20', 'ขนาดไฟล์แนบสูงสุดต่อไฟล์ (MB)'],
+  ['lark_group_events', JSON.stringify(['new_request', 'sales_approved', 'sr_claimed', 'queue_return', 'need_info', 'rejected', 'price_done',
+    'follow_up', 'deal_won', 'price_review', 'gm_buy', 'price_returned', 'revision']),
+    'เหตุการณ์ที่ส่งเข้ากลุ่ม Lark อัตโนมัติ (ลบคีย์ออกเพื่อปิด) · กลุ่ม Sales: new_request, sales_approved, sr_claimed, queue_return, need_info, rejected, price_done, follow_up, deal_won · ' +
+    'กลุ่มผู้บริหาร: price_review, gm_buy, price_returned, revision · ข้อความกลุ่มไม่มีราคา/ต้นทุน/ชื่อ Supplier'],
+  ['deal_lost_reasons', JSON.stringify(['ราคาสูงกว่าคู่แข่ง', 'ราคาสูงกว่าที่ลูกค้าคาดหวัง', 'สเปก / คุณภาพไม่ตรง', 'MOQ สูงเกินไป',
+    'Lead time ไม่ทัน', 'ลูกค้าเลื่อน / ยกเลิกโครงการ', 'ลูกค้าไม่ตอบกลับ', 'อื่นๆ']), 'เหตุผลที่ไม่ได้งาน (dropdown ในหน้าติดตามการขาย)'],
+  ['deal_follow_days', '7', 'ถ้า Sales ไม่ได้ระบุวันติดตาม ระบบนัดติดตามครั้งถัดไป = วันนี้ + จำนวนวันนี้ · ราคาที่ส่งถึง Sales แล้วเกินจำนวนวันนี้โดยยังไม่อัปเดต = ถึงกำหนดติดตาม'],
+  ['max_photos_per_quote', '10', 'จำนวนรูปสินค้าสูงสุดต่อ Supplier 1 เจ้า (ต่อใบเสนอราคา 1 รายการ)'],
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
   ['fx_defaults', JSON.stringify({ USD: 35 }), 'อัตราแลกเปลี่ยนเริ่มต้น (บาทต่อ 1 หน่วย) ที่เติมให้ในหน้าใบเสนอราคา · SR แก้ได้ทุกใบ · สกุลที่ไม่มีในนี้ SR กรอกเอง'],
   ['default_validity_days', '30', 'จำนวนวันยืนราคาเริ่มต้น เมื่อ Supplier ไม่ได้ระบุ'],
@@ -1941,6 +2045,104 @@ function ticketLink_(t, page) {
 
 /** Pseudo-recipient for the Lark group that is told when a price is finished (GM approved). */
 const PRICE_GROUP_KEY_ = '#price_group';
+/** Pseudo-recipient for the management Lark group (SR / SR Manager / GM — purchasing-side approvals). */
+const MGMT_GROUP_KEY_ = '#mgmt_group';
+
+/**
+ * Automatic Lark group messages. Each event goes to ONE group:
+ *   sales = LARK_PRICE_GROUP_CHAT_ID (blank → LARK_GROUP_CHAT_ID) — the group with every Sales
+ *   mgmt  = LARK_MGMT_GROUP_CHAT_ID  (blank → not sent)            — SR, SR Manager, GM
+ * Which events are sent: Settings › lark_group_events (JSON list of keys; default = all).
+ * RULE: a group message NEVER carries a price, cost, vendor name, GP or a free-text comment
+ * (comments may talk about cost). It says what happened, to which request, and links to the app,
+ * where each person sees only what their role allows.
+ */
+const GROUP_EVENTS_ = {
+  new_request:    { group: 'sales', icon: '🆕', color: 'blue',      label: 'คำขอราคาใหม่' },
+  sales_approved: { group: 'sales', icon: '🛒', color: 'turquoise', label: 'GM อนุมัติฝั่งขายแล้ว — เข้าคิว SR' },
+  sr_claimed:     { group: 'sales', icon: '🙋', color: 'turquoise', label: 'SR รับงานแล้ว' },
+  queue_return:   { group: 'sales', icon: '↩️', color: 'orange',    label: 'SR ตีกลับ — ข้อมูลไม่ครบ' },
+  need_info:      { group: 'sales', icon: '❓', color: 'orange',    label: 'SR ขอข้อมูลเพิ่ม' },
+  rejected:       { group: 'sales', icon: '⛔', color: 'red',       label: 'ไม่อนุมัติคำขอราคา' },
+  price_done:     { group: 'sales', icon: '✅', color: 'green',     label: 'ทำราคาเสร็จแล้ว' },
+  follow_up:      { group: 'sales', icon: '📌', color: 'orange',    label: 'แยกรายการส่งราคาตามหลัง' },
+  deal_won:       { group: 'sales', icon: '🎉', color: 'green',     label: 'ปิดการขายได้' },
+  price_review:   { group: 'mgmt',  icon: '🧾', color: 'purple',    label: 'ราคารอ SR Manager ตรวจ' },
+  gm_buy:         { group: 'mgmt',  icon: '📦', color: 'purple',    label: 'ราคารอ GM อนุมัติฝั่งซื้อ' },
+  price_returned: { group: 'mgmt',  icon: '🔁', color: 'orange',    label: 'ตีกลับให้ SR แก้ราคา' },
+  revision:       { group: 'mgmt',  icon: '✏️', color: 'orange',    label: 'Sales ขอให้ปรับราคา' }
+};
+const GROUP_KEY_OF_ = { sales: PRICE_GROUP_KEY_, mgmt: MGMT_GROUP_KEY_ };
+
+/** transition → group event (null = no group message). */
+function groupEventOfTransition_(action, saved) {
+  if (saved.stage === 'rejected' && (action === 'manager_reject' || action === 'gm_reject')) return 'rejected';
+  return {
+    gm_approve: 'sales_approved', claim: 'sr_claimed', queue_return: 'queue_return', request_info: 'need_info',
+    submit_quote: 'price_review', srm_approve: 'gm_buy', srm_return: 'price_returned', gm_price_return: 'price_returned',
+    gm_price_approve: 'price_done', request_revision: 'revision'
+  }[action] || null;
+}
+
+function groupEventsEnabled_() {
+  const v = setting_('lark_group_events', null);
+  return Array.isArray(v) ? v : Object.keys(GROUP_EVENTS_);
+}
+
+/** Item lines for a group message: product + spec only (no price, no vendor). */
+function groupItemLines_(t) {
+  return activeItemsOf_(t.ticket_id).map(function (it) {
+    if (it.quote_status) return '• ' + itemStatusLine_(it).replace(/\*\*/g, '');
+    const spec = [it.size, it.packing_size].filter(Boolean).join(' · ');
+    return '• #' + it.line_no + ' ' + it.product_name + (spec ? ' (' + spec + ')' : '') + ' — ' + fmtQty_(it.qty) + ' ' + it.uom + '/เดือน';
+  });
+}
+
+function fmtQty_(n) {
+  const v = Number(n);
+  return isFinite(v) ? String(Math.round(v * 100) / 100).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '-';
+}
+
+/**
+ * Queue one group message for `event` (skipped when the event is switched off in Settings).
+ * extra: { lines: [...] } — structured, price-free facts only.
+ */
+function enqueueGroupEvent_(event, t, extra) {
+  const ev = GROUP_EVENTS_[event];
+  if (!ev || groupEventsEnabled_().indexOf(event) === -1) return 0;
+  const x = extra || {};
+  const req = userByEmail_(t.requestor_email);
+  const sr = t.sr_email ? userByEmail_(t.sr_email) : null;
+  const actor = safeEmail_() ? userByEmail_(safeEmail_()) : null;
+  const head = [
+    'ลูกค้า: **' + (t.customer_name || '-') + '**' + (t.customer_group ? ' · ' + t.customer_group : '') +
+      (t.destination_country && t.destination_country !== 'ไทย' ? ' · ปลายทาง ' + t.destination_country : ''),
+    'Sales: ' + (req ? req.full_name : t.requestor_email) + (sr ? ' · SR: ' + sr.full_name : '') +
+      (actor && event !== 'new_request' ? ' · โดย ' + actor.full_name : '')
+  ];
+  if (event === 'new_request' && t.due_date) head.push('ต้องการราคาภายใน ' + fmtDate_(t.due_date, 'dd/MM/yyyy') + (t.priority === 'urgent' || t.priority === 'high' ? ' · ⚡ ด่วน' : ''));
+  const body = head.join('\n') + '\n\n' + (x.items === false ? '' : groupItemLines_(t).join('\n')) +
+    ((x.lines || []).length ? '\n\n' + x.lines.join('\n') : '') +
+    (event === 'price_done' ? '\n\nราคาขายส่งถึง Sales ผู้ขอทาง Lark ส่วนตัวแล้ว · ดูรายละเอียดในระบบ' : '');
+  insertRows_(TAB.NOTIFICATIONS, [{
+    notif_id: uuid_(), user_email: GROUP_KEY_OF_[ev.group], ticket_id: t.ticket_id, type: 'group_' + event,
+    title: ev.icon + ' [' + t.ticket_no + '] ' + ev.label + ' — ' + (t.customer_name || t.title),
+    body: body.slice(0, 1500), link: ticketLink_(t, 'ticket'), is_read: false, read_at: '', created_at: new Date(),
+    lark_status: 'pending', lark_attempts: 0, lark_error: '', lark_sent_at: ''
+  }]);
+  return 1;
+}
+
+/** Facts for the management group when a price goes to review: how many offers / photos (never vendor names or prices). */
+function reviewFacts_(t) {
+  const items = activeItemsOf_(t.ticket_id).filter(function (it) { return !it.quote_status; });
+  let offers = 0;
+  let photos = 0;
+  items.forEach(function (it) {
+    activeQuotesOfItem_(it.item_id).forEach(function (q) { offers++; photos += quotePhotos_(q.quote_id).length; });
+  });
+  return ['Supplier ที่เสนอ: ' + offers + ' ราย · รูปสินค้า ' + photos + ' รูป — เปิดในระบบเพื่อดูราคาและรูปก่อนอนุมัติ'];
+}
 
 /**
  * Selling price lines of ONE ticket (winning offer only) — for the requesting Sales' own DM.
@@ -1958,28 +2160,9 @@ function sellPriceLines_(t) {
   });
 }
 
-/**
- * Queue one Lark group message: "price finished" — status only, NO prices at all.
- * The group holds every Sales, and a Sales may only see the price of their own request
- * (they get it in their own DM and in the app). Sent by dispatchNotifications().
- */
+/** "Price finished" group message — status only, NO prices (kept as a named helper for callers / tests). */
 function enqueuePriceDoneGroup_(t) {
-  const lines = activeItemsOf_(t.ticket_id).map(function (it) {
-    if (it.quote_status) return '• ' + itemStatusLine_(it).replace(/\*\*/g, '');
-    const spec = [it.size, it.packing_size].filter(Boolean).join(' · ');
-    return '• #' + it.line_no + ' ' + it.product_name + (spec ? ' (' + spec + ')' : '');
-  });
-  const req = userByEmail_(t.requestor_email);
-  const sr = userByEmail_(t.sr_email);
-  insertRows_(TAB.NOTIFICATIONS, [{
-    notif_id: uuid_(), user_email: PRICE_GROUP_KEY_, ticket_id: t.ticket_id, type: 'price_done_group',
-    title: '✅ [' + t.ticket_no + '] ทำราคาเสร็จแล้ว — ' + (t.customer_name || t.title),
-    body: 'ลูกค้า: ' + (t.customer_name || '-') + ' · Sales: ' + (req ? req.full_name : t.requestor_email) +
-      ' · SR: ' + (sr ? sr.full_name : (t.sr_email || '-')) + '\n\n' + lines.join('\n') +
-      '\n\nราคาขายส่งถึง Sales ผู้ขอทาง Lark ส่วนตัวแล้ว · ดูรายละเอียดในระบบ',
-    link: ticketLink_(t, 'ticket'), is_read: false, read_at: '', created_at: new Date(),
-    lark_status: 'pending', lark_attempts: 0, lark_error: '', lark_sent_at: ''
-  }]);
+  return enqueueGroupEvent_('price_done', t);
 }
 
 /** 1234.5 → "1,234.50" (Lark message text). */
@@ -2039,7 +2222,7 @@ const TRANSITION_ACTIONS = ['resubmit', 'cancel', 'manager_approve', 'manager_re
 const ACTION_LABEL_TH = {
   create: 'สร้างใบขอราคา', resubmit: 'ส่งใบขอราคาอีกครั้ง', cancel: 'ยกเลิกใบขอราคา',
   manager_approve: 'Sales Manager อนุมัติ', manager_reject: 'Sales Manager ไม่อนุมัติ', manager_return: 'Sales Manager ส่งกลับแก้ไข',
-  gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
+  deal_update: 'อัปเดตผลการขาย', gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
   request_info: 'SR ขอข้อมูลเพิ่ม', respond_info: 'Sales ส่งข้อมูลเพิ่ม', doc_complete: 'SR ตรวจเอกสารครบ',
   submit_quote: 'SR ส่งราคาให้ SR Manager ตรวจ', srm_approve: 'SR Manager อนุมัติราคา', srm_return: 'SR Manager ส่งกลับให้แก้ราคา',
   gm_price_approve: 'GM อนุมัติฝั่งซื้อ (ราคา → ส่งถึง Sales)', gm_price_return: 'GM ฝั่งซื้อ ส่งกลับให้แก้ราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
@@ -2151,6 +2334,7 @@ function createTicket(payload) {
       const t = normTicket_(ticket);
       enqueueNotifications_(stageAssignees_(t), t, 'approval_required',
         '[' + t.ticket_no + '] ใบขอราคาใหม่รออนุมัติ', t.title + ' — ' + u.full_name, ticketLink_(t));
+      enqueueGroupEvent_('new_request', t);
       return { ticket: publicTicket_(t), duplicate: false };
     });
   });
@@ -2457,7 +2641,15 @@ function doTransition_(ticketId, action, comment, payload) {
   } else {
     enqueueNotifications_(recipients, saved, notifyType, nTitle, nBody + (note ? '\n' + note : ''), ticketLink_(saved, page));
   }
-  if (action === 'gm_price_approve') enqueuePriceDoneGroup_(saved);
+  const groupEvent = groupEventOfTransition_(action, saved);
+  if (groupEvent) {
+    const lines = [];
+    if ((action === 'queue_return' || action === 'request_info') && meta && meta.missing_items && meta.missing_items.length) {
+      lines.push('ข้อมูลที่ต้องเพิ่ม: ' + meta.missing_items.join(', '));
+    }
+    if (groupEvent === 'price_review' || groupEvent === 'gm_buy') Array.prototype.push.apply(lines, reviewFacts_(saved));
+    enqueueGroupEvent_(groupEvent, saved, { lines: lines });
+  }
 
   return { ticket: publicTicket_(saved) };
 }
@@ -2552,7 +2744,7 @@ function ticketDetail_(u, t) {
     });
     const attachments = findAll_(TAB.ATTACHMENTS, 'ticket_id', t.ticket_id)
       .filter(function (a) { return !toBool_(a.is_deleted); })
-      .filter(function (a) { return a.category !== 'quotation' || showQuotes; })
+      .filter(function (a) { return COST_FILE_CATEGORIES_.indexOf(String(a.category)) === -1 || showQuotes; })
       .map(function (a) {
         return {
           attachment_id: String(a.attachment_id), item_id: String(a.item_id || ''), quote_id: String(a.quote_id || ''),
@@ -2679,7 +2871,7 @@ function validateItem_(raw, groups, lineNo) {
       packing_size: requireText_(r.packing_size, 'ขนาดของแพคย่อย (Packing Size)', 100),
       qty: toNumber_(r.qty, 'ปริมาณที่ลูกค้าต้องการต่อเดือน (Qty)', { gt: 0 }),
       uom: oneOf_(r.uom, UNITS, 'หน่วย (Unit)'),
-      target_price: toNumber_(r.target_price, 'ราคาเป้าหมาย (THB/Kg) — ถ้าไม่มีให้ใส่ 0', { min: 0 }),
+      target_price: toNumber_(r.target_price, 'ราคาที่ลูกค้าคาดหวัง (บาท/หน่วย) — ถ้าลูกค้ายังไม่บอกให้ใส่ 0', { min: 0 }),
       target_currency: 'THB',
       spec: cleanText_(r.spec, CFG.MAX_TEXT),
       description: cleanText_(r.description, CFG.MAX_TEXT)
@@ -2705,7 +2897,10 @@ function activeItemsOf_(ticketId) {
         sell_price_thb: r.sell_price_thb === '' || r.sell_price_thb === undefined ? null : Number(r.sell_price_thb),
         target_currency: String(r.target_currency || 'THB'),
         quote_status: String(r.quote_status || ''), quote_status_reason: String(r.quote_status_reason || ''),
-        follow_up_ticket_id: String(r.follow_up_ticket_id || '')
+        follow_up_ticket_id: String(r.follow_up_ticket_id || ''),
+        deal_status: String(r.deal_status || ''), deal_reason: String(r.deal_reason || ''), deal_note: String(r.deal_note || ''),
+        deal_next_date: r.deal_next_date ? fmtDate_(r.deal_next_date) : '', deal_updated_by: String(r.deal_updated_by || ''),
+        deal_updated_at: isoOrBlank_(r.deal_updated_at), deal_closed_at: isoOrBlank_(r.deal_closed_at)
       };
     })
     .sort(function (a, b) { return a.line_no - b.line_no; });
@@ -2750,7 +2945,7 @@ const PRICE_REVIEW_ACTIONS_ = ['submit_quote', 'srm_approve', 'srm_return', 'gm_
 function salesTimeline_(timeline) {
   return timeline.filter(function (l) {
     if (COST_LOG_ACTIONS_.indexOf(l.action) !== -1) return false;
-    if (l.metadata && l.metadata.category === 'quotation') return false;
+    if (l.metadata && COST_FILE_CATEGORIES_.indexOf(String(l.metadata.category)) !== -1) return false;
     return true;
   }).map(function (l) {
     if (PRICE_REVIEW_ACTIONS_.indexOf(l.action) !== -1) {
@@ -3121,6 +3316,7 @@ function deleteQuotationCore_(u, quoteId) {
   const t = ticketForUser_(u, q.ticket_id);
   if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน ในขั้นตอนหาราคา');
   updateRow_(TAB.QUOTATIONS, q.quote_id, { is_deleted: true, is_selected: false, selection_reason: '', updated_at: new Date() });
+  removeQuotePhotos_(u, String(q.quote_id));
   appendLog_({ ticket_id: t.ticket_id, action: 'quotation_deleted', actor_email: u.email, actor_role: u.role,
     metadata: { item_id: String(q.item_id), quote_id: String(q.quote_id), quote: normQuote_(q) } });
   return { deleted: true };
@@ -3387,7 +3583,8 @@ function splitFollowUp_(u, t, it, why, now) {
   const item = {};
   SCHEMA.TicketItems.cols.forEach(function (c) { item[c] = src[c] === undefined ? '' : src[c]; });
   Object.assign(item, { item_id: newItemId, ticket_id: ticketId, line_no: 1, quote_status: '', quote_status_reason: '',
-    follow_up_ticket_id: '', gp_percent: src.gp_percent === undefined ? '' : src.gp_percent, sell_price_thb: '', created_at: now, updated_at: now });
+    follow_up_ticket_id: '', gp_percent: src.gp_percent === undefined ? '' : src.gp_percent, sell_price_thb: '', created_at: now, updated_at: now,
+    deal_status: '', deal_reason: '', deal_note: '', deal_next_date: '', deal_updated_by: '', deal_updated_at: '', deal_closed_at: '' });
   insertRow_(TAB.ITEMS, item);
   // vendor prices + item pictures + quotation files move with the item
   const moved = activeQuotesOfItem_(it.item_id).map(function (q) {
@@ -3410,7 +3607,9 @@ function splitFollowUp_(u, t, it, why, now) {
   appendLog_({ ticket_id: ticketId, log_type: 'transition', action: 'create', actor_email: u.email, actor_role: u.role,
     to_status: ticket.status, to_stage: ticket.stage, comment: why,
     metadata: { ticket_no: ticket.ticket_no, item_count: 1, split_from: t.ticket_no, split_line_no: it.line_no } });
-  return normTicket_(ticket);
+  const fresh = normTicket_(ticket);
+  enqueueGroupEvent_('follow_up', fresh, { lines: ['แยกจากใบ ' + t.ticket_no + ' รายการที่ ' + it.line_no + ' — SR จะส่งราคารายการนี้ตามหลัง'] });
+  return fresh;
 }
 
 // ==== Suppliers.gs ====
@@ -3781,6 +3980,192 @@ function migrateSuppliersCore_() {
   return { created: created, linked: linked };
 }
 
+// ==== Deals.gs ====
+/**
+ * File: Deals.gs
+ * After the price — did the customer buy?  (New Item follow-up + GP / close-rate summary)
+ *
+ * Every item that got a GM-approved selling price becomes one "deal" line:
+ *   product the customer is interested in · volume per month (qty) · price the customer expects (target_price)
+ *   · selling price we quoted · deal status (follow / sample / won / lost) · next follow-up date.
+ *
+ *   listDeals()        Sales side view (no cost) — Sales: own · Sales Manager / GM / Admin / SR Manager / SR: everyone they can see
+ *   updateDeal()       Sales (owner), the department's Sales Manager or Admin record the outcome
+ *   getGpSummary()     GM / SR Manager / Admin only: + landed cost, GP %, profit — trend of quoted vs closed
+ *
+ * Nothing here changes the ticket workflow or its version: the deal is Sales' follow-up after the price.
+ */
+
+const DEAL_STAGES_ = ['awaiting_sales_ack', 'closed'];
+const GP_ROLES_ = ['gm', 'sr_manager', 'admin'];
+
+function dealFollowDays_() {
+  const n = Number(setting_('deal_follow_days', 7));
+  return isFinite(n) && n >= 1 ? Math.min(Math.floor(n), 90) : 7;
+}
+
+/** Quoted lines (items with a GM-approved selling price) of tickets `u` may see. Cost fields only for GP_ROLES_. */
+function dealRows_(u, withCost) {
+  const ctx = listContext_();
+  const tickets = {};
+  rows_(TAB.TICKETS).map(normTicket_).forEach(function (t) {
+    if (DEAL_STAGES_.indexOf(t.stage) !== -1 && t.gm_price_approved_at && canSeeTicket_(u, t)) tickets[t.ticket_id] = t;
+  });
+  const winners = {};
+  rows_(TAB.QUOTATIONS).forEach(function (q) {
+    if (toBool_(q.is_selected) && !toBool_(q.is_deleted) && tickets[String(q.ticket_id)]) winners[String(q.item_id)] = normQuote_(q);
+  });
+  const today = todayBkk_();
+  const followDays = dealFollowDays_();
+  const out = [];
+  Object.keys(tickets).forEach(function (id) {
+    const t = tickets[id];
+    activeItemsOf_(id).forEach(function (it) {
+      if (it.quote_status) return;
+      const win = winners[it.item_id];
+      if (!win) return;
+      const p = itemPricing_(it, win);
+      const quotedAt = new Date(t.gm_price_approved_at);
+      const quotedYmd = fmtDate_(quotedAt);
+      const open = it.deal_status !== 'won' && it.deal_status !== 'lost';
+      const due = open && (it.deal_next_date ? it.deal_next_date <= today
+        : !it.deal_status && fmtDate_(new Date(quotedAt.getTime() + followDays * 86400000)) <= today);
+      const row = {
+        ticket_id: t.ticket_id, ticket_no: String(t.ticket_no), item_id: it.item_id, line_no: it.line_no,
+        customer_name: String(t.customer_name || ''), customer_group: String(t.customer_group || ''),
+        destination_country: String(t.destination_country || ''),
+        requestor_email: t.requestor_email, requestor_name: ctx.names[t.requestor_email] || t.requestor_email,
+        department_code: String(t.department_code || ''), sr_name: t.sr_email ? (ctx.names[t.sr_email] || t.sr_email) : '',
+        product_name: it.product_name, product_group_code: it.product_group_code, size: it.size, packing_size: it.packing_size,
+        net_weight: it.net_weight, spec: it.spec,
+        qty: it.qty, uom: it.uom, target_price: it.target_price || 0,
+        sell_price_thb: p.sell_price_thb, target_diff_pct: p.target_diff_pct,
+        valid_until: win.valid_until || '', quoted_at: quotedAt.toISOString(), quoted_ymd: quotedYmd, quoted_month: quotedYmd.slice(0, 7),
+        ticket_stage: t.stage, ticket_stage_label: STAGE_LABEL_TH[t.stage],
+        deal_status: it.deal_status, deal_status_label: DEAL_STATUS_LABEL_TH[it.deal_status] || it.deal_status,
+        deal_reason: it.deal_reason, deal_note: it.deal_note, deal_next_date: it.deal_next_date,
+        deal_updated_at: it.deal_updated_at, deal_updated_by: it.deal_updated_by ? (ctx.names[it.deal_updated_by] || it.deal_updated_by) : '',
+        deal_closed_at: it.deal_closed_at, is_open: open, is_due: due,
+        can_edit: canEditDeal_(u, t)
+      };
+      if (withCost) {
+        row.vendor_name = p.vendor_name;
+        row.landed_cost_thb = p.landed_cost_thb;
+        row.gp_percent = p.gp_percent;
+        row.profit_thb = p.profit_thb;
+      }
+      out.push(row);
+    });
+  });
+  out.sort(function (a, b) { return a.quoted_at < b.quoted_at ? 1 : a.quoted_at > b.quoted_at ? -1 : a.line_no - b.line_no; });
+  return out;
+}
+
+/** Sales (owner), the Sales Manager of that department, or Admin. */
+function canEditDeal_(u, t) {
+  if (DEAL_STAGES_.indexOf(t.stage) === -1) return false;
+  if (u.role === 'admin') return true;
+  if (u.role === 'sales') return t.requestor_email === u.email;
+  if (u.role === 'manager') {
+    const d = departmentByCode_(t.department_code);
+    return !!d && d.manager_email === u.email;
+  }
+  return false;
+}
+
+/** Follow-up list (no cost data for anyone — the GP view is getGpSummary). */
+function listDeals() {
+  return api_('listDeals', function () {
+    const u = currentUser_();
+    return {
+      rows: dealRows_(u, false),
+      today: todayBkk_(),
+      follow_days: dealFollowDays_(),
+      lost_reasons: setting_('deal_lost_reasons', []),
+      statuses: [''].concat(DEAL_STATUSES).map(function (k) { return { key: k, label: DEAL_STATUS_LABEL_TH[k] }; }),
+      can_see_everyone: u.role !== 'sales'
+    };
+  });
+}
+
+/**
+ * patch: { status: 'follow'|'sample'|'won'|'lost', reason? (required for lost), note?, next_date? (yyyy-MM-dd) }
+ * follow / sample without a date → next follow-up = today + deal_follow_days.
+ */
+function updateDeal(itemId, patch) {
+  return api_('updateDeal', function () {
+    return withLock_(function () {
+      const u = currentUser_();
+      const p = patch || {};
+      const row = findOne_(TAB.ITEMS, 'item_id', cleanText_(itemId, 64));
+      if (!row || toBool_(row.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบรายการสินค้า');
+      const t = ticketForUser_(u, row.ticket_id);
+      if (!canEditDeal_(u, t)) {
+        throw appError_('FORBIDDEN', DEAL_STAGES_.indexOf(t.stage) === -1
+          ? 'อัปเดตผลการขายได้หลัง GM อนุมัติราคาและส่งถึง Sales แล้ว'
+          : 'อัปเดตผลการขายได้เฉพาะ Sales เจ้าของคำขอ, Sales Manager ของแผนก หรือผู้ดูแลระบบ');
+      }
+      if (String(row.quote_status || '')) throw appError_('INVALID_STATE', 'รายการนี้ไม่ได้เสนอราคา จึงไม่มีผลการขาย');
+      const status = oneOf_(p.status, DEAL_STATUSES, 'สถานะการขาย');
+      const reasons = setting_('deal_lost_reasons', []);
+      let reason = cleanText_(p.reason, 200);
+      const note = cleanText_(p.note, CFG.MAX_TEXT);
+      if (status === 'lost') {
+        if (!reason) throw appError_('VALIDATION', 'กรุณาเลือกเหตุผลที่ไม่ได้งาน');
+        if (reasons.length && reasons.indexOf(reason) === -1) throw appError_('VALIDATION', 'เหตุผลไม่อยู่ในรายการ');
+        if (reason === 'อื่นๆ' && !note) throw appError_('VALIDATION', 'เลือก “อื่นๆ” กรุณาระบุรายละเอียดในหมายเหตุ');
+      } else {
+        reason = '';
+      }
+      let next = '';
+      if (status === 'follow' || status === 'sample') {
+        next = p.next_date ? parseYmd_(p.next_date, 'วันที่ติดตามครั้งถัดไป') : new Date(Date.now() + dealFollowDays_() * 86400000);
+        if (fmtDate_(next) < todayBkk_()) throw appError_('VALIDATION', 'วันที่ติดตามครั้งถัดไปต้องไม่เป็นวันที่ผ่านมาแล้ว');
+      }
+      const before = { status: String(row.deal_status || ''), reason: String(row.deal_reason || '') };
+      const now = new Date();
+      updateRow_(TAB.ITEMS, String(row.item_id), {
+        deal_status: status, deal_reason: reason, deal_note: note, deal_next_date: next,
+        deal_updated_by: u.email, deal_updated_at: now,
+        deal_closed_at: status === 'won' || status === 'lost' ? (before.status === status && row.deal_closed_at ? row.deal_closed_at : now) : '',
+        updated_at: now
+      });
+      appendLog_({ ticket_id: t.ticket_id, action: 'deal_update', actor_email: u.email, actor_role: u.role, comment: note,
+        metadata: { item_id: String(row.item_id), line_no: Number(row.line_no), product_name: String(row.product_name),
+          from: before.status, to: status, reason: reason, next_date: next ? fmtDate_(next) : '' } });
+      if (status === 'won' && before.status !== 'won') {
+        const qty = Number(row.qty);
+        enqueueGroupEvent_('deal_won', t, { items: false, lines: ['• #' + row.line_no + ' ' + row.product_name +
+          ' — ลูกค้าใช้ประมาณ ' + fmtQty_(qty) + ' ' + row.uom + '/เดือน'] });
+        // SR + SR Manager learn which of their prices sold (in-app + Lark DM, no price in the text)
+        const srs = [t.sr_email].concat(activeUsersByRole_('sr_manager').map(function (x) { return x.email; }));
+        enqueueNotifications_(srs, t, 'deal_won', '🎉 [' + t.ticket_no + '] ปิดการขายได้: ' + row.product_name,
+          (t.customer_name || '') + ' — ' + u.full_name + ' อัปเดตว่าลูกค้าตกลงซื้อ', ticketLink_(t, 'ticket'));
+      }
+      const fresh = dealRows_(u, false).filter(function (r) { return r.item_id === String(row.item_id); })[0];
+      return { deal: fresh || null };
+    });
+  });
+}
+
+/**
+ * GP & close-rate summary (GM / SR Manager / Admin): every quoted line with its cost, GP and deal status.
+ * The browser groups by month / customer group / Sales so filters never call the server again.
+ */
+function getGpSummary() {
+  return api_('getGpSummary', function () {
+    const u = currentUser_();
+    requireRole_(u, GP_ROLES_, 'สรุป GP ดูได้เฉพาะ GM, SR Manager และผู้ดูแลระบบ');
+    return {
+      rows: dealRows_(u, true),
+      today: todayBkk_(),
+      lost_reasons: setting_('deal_lost_reasons', []),
+      customer_groups: setting_('customer_groups', []),
+      default_gp_percent: defaultGp_()
+    };
+  });
+}
+
 // ==== Api.gs ====
 /**
  * File: Api.gs
@@ -3992,6 +4377,10 @@ function pollData_(u) {
   }).length;
   const out = { inbox: inbox, unread: unread, server_time: new Date().toISOString(),
     follow_up: myOpenFollowUps_(u).length };
+  if (u.role === 'sales' || u.role === 'manager') {
+    // deals waiting for a follow-up (Sales: own · Sales Manager: own department)
+    out.deals_due = dealRows_(u, false).filter(function (r) { return r.is_due && r.can_edit; }).length;
+  }
   if (u.role === 'gm') {
     const tickets = rows_(TAB.TICKETS).map(normTicket_);
     out.gm_sales = tickets.filter(function (t) { return t.stage === 'pending_gm' && t.manager_email !== u.email; }).length;
@@ -4309,7 +4698,10 @@ const EXT_MIME_ = {
 };
 
 /**
- * meta: { ticket_id, item_id?, category: 'request'|'info_response'|'quotation'|'other', file_name, mime_type, size_bytes }
+ * meta: { ticket_id, item_id?, quote_id?, category: 'request'|'info_response'|'quotation'|'quote_photo'|'other',
+ *         file_name, mime_type, size_bytes }
+ * quote_photo = product photo of ONE supplier offer (item_id + quote_id required, images only, ≤ max_photos_per_quote).
+ * quote_id may be the client UUID of an offer that is still a draft on the pricing page.
  */
 function beginUpload(meta) {
   return api_('beginUpload', function () {
@@ -4319,7 +4711,7 @@ function beginUpload(meta) {
     if (!canUpload_(u, t)) throw appError_('FORBIDDEN', 'แนบไฟล์ไม่ได้ในสถานะนี้ หรือคุณไม่ใช่ผู้รับผิดชอบใบนี้');
 
     const category = oneOf_(m.category || 'request', ATTACHMENT_CATEGORIES, 'ประเภทไฟล์');
-    if (category === 'quotation' && u.role !== 'sr') throw appError_('FORBIDDEN', 'ไฟล์ใบเสนอราคาแนบได้เฉพาะ SR');
+    if (COST_FILE_CATEGORIES_.indexOf(category) !== -1 && u.role !== 'sr') throw appError_('FORBIDDEN', 'ไฟล์ใบเสนอราคา / รูปสินค้าของ Supplier แนบได้เฉพาะ SR');
     const name = sanitizeFileName_(m.file_name);
     const ext = (name.split('.').pop() || '').toLowerCase();
     const mime = cleanText_(m.mime_type, 150) || EXT_MIME_[ext] || '';
@@ -4336,6 +4728,11 @@ function beginUpload(meta) {
       const it = findOne_(TAB.ITEMS, 'item_id', m.item_id);
       if (!it || String(it.ticket_id) !== t.ticket_id || toBool_(it.is_deleted)) throw appError_('VALIDATION', 'รายการสินค้าไม่ได้อยู่ในใบนี้');
       itemId = String(it.item_id);
+    }
+    let quoteId = '';
+    if (category === 'quote_photo') {
+      if (PHOTO_MIME_TYPES_.indexOf(mime) === -1) throw appError_('FILE_TYPE', 'รูปสินค้ารับเฉพาะไฟล์รูป (JPG, PNG, WEBP, HEIC)');
+      quoteId = checkPhotoTarget_(t, itemId, m.quote_id);
     }
 
     const folderId = withLock_(function () { return ticketFolderId_(t); });
@@ -4358,7 +4755,7 @@ function beginUpload(meta) {
 
     const uploadId = uuid_();
     const session = {
-      owner: u.email, ticket_id: t.ticket_id, item_id: itemId, category: category, file_name: name, mime: mime,
+      owner: u.email, ticket_id: t.ticket_id, item_id: itemId, quote_id: quoteId, category: category, file_name: name, mime: mime,
       size: size, uri: sessionUri, next_offset: 0, chunk: UPLOAD_CHUNK_BYTES
     };
     CacheService.getScriptCache().put(UPLOAD_CACHE_PREFIX_ + uploadId, JSON.stringify(session), 6 * 3600);
@@ -4412,14 +4809,21 @@ function uploadChunk(uploadId, index, base64) {
         try { drive_().getFileById(file.id).setTrashed(true); } catch (e) { console.warn(e); }
         throw appError_('FORBIDDEN', 'สถานะใบเปลี่ยนไประหว่างอัปโหลด ไฟล์นี้จึงไม่ถูกบันทึก');
       }
+      if (s.category === 'quote_photo') {
+        // limit re-checked under the lock: several photos may finish uploading at the same time
+        try { checkPhotoTarget_(t, s.item_id, s.quote_id); } catch (e) {
+          try { drive_().getFileById(file.id).setTrashed(true); } catch (e2) { console.warn(e2); }
+          throw e;
+        }
+      }
       const row = {
-        attachment_id: uuid_(), ticket_id: t.ticket_id, item_id: s.item_id, quote_id: '', category: s.category,
+        attachment_id: uuid_(), ticket_id: t.ticket_id, item_id: s.item_id, quote_id: s.quote_id || '', category: s.category,
         file_name: s.file_name, drive_file_id: String(file.id), mime_type: s.mime, size_bytes: s.size,
         uploaded_by: u.email, uploaded_at: new Date(), is_deleted: false, deleted_by: '', deleted_at: ''
       };
       insertRow_(TAB.ATTACHMENTS, row);
       appendLog_({ ticket_id: t.ticket_id, action: 'attachment_added', actor_email: u.email, actor_role: u.role,
-        metadata: { attachment_id: row.attachment_id, file_name: row.file_name, category: row.category, size_bytes: row.size_bytes, item_id: row.item_id } });
+        metadata: { attachment_id: row.attachment_id, file_name: row.file_name, category: row.category, size_bytes: row.size_bytes, item_id: row.item_id, quote_id: row.quote_id } });
       return publicAttachment_(row);
     });
     s.done = true;
@@ -4459,7 +4863,7 @@ function openAttachment(attachmentId) {
     const a = findOne_(TAB.ATTACHMENTS, 'attachment_id', cleanText_(attachmentId));
     if (!a || toBool_(a.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบไฟล์แนบ');
     const t = ticketForUser_(u, a.ticket_id);
-    if (a.category === 'quotation' && !canViewQuotes_(u, t)) throw appError_('NOT_FOUND', 'ไม่พบไฟล์แนบ');
+    if (COST_FILE_CATEGORIES_.indexOf(String(a.category)) !== -1 && !canViewQuotes_(u, t)) throw appError_('NOT_FOUND', 'ไม่พบไฟล์แนบ');
     const fileId = String(a.drive_file_id);
     const owner = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
     if (u.email !== owner) {
@@ -4477,6 +4881,97 @@ function openAttachment(attachmentId) {
     }
     return { url: 'https://drive.google.com/file/d/' + fileId + '/view', file_name: String(a.file_name) };
   });
+}
+
+function maxPhotosPerQuote_() {
+  const n = Number(setting_('max_photos_per_quote', 10));
+  return isFinite(n) && n >= 1 ? Math.min(Math.floor(n), 30) : 10;
+}
+
+/** Active photos of one supplier offer. */
+function quotePhotos_(quoteId) {
+  return findAll_(TAB.ATTACHMENTS, 'quote_id', quoteId).filter(function (a) {
+    return String(a.category) === 'quote_photo' && !toBool_(a.is_deleted);
+  });
+}
+
+/** quote_photo target: item of this ticket + offer of that item (saved or a draft UUID), and room for one more photo. */
+function checkPhotoTarget_(t, itemId, rawQuoteId) {
+  if (!itemId) throw appError_('VALIDATION', 'รูปสินค้าต้องระบุรายการสินค้า');
+  const quoteId = cleanText_(rawQuoteId, 64);
+  if (!isUuid_(quoteId)) throw appError_('VALIDATION', 'รูปสินค้าต้องผูกกับ Supplier (ใบเสนอราคา) ที่ถูกต้อง');
+  const q = findOne_(TAB.QUOTATIONS, 'quote_id', quoteId);
+  if (q && (String(q.item_id) !== String(itemId) || String(q.ticket_id) !== String(t.ticket_id) || toBool_(q.is_deleted))) {
+    throw appError_('VALIDATION', 'Supplier นี้ไม่ได้อยู่ในรายการสินค้านี้');
+  }
+  const max = maxPhotosPerQuote_();
+  if (quotePhotos_(quoteId).length >= max) throw appError_('PHOTO_LIMIT', 'แนบรูปได้สูงสุด ' + max + ' รูปต่อ Supplier 1 เจ้า');
+  return quoteId;
+}
+
+/** Soft-delete the photos of a removed offer (called inside the lock). */
+function removeQuotePhotos_(u, quoteId) {
+  quotePhotos_(quoteId).forEach(function (a) {
+    updateRow_(TAB.ATTACHMENTS, a.attachment_id, { is_deleted: true, deleted_by: u.email, deleted_at: new Date() });
+    try { drive_().getFileById(String(a.drive_file_id)).setTrashed(true); } catch (e) { console.warn('trash failed', e); }
+  });
+}
+
+/**
+ * Inline previews for the photo gallery: { attachment_id: 'data:image/...;base64,...' }.
+ * size 'thumb' (≈ 320 px, cached 6 h) or 'large' (≈ 1600 px, for the full-screen viewer).
+ * Images are read by the server with the owner's token, so viewers never need Drive access
+ * and Sales can never load a supplier photo (same permission as openAttachment).
+ */
+function getPhotoPreviews(attachmentIds, size) {
+  return api_('getPhotoPreviews', function () {
+    const u = currentUser_();
+    const large = size === 'large';
+    const ids = (Array.isArray(attachmentIds) ? attachmentIds : []).map(function (x) { return cleanText_(x, 64); })
+      .filter(String).slice(0, large ? 1 : 12);
+    const cache = CacheService.getScriptCache();
+    const seen = {};
+    const out = {};
+    ids.forEach(function (id) {
+      const a = findOne_(TAB.ATTACHMENTS, 'attachment_id', id);
+      if (!a || toBool_(a.is_deleted) || String(a.mime_type).indexOf('image/') !== 0) return;
+      const tid = String(a.ticket_id);
+      if (!(tid in seen)) {
+        const t = ticketById_(tid);
+        seen[tid] = { see: !!t && canSeeTicket_(u, t), cost: !!t && canViewQuotes_(u, t) };
+      }
+      if (!seen[tid].see || (COST_FILE_CATEGORIES_.indexOf(String(a.category)) !== -1 && !seen[tid].cost)) return;
+      const key = 'ph_' + (large ? 'l_' : 't_') + id;
+      const hit = large || TEST_DRIVE_ ? null : cache.get(key);
+      if (hit) { out[id] = hit; return; }
+      const url = drivePreview_(String(a.drive_file_id), large ? 1600 : 320, String(a.mime_type), Number(a.size_bytes || 0));
+      if (!url) return;
+      out[id] = url;
+      if (!large && !TEST_DRIVE_ && url.length < 95000) cache.put(key, url, 6 * 3600);
+    });
+    return { previews: out };
+  });
+}
+
+/** Data URL of a Drive file preview (Drive thumbnail at the wanted width; small originals as a fallback). */
+function drivePreview_(fileId, px, mime, sizeBytes) {
+  const auth = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
+  const meta = http_().fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) +
+    '?fields=thumbnailLink&supportsAllDrives=true', { method: 'get', headers: auth, muteHttpExceptions: true });
+  const link = meta.getResponseCode() === 200 ? String(parseJson_(meta.getContentText(), {}).thumbnailLink || '') : '';
+  if (link) {
+    const res = http_().fetch(link.replace(/=s\d+(-[a-z0-9-]+)?$/i, '') + '=s' + px, { method: 'get', headers: auth, muteHttpExceptions: true });
+    if (res.getResponseCode() === 200) {
+      const h = res.getAllHeaders();
+      const type = String(h['Content-Type'] || h['content-type'] || 'image/jpeg').split(';')[0];
+      return 'data:' + type + ';base64,' + Utilities.base64Encode(res.getContent());
+    }
+  }
+  // Drive makes the thumbnail a few seconds after upload — until then send small browser-viewable originals as is
+  if (sizeBytes > 0 && sizeBytes <= 1.5 * 1024 * 1024 && ['image/jpeg', 'image/png', 'image/webp'].indexOf(mime) !== -1) {
+    return 'data:' + mime + ';base64,' + Utilities.base64Encode(drive_().getFileById(fileId).getBlob().getBytes());
+  }
+  return '';
 }
 
 function publicAttachment_(a) {
@@ -4517,7 +5012,10 @@ function ticketFolderId_(t) {
  *        LARK_HOST           (optional, default https://open.larksuite.com — Feishu: https://open.feishu.cn)
  *        LARK_GROUP_CHAT_ID  (optional, oc_xxx — group that receives SLA breach summaries; add the bot to it)
  *        LARK_PRICE_GROUP_CHAT_ID (optional, oc_xxx — group told "ทำราคาเสร็จแล้ว" (status only, no prices) when GM
- *                             approves; blank = use LARK_GROUP_CHAT_ID; add the bot to the group)
+ *                             approves + every other Sales-side group event; blank = use LARK_GROUP_CHAT_ID)
+ *        LARK_MGMT_GROUP_CHAT_ID  (optional, oc_xxx — management group (SR / SR Manager / GM): price waiting for
+ *                             review / GM purchasing approval, returned prices; blank = these are not sent)
+ *      Add the bot to every group. Events per group: Settings › lark_group_events (see Notify.gs GROUP_EVENTS_).
  *   4. Run testLarkConnection() then installTriggers().
  *
  * Rules: a Lark failure never blocks or rolls back a business action. Rows stay in the
@@ -4535,7 +5033,8 @@ function larkConfig_() {
     app_secret: p.getProperty(CFG.PROP.LARK_APP_SECRET) || '',
     host: p.getProperty(CFG.PROP.LARK_HOST) || 'https://open.larksuite.com',
     group_chat_id: p.getProperty(CFG.PROP.LARK_GROUP_CHAT_ID) || '',
-    price_group_chat_id: p.getProperty(CFG.PROP.LARK_PRICE_GROUP_CHAT_ID) || p.getProperty(CFG.PROP.LARK_GROUP_CHAT_ID) || ''
+    price_group_chat_id: p.getProperty(CFG.PROP.LARK_PRICE_GROUP_CHAT_ID) || p.getProperty(CFG.PROP.LARK_GROUP_CHAT_ID) || '',
+    mgmt_group_chat_id: p.getProperty(CFG.PROP.LARK_MGMT_GROUP_CHAT_ID) || ''
   };
 }
 
@@ -4605,11 +5104,27 @@ function larkOpenIds_(emails) {
   return out;
 }
 
+/** Chat id of a pseudo-recipient ('#price_group' / '#mgmt_group'), '' when that group is not configured. */
+function groupChatId_(key) {
+  const c = larkConfig_();
+  if (key === PRICE_GROUP_KEY_) return c.price_group_chat_id || '';
+  if (key === MGMT_GROUP_KEY_) return c.mgmt_group_chat_id || '';
+  return '';
+}
+
+function larkCardColor_(type) {
+  const t = String(type);
+  if (t.indexOf('sla_breach') === 0) return 'red';
+  if (t === 'price_done_group') return 'green';
+  const ev = t.indexOf('group_') === 0 ? GROUP_EVENTS_[t.slice(6)] : null;
+  return ev ? ev.color : 'blue';
+}
+
 function larkCard_(n) {
   const link = String(n.link || '');
   const card = {
     config: { wide_screen_mode: true },
-    header: { template: String(n.type).indexOf('sla_breach') === 0 ? 'red' : (n.type === 'price_done_group' ? 'green' : 'blue'), title: { tag: 'plain_text', content: String(n.title).slice(0, 150) } },
+    header: { template: larkCardColor_(n.type), title: { tag: 'plain_text', content: String(n.title).slice(0, 150) } },
     elements: [{ tag: 'div', text: { tag: 'lark_md', content: String(n.body || '').slice(0, 1500) } }]
   };
   if (/^https:\/\//.test(link)) {
@@ -4654,9 +5169,12 @@ function dispatchNotifications() {
     batch.forEach(function (b) { results[b.notif_id] = { status: 'pending', error: String(e.message).slice(0, 300) }; });
   }
   batch.forEach(function (b) {
-    if (b.email === PRICE_GROUP_KEY_) {           // group message: does not need the open_id lookup
-      const chatId = larkConfig_().price_group_chat_id;
-      if (!chatId) { results[b.notif_id] = { status: 'no_group', error: 'ยังไม่ได้ตั้ง LARK_PRICE_GROUP_CHAT_ID' }; return; }
+    if (b.email.charAt(0) === '#') {              // group message: does not need the open_id lookup
+      const chatId = groupChatId_(b.email);
+      if (!chatId) {
+        results[b.notif_id] = { status: 'no_group', error: 'ยังไม่ได้ตั้ง ' + (b.email === MGMT_GROUP_KEY_ ? 'LARK_MGMT_GROUP_CHAT_ID' : 'LARK_PRICE_GROUP_CHAT_ID') };
+        return;
+      }
       try {
         larkCall_('/open-apis/im/v1/messages?receive_id_type=chat_id', {
           receive_id: chatId, msg_type: 'interactive', content: JSON.stringify(larkCard_(b)), uuid: b.notif_id.slice(0, 50)
@@ -4928,8 +5446,8 @@ function runSelfTest() {
  * Deployment settings: Execute as = Me (owner), Who has access = Anyone within <company domain>.
  */
 
-const PAGES_ = ['home', 'dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
-const PARTIALS_ = ['App', 'PageDashboard', 'PageTickets', 'PageTicket', 'PageForm', 'PagePricing'];
+const PAGES_ = ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
+const PARTIALS_ = ['App', 'PageHome', 'PageDashboard', 'PageGp', 'PageDeals', 'PageTickets', 'PageTicket', 'PageForm', 'PageSuppliers', 'PagePricing'];
 
 function doGet(e) {
   const t = HtmlService.createTemplateFromFile('Index');
@@ -4967,13 +5485,15 @@ function getBootstrap() {
 
 /**
  * Module menu (left sidebar) — at most 5 items per role. Status views (รอฉัน, ของฉัน, คิว, ส่งตามหลัง …)
- * are tabs on the ใบเสนอราคา page, not menu items; statistics live under รายงาน (managers only).
+ * are tabs on the ใบเสนอราคา page, not menu items; statistics live under รายงาน (managers only), which has
+ * its own tabs: ภาพรวม · ติดตามการขาย · สรุป GP (GP: GM / SR Manager / Admin — cost data).
  */
 function menuFor_(u) {
   const MAIN = 'เมนูหลัก';
   const m = [{ key: 'home', group: MAIN, icon: '🏠', label: 'หน้าแรก', route: { page: 'home' } }];
   m.push({ key: 'tickets', group: MAIN, icon: '📄', label: 'ใบเสนอราคา', route: { page: 'tickets' }, badge: 'inbox' });
   if (u.role === 'sales') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+  if (u.role === 'sales') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามการขาย', hint: 'ลูกค้าซื้อหรือยัง', route: { page: 'deals' }, badge: 'deals_due' });
   if (u.role === 'gm') {
     // two separate GM approvals: sales side (the request) and purchasing side (vendor price + selling price)
     m.push({ key: 'gm_sales', group: MAIN, icon: '🛒', label: 'อนุมัติฝั่งขาย', hint: 'คำขอราคาจาก Sales',
@@ -5020,6 +5540,9 @@ function referenceData_(me) {
     customer_groups: setting_('customer_groups', []),
     supplier_types: SUPPLIER_TYPES.map(function (k) { return { key: k, label: SUPPLIER_TYPE_LABEL[k] }; }),
     default_gp_percent: defaultGp_(),
+    deal_statuses: [''].concat(DEAL_STATUSES).map(function (k) { return { key: k, label: DEAL_STATUS_LABEL_TH[k] }; }),
+    deal_lost_reasons: setting_('deal_lost_reasons', []),
+    can_view_gp: !!me && GP_ROLES_.indexOf(me.role) !== -1,
     vat_terms: VAT_TERMS.map(function (k) { return { key: k, label: VAT_TERM_LABEL[k] }; }),
     incoterms: INCOTERMS.map(function (k) { return { key: k, label: INCOTERM_LABEL[k] }; }),
     priorities: PRIORITIES,
@@ -5029,6 +5552,7 @@ function referenceData_(me) {
     action_labels: ACTION_LABEL_TH,
     sla_hours: setting_('sla_hours', {}),
     max_upload_mb: Number(setting_('max_upload_mb', 20)),
+    max_photos_per_quote: maxPhotosPerQuote_(),
     allowed_mime_types: setting_('allowed_mime_types', []),
     upload_chunk_bytes: UPLOAD_CHUNK_BYTES
   };
@@ -5055,7 +5579,7 @@ function approvalRouteNote_(u) {
  *                      the Drive folder for attachments. Safe to run again any time:
  *                      it only ADDS missing tabs/columns, never deletes or reorders.
  *   seedMasterData() — departments, Food product groups + checklist templates, vendors.
- *   seedDemoData()   — demo users (all roles) + 4 demo tickets driven through the real workflow.
+ *   seedDemoData()   — demo users (all roles) + 13 demo tickets driven through the real workflow (incl. price history + deal outcomes).
  *                      DEV / UAT ONLY — edit DEMO_DOMAIN first.
  */
 
@@ -5063,8 +5587,8 @@ const DEMO_DOMAIN = 'example.co.th';   // ← change to your company domain befo
 
 const DATE_COLS_ = ['created_at', 'updated_at', 'ts', 'stage_entered_at', 'submitted_at', 'manager_approved_at',
   'gm_approved_at', 'assigned_at', 'doc_checked_at', 'completed_at', 'closed_at', 'rejected_at', 'cancelled_at',
-  'checked_at', 'uploaded_at', 'deleted_at', 'read_at', 'lark_sent_at'];
-const DAY_COLS_ = ['due_date', 'valid_until'];
+  'checked_at', 'uploaded_at', 'deleted_at', 'read_at', 'lark_sent_at', 'deal_updated_at', 'deal_closed_at'];
+const DAY_COLS_ = ['due_date', 'valid_until', 'deal_next_date'];
 const NUMBER_COLS_ = ['qty', 'target_price', 'unit_price', 'fx_rate', 'vat_rate', 'moq', 'lead_time_days',
   'net_unit_cost', 'net_unit_cost_thb', 'gross_unit_price_thb', 'line_no', 'version', 'revision_count',
   'sort_order', 'size_bytes', 'log_id', 'stage_duration_sec', 'last_no', 'lark_attempts'];
@@ -5415,14 +5939,57 @@ function seedDemoTickets_() {
     must(selectQuotation(q.quote_id, ''));
   });
   go(U.sr1, t.ticket_id, 'submit_quote');
-  return 'demo tickets +6';
+
+  // (G–M) Price history for ติดตามการขาย + สรุป GP: priced over the last months, with the deal outcome Sales recorded
+  const priced = function (sales, key, header, item, quote, gp, monthsAgo, deal) {
+    const x = req(sales, key, header, [Object.assign({ net_weight: '100%', packing_size: '10 kg/ctn', uom: 'กก.' }, item)]);
+    if (ticketById_(x.ticket_id).stage === 'pending_manager') go(U.mgrFood, x.ticket_id, 'manager_approve');
+    go(U.gm, x.ticket_id, 'gm_approve');
+    go(U.sr2, x.ticket_id, 'claim');
+    as(U.sr2, function () { checklistOf_(x.ticket_id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+    go(U.sr2, x.ticket_id, 'doc_complete');
+    as(U.sr2, function () {
+      const it = activeItemsOf_(x.ticket_id)[0];
+      const qid = Utilities.getUuid();
+      must(saveSourcingDraft(x.ticket_id, [{ item_id: it.item_id, gp_percent: gp, winner_quote_id: qid,
+        quotes: [Object.assign({ quote_id: qid, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }, quote)] }]));
+    });
+    go(U.sr2, x.ticket_id, 'submit_quote');
+    go(U.srManager, x.ticket_id, 'srm_approve');
+    go(U.gm, x.ticket_id, 'gm_price_approve');
+    const when = new Date(Date.now() - monthsAgo * 30.5 * 86400000);
+    updateRow_(TAB.TICKETS, x.ticket_id, { gm_price_approved_at: when });
+    if (deal && deal.status !== 'follow') go(sales, x.ticket_id, 'accept');
+    if (deal) {
+      const it = activeItemsOf_(x.ticket_id)[0];
+      as(sales, function () { must(updateDeal(it.item_id, deal)); });
+      if (deal.status === 'won' || deal.status === 'lost') updateRow_(TAB.ITEMS, it.item_id, { deal_closed_at: new Date(when.getTime() + 12 * 86400000) });
+    }
+    return x;
+  };
+  priced(U.salesFood1, 'seed-G', { customer_name: 'ร้านอาหาร ครัวทะเล' }, { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว Vannamei PD', size: '41/50', qty: 600, target_price: 280 },
+    { vendor_id: 'V-0001', vendor_name: 'Andaman Seafood Co., Ltd.', unit_price: 235 }, 15, 5, { status: 'won', note: 'สั่งประจำทุกเดือน' });
+  priced(U.salesFood2, 'seed-H', { customer_name: 'โรงแรม แกรนด์ บีช' }, { product_group_code: 'FOOD-FISH', product_name: 'ปลาแซลมอน Fillet', size: '1.2–1.8 kg', qty: 250, target_price: 520 },
+    { vendor_id: 'V-0002', vendor_name: 'Nordic Salmon AS', unit_price: 12.2, currency: 'EUR', fx_rate: 39.5, vat_term: 'no_vat', clearance_thb: 18 }, 12, 4, { status: 'lost', reason: 'ราคาสูงกว่าคู่แข่ง', note: 'คู่แข่งเสนอ 545' });
+  priced(U.salesFood3, 'seed-I', { customer_name: 'โรงแรม ซีวิว' }, { product_group_code: 'FOOD-CEPHALOPOD', product_name: 'หมึกกล้วย IQF', size: 'U/10', qty: 900, target_price: 170 },
+    { vendor_id: 'V-0003', vendor_name: 'บริษัท ซีฟู้ด เทรดดิ้ง จำกัด', unit_price: 138 }, 15, 3, { status: 'won' });
+  priced(U.salesFood1, 'seed-J', { customer_name: 'ร้านซูชิ ABC' }, { product_group_code: 'FOOD-FISH', product_name: 'ปลาซาบะนอร์เวย์ Fillet', size: '150–200 g', qty: 200, target_price: 0 },
+    { vendor_id: 'V-0002', vendor_name: 'Nordic Salmon AS', unit_price: 3.6, currency: 'EUR', fx_rate: 39.5, vat_term: 'no_vat', clearance_thb: 9 }, 18, 2, { status: 'lost', reason: 'ลูกค้าเลื่อน / ยกเลิกโครงการ' });
+  priced(U.salesFood2, 'seed-K', { customer_name: 'ภัตตาคาร ทะเลทอง' }, { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งแชบ๊วย HOSO', size: '21/25', qty: 150, target_price: 420 },
+    { vendor_id: 'V-0005', vendor_name: 'India Marine Exports Pvt. Ltd.', unit_price: 9.9, currency: 'USD', fx_rate: 35, vat_term: 'no_vat', clearance_thb: 15 }, 14, 1, { status: 'won' });
+  priced(U.salesFood3, 'seed-L', { customer_name: 'โรงแรม รอยัล ริเวอร์' }, { product_group_code: 'FOOD-FISH', product_name: 'ปลากะพงขาว Fillet', size: '200–300 g', qty: 400, target_price: 210 },
+    { vendor_id: 'V-0003', vendor_name: 'บริษัท ซีฟู้ด เทรดดิ้ง จำกัด', unit_price: 182 }, 15, 1, { status: 'sample', note: 'ส่งตัวอย่าง 5 กก. ให้เชฟทดลอง' });
+  priced(U.salesFood1, 'seed-M', { customer_name: 'ร้านอาหาร ครัวทะเล' }, { product_group_code: 'FOOD-CEPHALOPOD', product_name: 'ปลาหมึกกระดอง Cut', size: '40/60', qty: 300, target_price: 190 },
+    { vendor_id: 'V-0001', vendor_name: 'Andaman Seafood Co., Ltd.', unit_price: 158 }, 15, 0, null);
+  return 'demo tickets +13';
 }
 
 // ==== Tests.gs (fakes only) ====
 function fakeHttp_() {
   const calls = [];
-  const resp = function (code, body, headers) {
+  const resp = function (code, body, headers, bytes) {
     return {
+      getContent: function () { return bytes || []; },
       getResponseCode: function () { return code; },
       getContentText: function () { return typeof body === 'string' ? body : JSON.stringify(body); },
       getAllHeaders: function () { return headers || {}; }
@@ -5430,6 +5997,8 @@ function fakeHttp_() {
   };
   return {
     calls: calls,
+    files: {},                // drive file id → { bytes, mime } (uploaded content, for previews)
+    parts: {},                // upload session → bytes received so far
     failOpenIds: {},          // open_id → true : Lark message call fails
     unknownEmails: {},        // email → true   : Lark has no such user
     fetch: function (url, opt) {
@@ -5441,7 +6010,18 @@ function fakeHttp_() {
       }
       if (url.indexOf('https://upload.fake/session/') === 0) {
         const m = /bytes (\d+)-(\d+)\/(\d+)/.exec(o.headers['Content-Range']);
-        return Number(m[2]) + 1 < Number(m[3]) ? resp(308, '') : resp(200, { id: 'drive-file-' + calls.length });
+        const parts = this.parts[url] = (this.parts[url] || []).concat(Array.prototype.slice.call(o.payload || []));
+        if (Number(m[2]) + 1 < Number(m[3])) return resp(308, '');
+        const id = 'drive-file-' + calls.length;
+        this.files[id] = { bytes: parts, mime: o.contentType || 'application/octet-stream' };
+        return resp(200, { id: id });
+      }
+      // photo previews: file metadata → thumbnail link → image bytes
+      const meta = /\/drive\/v3\/files\/([^/?]+)\?fields=thumbnailLink/.exec(url);
+      if (meta) return this.files[decodeURIComponent(meta[1])] ? resp(200, { thumbnailLink: 'https://thumb.fake/' + meta[1] + '=s220' }) : resp(404, {});
+      if (url.indexOf('https://thumb.fake/') === 0) {
+        const f = this.files[decodeURIComponent(url.slice(19).replace(/=s\d+$/, ''))];
+        return f ? resp(200, '', { 'Content-Type': f.mime }, f.bytes) : resp(404, {});
       }
       if (url.indexOf('/drive/v3/files/') !== -1 && url.indexOf('/permissions') !== -1) return resp(200, { id: 'perm' });
       if (url.indexOf('/auth/v3/tenant_access_token') !== -1) return resp(200, { code: 0, tenant_access_token: 'tok' });
@@ -5474,11 +6054,49 @@ function fakeDrive_() {
 }
 
 
-  const PUBLIC = { verifyLogChain: verifyLogChain, createTicket: createTicket, transitionTicket: transitionTicket, getTicket: getTicket, updateTicketRequest: updateTicketRequest, saveItem: saveItem, deleteItem: deleteItem, updateChecklist: updateChecklist, saveQuotation: saveQuotation, deleteQuotation: deleteQuotation, selectQuotation: selectQuotation, saveSourcingDraft: saveSourcingDraft, saveChecklist: saveChecklist, setItemQuoteStatus: setItemQuoteStatus, listSuppliers: listSuppliers, saveSupplier: saveSupplier, setSupplierActive: setSupplierActive, mergeSuppliers: mergeSuppliers, getSupplierLog: getSupplierLog, supplierHints: supplierHints, migrateSuppliers: migrateSuppliers, listTickets: listTickets, getPoll: getPoll, getAdminHealth: getAdminHealth, getNotifications: getNotifications, markNotificationsRead: markNotificationsRead, getDashboard: getDashboard, listTicketBoard: listTicketBoard, getSalesHistory: getSalesHistory, beginUpload: beginUpload, uploadChunk: uploadChunk, deleteAttachment: deleteAttachment, openAttachment: openAttachment, dispatchNotifications: dispatchNotifications, testLarkConnection: testLarkConnection, installTriggers: installTriggers, checkSlaAlerts: checkSlaAlerts, weeklyBackup: weeklyBackup, runSelfTest: runSelfTest, doGet: doGet, getBootstrap: getBootstrap, setupDatabase: setupDatabase, seedMasterData: seedMasterData, seedDemoData: seedDemoData };
+  const PUBLIC = { verifyLogChain: verifyLogChain, createTicket: createTicket, transitionTicket: transitionTicket, getTicket: getTicket, updateTicketRequest: updateTicketRequest, saveItem: saveItem, deleteItem: deleteItem, updateChecklist: updateChecklist, saveQuotation: saveQuotation, deleteQuotation: deleteQuotation, selectQuotation: selectQuotation, saveSourcingDraft: saveSourcingDraft, saveChecklist: saveChecklist, setItemQuoteStatus: setItemQuoteStatus, listSuppliers: listSuppliers, saveSupplier: saveSupplier, setSupplierActive: setSupplierActive, mergeSuppliers: mergeSuppliers, getSupplierLog: getSupplierLog, supplierHints: supplierHints, migrateSuppliers: migrateSuppliers, listDeals: listDeals, updateDeal: updateDeal, getGpSummary: getGpSummary, listTickets: listTickets, getPoll: getPoll, getAdminHealth: getAdminHealth, getNotifications: getNotifications, markNotificationsRead: markNotificationsRead, getDashboard: getDashboard, listTicketBoard: listTicketBoard, getSalesHistory: getSalesHistory, beginUpload: beginUpload, uploadChunk: uploadChunk, deleteAttachment: deleteAttachment, openAttachment: openAttachment, getPhotoPreviews: getPhotoPreviews, dispatchNotifications: dispatchNotifications, testLarkConnection: testLarkConnection, installTriggers: installTriggers, checkSlaAlerts: checkSlaAlerts, weeklyBackup: weeklyBackup, runSelfTest: runSelfTest, doGet: doGet, getBootstrap: getBootstrap, setupDatabase: setupDatabase, seedMasterData: seedMasterData, seedDemoData: seedDemoData };
   setupDatabase();
   seedDemoData();
   TEST_HTTP_ = fakeHttp_();     // uploads go to a fake Drive
   TEST_DRIVE_ = fakeDrive_();
+  // sample supplier photos (drawn on a canvas) so the review gallery has something to show
+  (function seedPhotos() {
+    const draw = function (title, sub, hue, n) {
+      const c = document.createElement('canvas');
+      c.width = 640; c.height = 480;
+      const g = c.getContext('2d');
+      const grd = g.createLinearGradient(0, 0, 640, 480);
+      grd.addColorStop(0, 'hsl(' + hue + ',55%,62%)'); grd.addColorStop(1, 'hsl(' + (hue + 25) + ',60%,38%)');
+      g.fillStyle = grd; g.fillRect(0, 0, 640, 480);
+      g.fillStyle = 'rgba(255,255,255,.18)';
+      for (let i = 0; i < 6; i++) { g.beginPath(); g.ellipse(120 + i * 85, 250 + (i % 2) * 40, 70, 34, -0.4, 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = '#fff'; g.font = '600 34px Prompt, sans-serif'; g.fillText(title, 32, 70);
+      g.font = '24px Prompt, sans-serif'; g.fillText(sub, 32, 110);
+      g.font = '20px Prompt, sans-serif'; g.fillText('รูปตัวอย่าง ' + n + ' · Prototype', 32, 446);
+      const b64 = c.toDataURL('image/jpeg', 0.82).split(',')[1];
+      return { b64: b64, size: atob(b64).length };
+    };
+    const add = function (sr, ticketId, vendorPart, title, hue, count) {
+      const it = activeItemsOf_(ticketId)[0];
+      const q = activeQuotesOfItem_(it.item_id).filter(function (x) { return x.vendor_name.indexOf(vendorPart) !== -1; })[0];
+      if (!q) return;
+      for (let n = 1; n <= count; n++) {
+        const img = draw(title, q.vendor_name, hue + n * 6, n);
+        withIdentity_(sr, function () {
+          const b = beginUpload({ ticket_id: ticketId, item_id: it.item_id, quote_id: q.quote_id, category: 'quote_photo',
+            file_name: 'photo-' + n + '.jpg', mime_type: 'image/jpeg', size_bytes: img.size });
+          if (b.ok) uploadChunk(b.data.upload_id, 0, img.b64);
+        });
+      }
+    };
+    try {
+      const U0 = demoUsers_();
+      const f = rows_(TAB.TICKETS).filter(function (r) { return String(r.title).indexOf('ทะเลทอง') !== -1; })[0];
+      const e = rows_(TAB.TICKETS).filter(function (r) { return String(r.title).indexOf('ริเวอร์ไซด์') !== -1; })[0];
+      if (f) { add(U0.sr1, String(f.ticket_id), 'India', 'กุ้งแชบ๊วย HOSO 26/30', 12, 4); add(U0.sr1, String(f.ticket_id), 'ซีฟู้ด', 'กุ้งแชบ๊วย HOSO 26/30', 190, 2); }
+      if (e) add(U0.sr2, String(e.ticket_id), 'Ocean', 'กุ้งขาว Vannamei PD 41/50', 200, 3);
+    } catch (err) { console.warn('photo seed', err); }
+  })();
   const users = rows_(TAB.USERS).map(function (u) { return { email: String(u.email), name: String(u.full_name), role: String(u.role) }; });
   const byTitle = function (part) { const t = rows_(TAB.TICKETS).filter(function (r) { return String(r.title).indexOf(part) !== -1; })[0]; return t ? String(t.ticket_id) : ''; };
   const U = demoUsers_();
@@ -5592,7 +6210,7 @@ function fakeDrive_() {
     </aside>
     <div class="content">
       <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.08-3 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.08-4 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
     </div>
   </div>
   <div class="side-ov" id="side-ov"></div>
@@ -5801,7 +6419,7 @@ const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome'
 function cleanRoute(p) {
   const r = {};
   ROUTE_KEYS.forEach(function (k) { if (p && p[k]) r[k] = String(p[k]); });
-  if (!r.page || ['home', 'dashboard', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'].indexOf(r.page) === -1) r.page = 'home';
+  if (!r.page || ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'].indexOf(r.page) === -1) r.page = 'home';
   return r;
 }
 function go(route, replace) {
@@ -5827,14 +6445,38 @@ function render(route) {
   }
 }
 function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || '') + (r.follow || ''); }
-const PAGE_TITLE = { home: 'หน้าแรก', dashboard: 'รายงาน', suppliers: 'Supplier', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
+const PAGE_TITLE = { home: 'หน้าแรก', dashboard: 'รายงาน', gp: 'สรุป GP & การปิดการขาย', deals: 'ติดตามการขาย', suppliers: 'Supplier', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
+/** Tabs on top of the report pages: ภาพรวม · ติดตามการขาย · สรุป GP (only the ones this role may open). */
+function reportTabs(active) {
+  const role = state.me.role;
+  const tabs = [];
+  if (['manager', 'sr_manager', 'gm', 'admin'].indexOf(role) !== -1) tabs.push(['dashboard', '📊 ภาพรวมใบขอราคา']);
+  tabs.push(['deals', '🎯 ติดตามการขาย']);
+  if (state.ref.can_view_gp) tabs.push(['gp', '💹 สรุป GP & การปิดการขาย']);
+  if (tabs.length < 2) return '';
+  return '<nav class="rtabs" aria-label="รายงาน">' + tabs.map(function (t) {
+    return '<button type="button" class="rtab' + (t[0] === active ? ' on' : '') + '" data-rtab="' + t[0] + '"' + (t[0] === active ? ' aria-current="page"' : '') + '>' + esc(t[1]) + '</button>';
+  }).join('') + '</nav>';
+}
+function bindReportTabs(view) {
+  $all('[data-rtab]', view).forEach(function (b) { b.onclick = function () { go({ page: b.getAttribute('data-rtab') }); }; });
+}
+/** "2026-10" → "ต.ค. 69" */
+function fmtMonth(ym) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(ym || ''));
+  if (!m) return ym || '';
+  const TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+  return TH[Number(m[2]) - 1] + ' ' + String(Number(m[1]) + 543).slice(-2);
+}
+
 function renderNav() {
   initShell();
   const cur = state.route;
   let group = null;
   let activeItem = null;
   $('#nav').innerHTML = state.menu.map(function (m, i) {
-    const active = routeKey(cleanRoute(m.route)) === routeKey(cur) && !cur.id;
+    const reportPage = (cur.page === 'gp' || (cur.page === 'deals' && !state.menu.some(function (x) { return x.key === 'deals'; }))) && m.key === 'reports';
+    const active = (routeKey(cleanRoute(m.route)) === routeKey(cur) && !cur.id) || reportPage;
     if (active) activeItem = m;
     const n = m.badge ? Number(state.poll[m.badge] || 0) : 0;
     const count = n ? '<span class="count">' + n + '</span>' : '';
@@ -5963,6 +6605,192 @@ function uploadFile(file, meta, onProgress) {
     });
 }
 
+/* ===== 7b. Supplier product photos (gallery + viewer + upload, ≤ max per supplier) ===== */
+/**
+ * Photos.html(list, opts)   list = attachments of ONE supplier offer (category quote_photo)
+ *   opts: { ticketId, itemId, quoteId, editable, max, compact }
+ * Photos.bind(root, opts)    wires every gallery under root (once): viewer, delete, upload.
+ *   opts: { attachments() → live array to update, onChange() → called after add / delete }
+ * Images are loaded through getPhotoPreviews (permission-checked on the server) and kept in memory.
+ */
+const Photos = (function () {
+  const cache = {};
+  const pending = {};
+  function maxPer() { return (state.ref && state.ref.max_photos_per_quote) || 10; }
+  function of(attachments, quoteId) {
+    return (attachments || []).filter(function (a) { return a.category === 'quote_photo' && a.quote_id === quoteId; });
+  }
+  function html(list, o) {
+    const max = o.max || maxPer();
+    const thumbs = list.map(function (a, i) {
+      return '<figure class="pth"><button type="button" class="pimg" data-ph="' + esc(a.attachment_id) + '" data-i="' + i + '" aria-label="ดูรูป ' + esc(a.file_name) + '">' +
+        '<img alt="" data-phid="' + esc(a.attachment_id) + '"' + (cache[a.attachment_id] ? ' src="' + cache[a.attachment_id] + '"' : '') + '></button>' +
+        (o.editable && a.uploaded_by === state.me.email ? '<button type="button" class="pdel" data-phdel="' + esc(a.attachment_id) + '" aria-label="ลบรูป">✕</button>' : '') + '</figure>';
+    }).join('');
+    const add = o.editable && list.length < max
+      ? '<label class="pth padd" title="แนบรูปสินค้า (สูงสุด ' + max + ' รูป)"><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,.heic" multiple hidden data-phup>' +
+        '<span class="plus">＋</span><small>รูป</small></label>' : '';
+    if (!list.length && !o.editable) return o.compact ? '' : '<div class="pgal empty small muted">ไม่มีรูปสินค้า</div>';
+    return '<div class="pgal' + (o.compact ? ' compact' : '') + '" data-pgal data-ticket="' + esc(o.ticketId || '') + '" data-item="' + esc(o.itemId || '') +
+      '" data-quote="' + esc(o.quoteId || '') + '">' +
+      '<div class="pgal-head small"><span>📷 รูปสินค้า</span><span class="muted" data-phcount>' + list.length + ' / ' + max + '</span></div>' +
+      '<div class="pgal-grid">' + thumbs + add + '</div><div class="pgal-prog"></div></div>';
+  }
+  /** Load thumbnails of every <img data-phid> under root that has no src yet (12 per call). */
+  function load(root) {
+    const imgs = $all('img[data-phid]', root).filter(function (im) { return !im.getAttribute('src'); });
+    imgs.forEach(function (im) { const id = im.getAttribute('data-phid'); if (cache[id]) im.src = cache[id]; });
+    const ids = imgs.map(function (im) { return im.getAttribute('data-phid'); })
+      .filter(function (id, i, a) { return !cache[id] && !pending[id] && a.indexOf(id) === i; });
+    for (let i = 0; i < ids.length; i += 12) {
+      const part = ids.slice(i, i + 12);
+      part.forEach(function (id) { pending[id] = true; });
+      api('getPhotoPreviews', part, 'thumb').then(function (r) {
+        part.forEach(function (id) {
+          delete pending[id];
+          const url = r.previews[id];
+          if (url) cache[id] = url;
+          $all('img[data-phid="' + id + '"]').forEach(function (im) {
+            if (url) im.src = url; else im.closest('.pimg').classList.add('nopv');
+          });
+        });
+      }).catch(function () { part.forEach(function (id) { delete pending[id]; }); });
+    }
+  }
+  /** Full-screen viewer with prev / next (arrow keys, swipe). */
+  function view(list, index) {
+    let i = index || 0;
+    const root = document.createElement('div');
+    root.className = 'overlay pview';
+    root.innerHTML = '<div class="pview-box" role="dialog" aria-modal="true" aria-label="รูปสินค้า">' +
+      '<div class="pview-top"><span class="small" data-cap></span><span class="sep"></span>' +
+      '<button type="button" class="btn sm" data-orig>เปิดไฟล์ต้นฉบับ</button><button type="button" class="btn sm" data-x aria-label="ปิด">✕</button></div>' +
+      '<div class="pview-stage"><button type="button" class="pnav prev" data-prev aria-label="รูปก่อนหน้า">‹</button>' +
+      '<img alt="" data-big><span class="spinner" data-spin></span>' +
+      '<button type="button" class="pnav next" data-next aria-label="รูปถัดไป">›</button></div>' +
+      '<div class="pview-strip">' + list.map(function (a, k) {
+        return '<button type="button" data-k="' + k + '"><img alt="" data-phid="' + esc(a.attachment_id) + '"' + (cache[a.attachment_id] ? ' src="' + cache[a.attachment_id] + '"' : '') + '></button>';
+      }).join('') + '</div></div>';
+    $('#modal-root').appendChild(root);
+    const big = $('[data-big]', root);
+    const show = function () {
+      const a = list[i];
+      $('[data-cap]', root).textContent = (i + 1) + ' / ' + list.length + ' · ' + a.file_name;
+      $all('.pview-strip button', root).forEach(function (b, k) { b.classList.toggle('on', k === i); });
+      big.src = cache[a.attachment_id] || '';
+      $('[data-spin]', root).style.display = '';
+      const want = a.attachment_id;
+      api('getPhotoPreviews', [want], 'large').then(function (r) {
+        if (list[i].attachment_id !== want) return;
+        if (r.previews[want]) big.src = r.previews[want];
+        $('[data-spin]', root).style.display = 'none';
+      }).catch(function () { $('[data-spin]', root).style.display = 'none'; });
+      $('[data-prev]', root).disabled = i === 0;
+      $('[data-next]', root).disabled = i === list.length - 1;
+    };
+    const close = function () { root.remove(); document.removeEventListener('keydown', onKey); };
+    const step = function (d) { const n = i + d; if (n >= 0 && n < list.length) { i = n; show(); } };
+    const onKey = function (e) { if (e.key === 'Escape') close(); if (e.key === 'ArrowLeft') step(-1); if (e.key === 'ArrowRight') step(1); };
+    document.addEventListener('keydown', onKey);
+    root.addEventListener('click', function (e) { if (e.target === root || e.target.classList.contains('pview-stage')) close(); });
+    $('[data-x]', root).onclick = close;
+    $('[data-prev]', root).onclick = function () { step(-1); };
+    $('[data-next]', root).onclick = function () { step(1); };
+    $all('.pview-strip button', root).forEach(function (b) { b.onclick = function () { i = Number(b.getAttribute('data-k')); show(); }; });
+    $('[data-orig]', root).onclick = function () {
+      api('openAttachment', list[i].attachment_id).then(function (r) { window.open(r.url, '_blank'); }).catch(function (e) { toast(e.error, 'err'); });
+    };
+    let x0 = null;
+    root.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+    root.addEventListener('touchend', function (e) {
+      if (x0 == null) return;
+      const dx = e.changedTouches[0].clientX - x0;
+      if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1);
+      x0 = null;
+    });
+    show();
+    load(root);
+  }
+  /** Phone photos are often 4–12 MB: shrink to ≤ 1600 px JPEG before upload (HEIC is sent as is). */
+  function shrink(file) {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 400 * 1024) return Promise.resolve(file);
+    return new Promise(function (resolve) {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = function () {
+        const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * k);
+        c.height = Math.round(img.naturalHeight * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(function (b) {
+          if (!b || b.size >= file.size) { resolve(file); return; }
+          resolve(new File([b], file.name.replace(/\.(png|webp|jpe?g)$/i, '') + '.jpg', { type: 'image/jpeg' }));
+        }, 'image/jpeg', 0.85);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+  function bind(root, o) {
+    $all('[data-pgal]', root).forEach(function (g) {
+      if (g.dataset.bound) return;
+      g.dataset.bound = '1';
+      const quoteId = g.getAttribute('data-quote');
+      const listNow = function () { return of(o.attachments(), quoteId); };
+      g.addEventListener('click', function (e) {
+        const del = e.target.closest('[data-phdel]');
+        if (del) {
+          e.preventDefault();
+          const id = del.getAttribute('data-phdel');
+          dialog({ title: 'ลบรูปนี้?', message: 'รูปจะถูกลบออกจาก Supplier เจ้านี้', confirmText: 'ลบรูป', danger: true }).then(function (ok) {
+            if (!ok) return;
+            api('deleteAttachment', id).then(function () {
+              const arr = o.attachments();
+              const k = arr.findIndex(function (a) { return a.attachment_id === id; });
+              if (k !== -1) arr.splice(k, 1);
+              toast('ลบรูปแล้ว', 'ok');
+              if (o.onChange) o.onChange(quoteId);
+            }).catch(function (err) { toast(err.error, 'err'); });
+          });
+          return;
+        }
+        const ph = e.target.closest('[data-ph]');
+        if (ph) { e.preventDefault(); view(listNow(), Number(ph.getAttribute('data-i'))); }
+      });
+      const input = $('[data-phup]', g);
+      if (input) input.onchange = function () {
+        const files = Array.prototype.slice.call(input.files || []);
+        input.value = '';
+        const room = maxPer() - listNow().length;
+        if (files.length > room) toast('แนบได้อีก ' + Math.max(room, 0) + ' รูป (สูงสุด ' + maxPer() + ' รูปต่อ Supplier) — เลือกเฉพาะ ' + Math.max(room, 0) + ' รูปแรก', 'err', 7000);
+        const prog = $('.pgal-prog', g);
+        let chain = Promise.resolve();
+        let added = 0;
+        files.slice(0, Math.max(room, 0)).forEach(function (f) {
+          chain = chain.then(function () {
+            const row = document.createElement('div');
+            row.innerHTML = '<div class="small">' + esc(f.name) + '</div><div class="progress"><div></div></div>';
+            prog.appendChild(row);
+            return shrink(f).then(function (small) {
+              return uploadFile(small, { ticket_id: g.getAttribute('data-ticket'), item_id: g.getAttribute('data-item'), quote_id: quoteId, category: 'quote_photo' },
+                function (p) { row.querySelector('.progress > div').style.width = Math.round(p * 100) + '%'; });
+            }).then(function (att) { o.attachments().push(att); added++; row.remove(); })
+              .catch(function (err) { toast(f.name + ': ' + err.error, 'err', 8000); row.remove(); });
+          });
+        });
+        chain.then(function () {
+          if (added) toast('แนบรูปแล้ว ' + added + ' รูป', 'ok');
+          if (o.onChange) o.onChange(quoteId);
+        });
+      };
+    });
+    load(root);
+  }
+  return { html: html, bind: bind, load: load, view: view, of: of, max: maxPer };
+})();
+
 /* ===== 8. Boot ===== */
 const App = {
   start: function () {
@@ -6017,6 +6845,7 @@ Pages.home = (function () {
     if (role === 'sales') {
       out.push({ label: '➕ สร้างใบขอราคา', route: { page: 'new' }, primary: true });
       out.push({ label: '📄 ใบขอราคาของฉัน', route: { page: 'tickets', scope: 'mine' } });
+      out.push({ label: '🎯 ติดตามการขาย', count: state.poll.deals_due || 0, route: { page: 'deals' } });
     }
     if (role === 'sr') {
       out.push({ label: '🧾 คิวรอรับงาน', count: n(function (r) { return r.stage === 'pending_assign'; }), route: { page: 'tickets', scope: 'queue' }, primary: true });
@@ -6030,12 +6859,14 @@ Pages.home = (function () {
     if (role === 'gm') {
       out.push({ label: '🛒 อนุมัติฝั่งขาย', count: n(function (r) { return r.stage === 'pending_gm' && r.is_inbox; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm' }, primary: true });
       out.push({ label: '📦 อนุมัติฝั่งซื้อ', count: n(function (r) { return r.stage === 'pending_gm_price'; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_gm_price' }, primary: true });
-      out.push({ label: '📊 รายงาน', route: { page: 'dashboard' } });
+      out.push({ label: '💹 สรุป GP', route: { page: 'gp' } });
     }
     if (role === 'manager') {
       out.push({ label: '✅ รออนุมัติ', count: n(function (r) { return r.stage === 'pending_manager' && r.is_inbox; }), route: { page: 'tickets', scope: 'inbox', stage: 'pending_manager' }, primary: true });
+      out.push({ label: '🎯 ติดตามการขาย', count: state.poll.deals_due || 0, route: { page: 'deals' } });
       out.push({ label: '📊 รายงาน', route: { page: 'dashboard' } });
     }
+    if (role === 'sr_manager') out.push({ label: '💹 สรุป GP', route: { page: 'gp' } });
     if (role === 'admin') {
       out.push({ label: '🏭 Supplier', route: { page: 'suppliers' } });
       out.push({ label: '📊 รายงาน', route: { page: 'dashboard' } });
@@ -6172,7 +7003,7 @@ Pages.dashboard = (function () {
   function draw(view, d) {
     const k = d.kpi;
     const listScope = state.me.role === 'sales' || state.me.role === 'sr' ? 'mine' : 'all';
-    let html = '<div class="page-head"><h1>รายงาน</h1><div class="actions">' +
+    let html = reportTabs('dashboard') + '<div class="page-head"><h1>ภาพรวมใบขอราคา</h1><div class="actions">' +
       PRESETS.map(function (p) { return '<button class="btn sm' + (range.key === p[0] ? ' primary' : '') + '" data-range="' + p[0] + '">' + p[1] + '</button>'; }).join('') +
       '</div></div><p class="muted small" style="margin-top:-6px">แสดง: <b>' + esc(d.scope_note) + '</b>' +
       (d.range.from ? ' · สร้างระหว่าง ' + esc(fmtDate(d.range.from)) + ' – ' + esc(fmtDate(d.range.to)) : ' · ทุกช่วงเวลา') + ' · แตะตัวเลขเพื่อดูรายการ</p>';
@@ -6224,6 +7055,7 @@ Pages.dashboard = (function () {
   }
 
   function bind(view, listScope) {
+    bindReportTabs(view);
     const open = function (extra) { go(Object.assign({ page: 'tickets', scope: listScope }, extra)); };
     $all('[data-range]', view).forEach(function (b) {
       b.onclick = function () { range = presetRange(b.getAttribute('data-range')); Pages.dashboard.render(view, state.route, function () { return true; }); };
@@ -6258,6 +7090,383 @@ Pages.dashboard = (function () {
       view.innerHTML = loadingHtml('กำลังสรุปรายงาน...');
       api('getDashboard', { from: range.from, to: range.to }).then(function (d) {
         if (isCurrent()) draw(view, d);
+      }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+    }
+  };
+})();
+</script>
+
+  <!--
+  File: PageDeals.html
+  ติดตามการขาย (New Item follow-up): every item that got a GM-approved selling price.
+  Shows what Sales needs to follow up: product the customer is interested in, volume per month,
+  the price the customer expects vs the price we quoted, the deal status and the next follow-up date.
+  No cost data here (the server never sends it) — GP is on PageGp for GM / SR Manager / Admin.
+  Data: listDeals() once; tabs / search / filters run in the browser.
+-->
+<script>
+Pages.deals = (function () {
+  let data = null, user = '';
+  const f = { tab: 'todo', q: '', sales: '', group: '' };
+  const TABS = [
+    ['todo', 'ต้องติดตาม'], ['open', 'ยังไม่จบ'], ['won', 'ปิดการขายได้'], ['lost', 'ไม่ได้งาน'], ['all', 'ทั้งหมด']
+  ];
+  const ST_CLS = { '': 'd-new', follow: 'd-follow', sample: 'd-sample', won: 'd-won', lost: 'd-lost' };
+
+  function inTab(r, tab) {
+    if (tab === 'todo') return r.is_due;
+    if (tab === 'open') return r.is_open;
+    if (tab === 'won' || tab === 'lost') return r.deal_status === tab;
+    return true;
+  }
+  function filtered() {
+    const q = f.q.toLowerCase();
+    return data.rows.filter(function (r) {
+      if (f.sales && r.requestor_email !== f.sales) return false;
+      if (f.group && r.customer_group !== f.group) return false;
+      if (q && (r.ticket_no + ' ' + r.customer_name + ' ' + r.product_name + ' ' + r.size + ' ' + r.requestor_name).toLowerCase().indexOf(q) === -1) return false;
+      return true;
+    });
+  }
+  function statusChip(r) {
+    return '<span class="dchip ' + ST_CLS[r.deal_status] + '">' + esc(r.deal_status_label) + '</span>';
+  }
+  function nextText(r) {
+    if (!r.is_open) return r.deal_closed_at ? '<span class="small muted">' + (r.deal_status === 'won' ? 'ปิดได้ ' : 'ปิดงาน ') + esc(fmtDate(r.deal_closed_at)) + '</span>' : '';
+    if (r.deal_next_date) return '<span class="small ' + (r.is_due ? 'sla breach' : 'muted') + '">' + (r.is_due ? '⏰ ' : '') + 'ติดตาม ' + esc(fmtDate(r.deal_next_date)) + '</span>';
+    return r.is_due ? '<span class="small sla breach">⏰ ถึงกำหนดอัปเดต</span>' : '<span class="small muted">เสนอราคา ' + esc(fmtDate(r.quoted_ymd)) + '</span>';
+  }
+  function priceCell(r) {
+    const diff = r.target_diff_pct == null ? '' : (r.target_diff_pct > 0
+      ? '<div class="small sla breach">▲ สูงกว่าที่ลูกค้าคาด ' + fmtNum(r.target_diff_pct) + '%</div>'
+      : '<div class="small sla ok">✓ ' + (r.target_diff_pct < 0 ? 'ต่ำกว่าที่ลูกค้าคาด ' + fmtNum(-r.target_diff_pct) + '%' : 'เท่าที่ลูกค้าคาด') + '</div>');
+    return '<b>' + fmtMoney(r.sell_price_thb) + '</b> <span class="small muted">บาท/' + esc(r.uom) + '</span>' + diff;
+  }
+
+  function draw(view) {
+    const base = filtered();
+    const count = function (tab) { return base.filter(function (r) { return inTab(r, tab); }).length; };
+    const won = count('won'), lost = count('lost');
+    const rows = base.filter(function (r) { return inTab(r, f.tab); });
+    const salesOpts = data.can_see_everyone ? data.rows.reduce(function (m, r) { m[r.requestor_email] = r.requestor_name; return m; }, {}) : {};
+    const groups = data.rows.map(function (r) { return r.customer_group; }).filter(function (g, i, a) { return g && a.indexOf(g) === i; });
+    let html = reportTabs('deals') + '<div class="page-head"><div><h1>ติดตามการขาย</h1><div class="small muted">ทุกรายการที่ GM อนุมัติราคาแล้ว · อัปเดตว่าลูกค้าซื้อหรือไม่ เพื่อดูแนวโน้มการปิดการขาย</div></div></div>';
+    html += '<div class="tiles deal-tiles">' +
+      '<button class="tile" data-tab="all"><span class="v">' + fmtInt(base.length) + '</span><span class="l">รายการที่เสนอราคา</span><span class="p">สินค้าที่ลูกค้าสนใจ</span></button>' +
+      '<button class="tile' + (count('todo') ? ' bad' : '') + '" data-tab="todo"><span class="v">' + fmtInt(count('todo')) + '</span><span class="l">ถึงกำหนดติดตาม</span><span class="p">วันนัดถึงแล้ว / ยังไม่อัปเดตเกิน ' + data.follow_days + ' วัน</span></button>' +
+      '<button class="tile" data-tab="won"><span class="v">' + fmtInt(won) + '</span><span class="l">ปิดการขายได้</span><span class="p">อัตราปิด ' + (base.length ? Math.round(won / base.length * 100) : 0) + '% ของที่เสนอ' +
+        (won + lost ? ' · ชนะ ' + Math.round(won / (won + lost) * 100) + '% ของที่ตัดสินแล้ว' : '') + '</span></button>' +
+      '<button class="tile" data-tab="lost"><span class="v">' + fmtInt(lost) + '</span><span class="l">ไม่ได้งาน</span><span class="p">ดูเหตุผลเพื่อปรับราคา / สินค้า</span></button>' +
+      '</div>';
+    html += '<div class="card"><div class="tabs" role="tablist">' + TABS.map(function (t) {
+      return '<button type="button" role="tab" class="tab' + (f.tab === t[0] ? ' on' : '') + '" data-tab="' + t[0] + '" aria-selected="' + (f.tab === t[0]) + '">' + esc(t[1]) +
+        ' <span class="n">' + count(t[0]) + '</span></button>';
+    }).join('') + '</div>' +
+      '<div class="row deal-filters" style="margin-top:10px"><input type="search" id="dl-q" placeholder="ค้นหา ลูกค้า / สินค้า / เลขที่ใบ" value="' + esc(f.q) + '">' +
+      (Object.keys(salesOpts).length > 1 ? '<select id="dl-sales"><option value="">Sales ทุกคน</option>' + Object.keys(salesOpts).map(function (e) {
+        return '<option value="' + esc(e) + '"' + (f.sales === e ? ' selected' : '') + '>' + esc(salesOpts[e]) + '</option>';
+      }).join('') + '</select>' : '') +
+      (groups.length > 1 ? '<select id="dl-group"><option value="">ทุกกลุ่มลูกค้า</option>' + groups.map(function (g) {
+        return '<option' + (f.group === g ? ' selected' : '') + '>' + esc(g) + '</option>';
+      }).join('') + '</select>' : '') + '</div></div>';
+    if (!rows.length) {
+      html += '<div class="card empty">' + (data.rows.length ? 'ไม่มีรายการในแท็บนี้' : 'ยังไม่มีรายการที่ได้ราคาจาก GM — เมื่อราคาส่งถึง Sales แล้ว รายการจะมาอยู่ที่นี่') + '</div>';
+    } else {
+      html += '<div class="card"><div class="tbl-wrap"><table class="tbl stack deals"><thead><tr><th>สินค้าที่ลูกค้าสนใจ</th><th>ลูกค้า</th>' +
+        '<th class="num">ปริมาณ/เดือน</th><th class="num">ราคาที่ลูกค้าคาดหวัง</th><th class="num">ราคาที่เสนอ</th><th>สถานะการขาย</th><th></th></tr></thead><tbody>' +
+        rows.map(function (r) {
+          return '<tr class="' + (r.is_due ? 'due' : '') + '"><td class="main"><b>' + esc(r.product_name) + '</b>' +
+            '<div class="small muted">' + esc([r.size, r.packing_size, r.net_weight ? 'NW ' + r.net_weight : ''].filter(Boolean).join(' · ')) + '</div>' +
+            '<div class="small"><a href="#" data-ticket="' + esc(r.ticket_id) + '">' + esc(r.ticket_no) + '</a> #' + r.line_no + ' · เสนอ ' + esc(fmtDate(r.quoted_ymd)) + '</div></td>' +
+            '<td data-label="ลูกค้า">' + esc(r.customer_name) + '<div class="small muted">' + esc([r.customer_group, r.destination_country && r.destination_country !== 'ไทย' ? '→ ' + r.destination_country : ''].filter(Boolean).join(' ')) + '</div>' +
+              (data.can_see_everyone ? '<div class="small muted">Sales ' + esc(r.requestor_name) + '</div>' : '') + '</td>' +
+            '<td class="num" data-label="ปริมาณ/เดือน"><b>' + fmtNum(r.qty) + '</b> <span class="small muted">' + esc(r.uom) + '</span></td>' +
+            '<td class="num" data-label="ราคาที่ลูกค้าคาดหวัง">' + (r.target_price ? fmtMoney(r.target_price) + ' <span class="small muted">บาท/' + esc(r.uom) + '</span>' : '<span class="small muted">ไม่ระบุ</span>') + '</td>' +
+            '<td class="num" data-label="ราคาที่เสนอ">' + priceCell(r) + '</td>' +
+            '<td data-label="สถานะการขาย">' + statusChip(r) + '<div>' + nextText(r) + '</div>' +
+              (r.deal_reason ? '<div class="small">เหตุผล: ' + esc(r.deal_reason) + '</div>' : '') +
+              (r.deal_note ? '<div class="small muted dnote">' + esc(r.deal_note) + '</div>' : '') + '</td>' +
+            '<td class="act">' + (r.can_edit ? '<button class="btn sm' + (r.is_due ? ' primary' : '') + '" data-upd="' + esc(r.item_id) + '">อัปเดต</button>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table></div></div>';
+    }
+    view.innerHTML = html;
+    bind(view);
+  }
+
+  function bind(view) {
+    bindReportTabs(view);
+    $all('[data-tab]', view).forEach(function (b) { b.onclick = function () { f.tab = b.getAttribute('data-tab'); draw(view); }; });
+    const q = $('#dl-q', view);
+    if (q) q.oninput = debounce(function () { f.q = q.value.trim(); draw(view); const n = $('#dl-q', view); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 250);
+    if ($('#dl-sales', view)) $('#dl-sales', view).onchange = function (e) { f.sales = e.target.value; draw(view); };
+    if ($('#dl-group', view)) $('#dl-group', view).onchange = function (e) { f.group = e.target.value; draw(view); };
+    $all('[data-ticket]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-ticket') }); }; });
+    $all('[data-upd]', view).forEach(function (b) {
+      b.onclick = function () { edit(view, data.rows.filter(function (r) { return r.item_id === b.getAttribute('data-upd'); })[0]); };
+    });
+  }
+
+  /** Update dialog: status → (lost: reason) / (follow, sample: next date) + note. */
+  function edit(view, r) {
+    const statuses = data.statuses.filter(function (s) { return s.key; });
+    const cur = r.deal_status || 'follow';
+    const defNext = todayYmd(data.follow_days);
+    const html = '<div class="small muted" style="margin:-4px 0 10px">' + esc(r.customer_name) + ' · ' + fmtNum(r.qty) + ' ' + esc(r.uom) + '/เดือน · เสนอ ' +
+        fmtMoney(r.sell_price_thb) + ' บาท/' + esc(r.uom) + '</div>' +
+      '<div class="deal-st" role="radiogroup" aria-label="สถานะการขาย">' + statuses.map(function (s) {
+        return '<label class="dchip-opt ' + ST_CLS[s.key] + '"><input type="radio" name="dst" value="' + s.key + '"' + (s.key === cur ? ' checked' : '') + '><span>' + esc(s.label) + '</span></label>';
+      }).join('') + '</div>' +
+      '<label class="field" data-show="lost"><span>เหตุผลที่ไม่ได้งาน <span class="req">*</span></span><select id="d-reason"><option value="">— เลือก —</option>' +
+        data.lost_reasons.map(function (x) { return '<option' + (r.deal_reason === x ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select></label>' +
+      '<label class="field" data-show="follow sample"><span>ติดตามครั้งถัดไป</span><input type="date" id="d-next" min="' + todayYmd(0) + '" value="' + esc(r.deal_next_date && r.deal_next_date >= todayYmd(0) ? r.deal_next_date : defNext) + '">' +
+        '<small class="hint">ระบบจะขึ้นในแท็บ “ต้องติดตาม” เมื่อถึงวันนี้</small></label>' +
+      '<label class="field"><span>หมายเหตุ <span class="muted" data-noteopt>(ไม่บังคับ)</span></span><textarea id="d-note" maxlength="2000" placeholder="เช่น ลูกค้าขอทดลอง 1 ลัง / คู่แข่งเสนอ …">' + esc(r.deal_note) + '</textarea></label>';
+    const sync = function (root) {
+      const st = ($('input[name="dst"]:checked', root) || {}).value;
+      $all('[data-show]', root).forEach(function (el) { el.hidden = el.getAttribute('data-show').split(' ').indexOf(st) === -1; });
+    };
+    dialog({
+      title: 'อัปเดตผลการขาย — ' + r.product_name, html: html, confirmText: 'บันทึก',
+      onOpen: function (root) { sync(root); $all('input[name="dst"]', root).forEach(function (x) { x.onchange = function () { sync(root); }; }); },
+      validate: function (root) {
+        const st = ($('input[name="dst"]:checked', root) || {}).value;
+        if (!st) return 'กรุณาเลือกสถานะ';
+        if (st === 'lost' && !$('#d-reason', root).value) return 'กรุณาเลือกเหตุผลที่ไม่ได้งาน';
+        if (st === 'lost' && $('#d-reason', root).value === 'อื่นๆ' && !$('#d-note', root).value.trim()) return 'เลือก “อื่นๆ” กรุณาระบุรายละเอียดในหมายเหตุ';
+        if ((st === 'follow' || st === 'sample') && $('#d-next', root).value && $('#d-next', root).value < todayYmd(0)) return 'วันติดตามต้องไม่เป็นวันที่ผ่านมาแล้ว';
+        return null;
+      }
+    }).then(function (res) {
+      if (!res) return;
+      const root = res.root;
+      const st = $('input[name="dst"]:checked', root).value;
+      api('updateDeal', r.item_id, { status: st, reason: st === 'lost' ? $('#d-reason', root).value : '',
+        next_date: st === 'follow' || st === 'sample' ? $('#d-next', root).value : '', note: $('#d-note', root).value.trim() })
+        .then(function (out) {
+          data.rows = data.rows.map(function (x) { return x.item_id === r.item_id && out.deal ? out.deal : x; });
+          toast(st === 'won' ? '🎉 บันทึกว่าปิดการขายได้ — แจ้ง SR และกลุ่มแล้ว' : 'บันทึกผลการขายแล้ว', 'ok');
+          draw(view);
+          refreshPoll();
+        }).catch(function (e) { toast(e.error, 'err', 8000); });
+    });
+  }
+
+  return {
+    render: function (view, route, isCurrent) {
+      if (data && user === state.me.email) draw(view); else view.innerHTML = loadingHtml('กำลังโหลดรายการติดตามการขาย...');
+      const who = state.me.email;
+      api('listDeals').then(function (d) {
+        if (!data || user !== who) f.tab = d.rows.some(function (r) { return r.is_due && r.can_edit; }) ? 'todo' : 'open';
+        data = d; user = who;
+        if (isCurrent()) draw(view);
+      }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+    }
+  };
+})();
+</script>
+
+  <!--
+  File: PageGp.html
+  สรุป GP & การปิดการขาย (GM / SR Manager / Admin — cost data, never Sales / Sales Manager).
+  Every item with a GM-approved selling price = one quoted line: landed cost, GP %, profit per unit,
+  volume per month and the deal status Sales recorded (ติดตามการขาย).
+    อัตราปิดการขาย = ปิดได้ ÷ รายการที่เสนอ        Win rate = ปิดได้ ÷ (ปิดได้ + ไม่ได้งาน)
+    GP % (ถ่วงน้ำหนัก) = Σ(กำไร/หน่วย × ปริมาณ/เดือน) ÷ Σ(ราคาขาย × ปริมาณ/เดือน)
+  Data: getGpSummary() once; period / group / Sales filters run in the browser.
+-->
+<script>
+Pages.gp = (function () {
+  let data = null, user = '';
+  const f = { period: '6', group: '', sales: '' };
+  const PERIODS = [['3', '3 เดือน'], ['6', '6 เดือน'], ['12', '12 เดือน'], ['year', 'ปีนี้'], ['all', 'ทั้งหมด']];
+
+  function monthsBack(n) {
+    const t = todayYmd(0);
+    let y = Number(t.slice(0, 4)), m = Number(t.slice(5, 7));
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      out.unshift(y + '-' + ('0' + m).slice(-2));
+      m--; if (!m) { m = 12; y--; }
+    }
+    return out;
+  }
+  function months(rows) {
+    if (f.period === 'all') {
+      const ms = rows.map(function (r) { return r.quoted_month; }).sort();
+      if (!ms.length) return monthsBack(6);
+      const first = ms[0];
+      const all = monthsBack(240);
+      return all.slice(all.indexOf(first) === -1 ? 0 : all.indexOf(first));
+    }
+    if (f.period === 'year') return monthsBack(Number(todayYmd(0).slice(5, 7)));
+    return monthsBack(Number(f.period));
+  }
+  function stats(rows) {
+    const s = { n: rows.length, won: 0, lost: 0, open: 0, sell: 0, profit: 0, wonSell: 0, wonProfit: 0, openProfit: 0, lostSell: 0 };
+    rows.forEach(function (r) {
+      const sell = r.sell_price_thb * r.qty, profit = r.profit_thb * r.qty;
+      s.sell += sell; s.profit += profit;
+      if (r.deal_status === 'won') { s.won++; s.wonSell += sell; s.wonProfit += profit; }
+      else if (r.deal_status === 'lost') { s.lost++; s.lostSell += sell; }
+      else { s.open++; s.openProfit += profit; }
+    });
+    s.close = s.n ? s.won / s.n * 100 : null;
+    s.win = s.won + s.lost ? s.won / (s.won + s.lost) * 100 : null;
+    s.gp = s.sell ? s.profit / s.sell * 100 : null;
+    s.wonGp = s.wonSell ? s.wonProfit / s.wonSell * 100 : null;
+    return s;
+  }
+  const pct = function (v) { return v == null ? '–' : (Math.round(v * 10) / 10).toFixed(1) + '%'; };
+  const baht = function (v) { return fmtInt(Math.round(v)); };
+
+  function scoped() {
+    const ms = months(data.rows);
+    const from = ms[0];
+    return {
+      months: ms,
+      rows: data.rows.filter(function (r) {
+        return r.quoted_month >= from && (!f.group || r.customer_group === f.group) && (!f.sales || r.requestor_email === f.sales);
+      })
+    };
+  }
+
+  function trend(ms, rows) {
+    const by = {};
+    ms.forEach(function (m) { by[m] = []; });
+    rows.forEach(function (r) { if (by[r.quoted_month]) by[r.quoted_month].push(r); });
+    const st = ms.map(function (m) { return { m: m, s: stats(by[m]) }; });
+    const max = Math.max.apply(null, st.map(function (x) { return x.s.n; }).concat([1]));
+    const bars = st.map(function (x) {
+      const h = function (n) { return (n / max * 100) + '%'; };
+      return '<div class="tcol"><div class="tval small">' + (x.s.n ? pct(x.s.close) : '') + '</div><div class="tbar" data-tip="' +
+        esc(fmtMonth(x.m) + ' · เสนอ ' + x.s.n + ' · ปิดได้ ' + x.s.won + ' · ไม่ได้ ' + x.s.lost + ' · รอ ' + x.s.open + ' · GP ' + pct(x.s.gp)) + '">' +
+        '<i class="b-open" style="height:' + h(x.s.open) + '"></i><i class="b-lost" style="height:' + h(x.s.lost) + '"></i><i class="b-won" style="height:' + h(x.s.won) + '"></i></div>' +
+        '<div class="tlab small">' + esc(fmtMonth(x.m)) + '</div><div class="tgp small muted">' + (x.s.n ? 'GP ' + pct(x.s.gp) : '') + '</div></div>';
+    }).join('');
+    return '<div class="card"><div class="card-head"><h3>แนวโน้มรายเดือน</h3><div class="legend small"><span><i class="b-won"></i>ปิดได้</span><span><i class="b-lost"></i>ไม่ได้งาน</span>' +
+      '<span><i class="b-open"></i>ยังไม่จบ</span></div></div><p class="small muted" style="margin-top:-4px">ความสูง = จำนวนรายการที่เสนอราคา · ตัวเลขบน = อัตราปิดการขาย · ล่าง = GP % ที่เสนอ</p>' +
+      '<div class="trend" style="--n:' + ms.length + '">' + bars + '</div>' +
+      groupTable('รายเดือน', st.slice().reverse().filter(function (x) { return x.s.n; }).map(function (x) { return { label: fmtMonth(x.m), s: x.s }; })) + '</div>';
+  }
+
+  function groupTable(title, list) {
+    if (!list.length) return '';
+    return '<div class="tbl-wrap"><table class="tbl stack gpt"><thead><tr><th>' + esc(title) + '</th><th class="num">เสนอ</th><th class="num">ปิดได้</th><th class="num">ไม่ได้</th>' +
+      '<th class="num">ยังไม่จบ</th><th class="num">อัตราปิด</th><th class="num">Win rate</th><th class="num">GP % เสนอ</th><th class="num">GP % ปิดได้</th><th class="num">กำไร/เดือน ที่ปิดได้ (฿)</th></tr></thead><tbody>' +
+      list.map(function (x) {
+        const s = x.s;
+        return '<tr><td class="main">' + esc(x.label) + '</td><td class="num" data-label="เสนอ">' + s.n + '</td><td class="num" data-label="ปิดได้"><b>' + s.won + '</b></td>' +
+          '<td class="num" data-label="ไม่ได้">' + s.lost + '</td><td class="num" data-label="ยังไม่จบ">' + s.open + '</td>' +
+          '<td class="num" data-label="อัตราปิด">' + pct(s.close) + '</td><td class="num" data-label="Win rate">' + pct(s.win) + '</td>' +
+          '<td class="num" data-label="GP % เสนอ">' + pct(s.gp) + '</td><td class="num" data-label="GP % ปิดได้">' + pct(s.wonGp) + '</td>' +
+          '<td class="num" data-label="กำไร/เดือน ที่ปิดได้">' + baht(s.wonProfit) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  function breakdown(rows, key, labelOf) {
+    const by = {};
+    rows.forEach(function (r) { const k = r[key] || '–'; (by[k] = by[k] || []).push(r); });
+    return Object.keys(by).map(function (k) { return { label: labelOf ? labelOf(by[k][0], k) : k, s: stats(by[k]) }; })
+      .sort(function (a, b) { return b.s.n - a.s.n; });
+  }
+
+  function lostReasons(rows) {
+    const lost = rows.filter(function (r) { return r.deal_status === 'lost'; });
+    if (!lost.length) return '';
+    const by = {};
+    lost.forEach(function (r) { by[r.deal_reason || 'ไม่ระบุ'] = (by[r.deal_reason || 'ไม่ระบุ'] || 0) + 1; });
+    const keys = Object.keys(by).sort(function (a, b) { return by[b] - by[a]; });
+    return '<div class="card"><h3>เหตุผลที่ไม่ได้งาน (' + lost.length + ' รายการ)</h3><ul class="hbars">' + keys.map(function (k) {
+      return '<li><span class="hl">' + esc(k) + '</span><span class="hb"><i style="width:' + (by[k] / lost.length * 100) + '%"></i></span><b>' + by[k] + '</b></li>';
+    }).join('') + '</ul></div>';
+  }
+
+  function detail(rows) {
+    const list = rows.slice(0, 200);
+    return '<div class="card"><div class="card-head"><h3>รายการที่เสนอราคา (' + rows.length + ')</h3><button class="btn sm" id="gp-csv">⬇ ดาวน์โหลด CSV</button></div>' +
+      '<div class="tbl-wrap"><table class="tbl stack gpd"><thead><tr><th>สินค้า</th><th>ลูกค้า</th><th class="num">ปริมาณ/เดือน</th><th class="num">ต้นทุนถึงคลัง</th>' +
+      '<th class="num">ราคาขาย</th><th class="num">GP %</th><th class="num">กำไร/เดือน (฿)</th><th>สถานะการขาย</th></tr></thead><tbody>' +
+      list.map(function (r) {
+        return '<tr><td class="main"><b>' + esc(r.product_name) + '</b><div class="small muted">' + esc([r.size, r.packing_size].filter(Boolean).join(' · ')) + '</div>' +
+          '<div class="small"><a href="#" data-ticket="' + esc(r.ticket_id) + '">' + esc(r.ticket_no) + '</a> · ' + esc(fmtDate(r.quoted_ymd)) + ' · ' + esc(r.vendor_name) + '</div></td>' +
+          '<td data-label="ลูกค้า">' + esc(r.customer_name) + '<div class="small muted">' + esc(r.customer_group) + ' · ' + esc(r.requestor_name) + '</div></td>' +
+          '<td class="num" data-label="ปริมาณ/เดือน">' + fmtNum(r.qty) + ' <span class="small muted">' + esc(r.uom) + '</span></td>' +
+          '<td class="num" data-label="ต้นทุนถึงคลัง">' + fmtMoney(r.landed_cost_thb) + '</td>' +
+          '<td class="num" data-label="ราคาขาย"><b>' + fmtMoney(r.sell_price_thb) + '</b>' + (r.target_price ? '<div class="small muted">คาด ' + fmtMoney(r.target_price) + '</div>' : '') + '</td>' +
+          '<td class="num" data-label="GP %">' + pct(r.gp_percent) + '</td>' +
+          '<td class="num" data-label="กำไร/เดือน">' + baht(r.profit_thb * r.qty) + '</td>' +
+          '<td data-label="สถานะการขาย"><span class="dchip d-' + (r.deal_status || 'new') + '">' + esc(r.deal_status_label) + '</span>' +
+            (r.deal_reason ? '<div class="small muted">' + esc(r.deal_reason) + '</div>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>' + (rows.length > list.length ? '<p class="small muted">แสดง 200 รายการล่าสุด · ดาวน์โหลด CSV เพื่อดูทั้งหมด</p>' : '') + '</div>';
+  }
+
+  function csv(rows) {
+    const cols = [['quoted_ymd', 'วันที่ GM อนุมัติราคา'], ['ticket_no', 'เลขที่ใบ'], ['line_no', 'รายการ'], ['customer_name', 'ลูกค้า'], ['customer_group', 'กลุ่มลูกค้า'],
+      ['destination_country', 'ปลายทาง'], ['requestor_name', 'Sales'], ['sr_name', 'SR'], ['product_name', 'สินค้า'], ['size', 'Size'], ['packing_size', 'Packing'],
+      ['qty', 'ปริมาณ/เดือน'], ['uom', 'หน่วย'], ['target_price', 'ราคาที่ลูกค้าคาดหวัง'], ['vendor_name', 'Supplier'], ['landed_cost_thb', 'ต้นทุนถึงคลัง/หน่วย'],
+      ['sell_price_thb', 'ราคาขาย/หน่วย'], ['gp_percent', 'GP %'], ['profit_thb', 'กำไร/หน่วย'], ['monthly_profit', 'กำไร/เดือน'],
+      ['deal_status_label', 'สถานะการขาย'], ['deal_reason', 'เหตุผล'], ['deal_note', 'หมายเหตุ']];
+    const cell = function (v) { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const lines = [cols.map(function (c) { return cell(c[1]); }).join(',')].concat(rows.map(function (r) {
+      const x = Object.assign({ monthly_profit: Math.round(r.profit_thb * r.qty * 100) / 100 }, r);
+      return cols.map(function (c) { return cell(x[c[0]]); }).join(',');
+    }));
+    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'gp-summary-' + todayYmd(0) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+
+  function draw(view) {
+    const sc = scoped();
+    const rows = sc.rows;
+    const s = stats(rows);
+    const sales = data.rows.reduce(function (m, r) { m[r.requestor_email] = r.requestor_name; return m; }, {});
+    const groups = data.rows.map(function (r) { return r.customer_group; }).filter(function (g, i, a) { return g && a.indexOf(g) === i; });
+    let html = reportTabs('gp') + '<div class="page-head"><div><h1>สรุป GP & การปิดการขาย</h1><div class="small muted">รายการที่ GM อนุมัติราคาแล้ว · ผลการขายจากหน้า “ติดตามการขาย” ของ Sales · ข้อมูลต้นทุน — เห็นเฉพาะ GM / SR Manager / Admin</div></div>' +
+      '<div class="actions">' + PERIODS.map(function (p) { return '<button class="btn sm' + (f.period === p[0] ? ' primary' : '') + '" data-period="' + p[0] + '">' + p[1] + '</button>'; }).join('') + '</div></div>';
+    html += '<div class="row gp-filters">' +
+      (groups.length ? '<select id="gp-group"><option value="">ทุกกลุ่มลูกค้า</option>' + groups.map(function (g) { return '<option' + (f.group === g ? ' selected' : '') + '>' + esc(g) + '</option>'; }).join('') + '</select>' : '') +
+      (Object.keys(sales).length ? '<select id="gp-sales"><option value="">Sales ทุกคน</option>' + Object.keys(sales).map(function (e) {
+        return '<option value="' + esc(e) + '"' + (f.sales === e ? ' selected' : '') + '>' + esc(sales[e]) + '</option>';
+      }).join('') + '</select>' : '') + '<span class="small muted">' + esc(fmtMonth(sc.months[0])) + ' – ' + esc(fmtMonth(sc.months[sc.months.length - 1])) + '</span></div>';
+    const kpi = function (v, l, p, cls) { return '<div class="tile kpi ' + (cls || '') + '"><span class="v">' + v + '</span><span class="l">' + l + '</span><span class="p">' + p + '</span></div>'; };
+    html += '<div class="tiles gp-kpi">' +
+      kpi(fmtInt(s.n), 'รายการที่เสนอราคา', 'มูลค่าขาย ' + baht(s.sell) + ' ฿/เดือน') +
+      kpi(pct(s.gp), 'GP % ที่เสนอ', 'กำไรขั้นต้น ' + baht(s.profit) + ' ฿/เดือน (ถ้าปิดได้ทั้งหมด)') +
+      kpi(fmtInt(s.won) + ' <small>(' + pct(s.close) + ')</small>', 'ปิดการขายได้', 'Win rate ' + pct(s.win) + ' ของที่ตัดสินแล้ว (' + (s.won + s.lost) + ')', 'k-won') +
+      kpi(pct(s.wonGp), 'GP % ของที่ปิดได้', 'กำไรขั้นต้น <b>' + baht(s.wonProfit) + '</b> ฿/เดือน', 'k-won') +
+      kpi(fmtInt(s.open), 'รอปิด (Pipeline)', 'กำไรที่รอปิด ' + baht(s.openProfit) + ' ฿/เดือน', 'k-open') +
+      '</div>';
+    if (!data.rows.length) {
+      html += '<div class="card empty">ยังไม่มีรายการที่ GM อนุมัติราคา</div>';
+    } else {
+      html += trend(sc.months, rows);
+      html += '<div class="card"><h3>แยกตามกลุ่มลูกค้า</h3>' + (groupTable('กลุ่มลูกค้า', breakdown(rows, 'customer_group')) || '<p class="small muted">ไม่มีข้อมูลในช่วงนี้</p>') + '</div>' +
+        '<div class="card"><h3>แยกตาม Sales</h3>' + (groupTable('Sales', breakdown(rows, 'requestor_email', function (r) { return r.requestor_name; })) || '<p class="small muted">ไม่มีข้อมูลในช่วงนี้</p>') + '</div>';
+      html += lostReasons(rows);
+      html += rows.length ? detail(rows) : '<div class="card empty">ไม่มีรายการในช่วงที่เลือก</div>';
+    }
+    view.innerHTML = html;
+    bindReportTabs(view);
+    $all('[data-period]', view).forEach(function (b) { b.onclick = function () { f.period = b.getAttribute('data-period'); draw(view); }; });
+    if ($('#gp-group', view)) $('#gp-group', view).onchange = function (e) { f.group = e.target.value; draw(view); };
+    if ($('#gp-sales', view)) $('#gp-sales', view).onchange = function (e) { f.sales = e.target.value; draw(view); };
+    if ($('#gp-csv', view)) $('#gp-csv', view).onclick = function () { csv(rows); };
+    $all('[data-ticket]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-ticket') }); }; });
+  }
+
+  return {
+    render: function (view, route, isCurrent) {
+      if (!state.ref.can_view_gp) { go({ page: 'home' }, true); return; }
+      if (data && user === state.me.email) draw(view); else view.innerHTML = loadingHtml('กำลังสรุป GP...');
+      const who = state.me.email;
+      api('getGpSummary').then(function (d) {
+        data = d; user = who;
+        if (isCurrent()) draw(view);
       }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
     }
   };
@@ -6659,7 +7868,7 @@ Pages.ticket = (function () {
     if (t.stage === 'pending_assign' && (d.me.role === 'sr' || d.me.role === 'sr_manager')) html += queueCheck(d);
     const isGm = d.me.role === 'gm';
     if (t.stage === 'pending_gm') {
-      html += '<div class="notice side-sales"><b>🛒 อนุมัติฝั่งขาย</b>' + (isGm ? ' — ตรวจคำขอของ Sales: ลูกค้า สินค้า ปริมาณ และราคาเป้าหมาย ก่อนส่งให้ SR หาราคา' : ' — รอ GM อนุมัติคำขอราคา') + '</div>';
+      html += '<div class="notice side-sales"><b>🛒 อนุมัติฝั่งขาย</b>' + (isGm ? ' — ตรวจคำขอของ Sales: ลูกค้า สินค้า ปริมาณ และราคาที่ลูกค้าคาดหวัง ก่อนส่งให้ SR หาราคา' : ' — รอ GM อนุมัติคำขอราคา') + '</div>';
     }
     if (t.stage === 'pending_gm_price') {
       html += '<div class="notice side-buy"><b>📦 อนุมัติฝั่งซื้อ</b>' + (isGm ? ' — ตรวจราคาซื้อจาก vendor, ต้นทุนถึงคลัง, GP และราคาขาย (SR Manager ตรวจแล้ว) ก่อนส่งราคาขายถึง Sales' : ' — SR Manager อนุมัติแล้ว รอ GM อนุมัติราคา') + '</div>';
@@ -6693,7 +7902,7 @@ Pages.ticket = (function () {
         '<dt>% Net Weight</dt><dd>' + esc(it.net_weight || '–') + '</dd><dt>ขนาด (Size)</dt><dd>' + esc(it.size || '–') + '</dd>' +
         '<dt>แพคย่อย (Packing Size)</dt><dd>' + esc(it.packing_size || '–') + '</dd>' +
         '<dt>ปริมาณต่อเดือน</dt><dd><b>' + fmtNum(it.qty) + ' ' + esc(it.uom) + '</b></dd>' +
-        '<dt>ราคาเป้าหมาย</dt><dd>' + (it.target_price ? fmtMoney(it.target_price) + ' บาท/กก.' : 'ไม่มี (0)') + '</dd></dl>' +
+        '<dt>ราคาที่ลูกค้าคาดหวัง</dt><dd>' + (it.target_price ? fmtMoney(it.target_price) + ' บาท/' + esc(it.uom) : 'ลูกค้ายังไม่ระบุ') + '</dd></dl>' +
         picturesHtml(d, it) +
         (it.spec ? '<div class="small">Spec: ' + esc(it.spec) + '</div>' : '') +
         (it.description ? '<div class="small muted" style="white-space:pre-wrap">' + esc(it.description) + '</div>' : '');
@@ -6715,7 +7924,7 @@ Pages.ticket = (function () {
               '<td data-label="เงื่อนไข" class="small">' + [q.brand, q.origin_country ? 'Origin ' + q.origin_country : '', incoLabel(q.incoterm), q.packing,
                 q.shelf_life ? 'อายุ ' + q.shelf_life : '', q.moq != null ? 'MOQ ' + fmtNum(q.moq) : '', q.lead_time_days != null ? 'Lead ' + q.lead_time_days + ' วัน' : '',
                 q.payment_term, q.valid_until ? 'ยืนราคาถึง ' + fmtDate(q.valid_until) : ''].filter(Boolean).map(esc).join(' · ') + '</td></tr>';
-          }).join('') + '</tbody></table></div>' + sellHtml(it);
+          }).join('') + '</tbody></table></div>' + photoReviewHtml(d, it) + sellHtml(it);
       } else if (!showQ && it.sales_pricing) {
         html += salesSellHtml(it);
       } else if (!showQ && ['on_process'].indexOf(d.ticket.status) !== -1) {
@@ -6738,7 +7947,7 @@ Pages.ticket = (function () {
       '<tr class="sub"><td>= ต้นทุนถึงคลัง</td><td class="num">' + fmtMoney(p.landed_cost_thb) + '</td><td class="u">' + u + '</td></tr>' +
       '<tr><td>+ กำไร GP ' + fmtNum(p.gp_percent) + '%' + (p.gp_is_default ? ' <span class="small muted">(ค่าเริ่มต้น)</span>' : '') + '</td><td class="num">' + fmtMoney(p.profit_thb) + '</td><td class="u">' + u + '</td></tr>' +
       '<tr class="total"><td>= ราคาขาย</td><td class="num">' + fmtMoney(p.sell_price_thb) + '</td><td class="u">' + u + '</td></tr>' +
-      '<tr class="ref"><td>ราคาเป้าหมายลูกค้า</td><td class="num">' + (p.target_price ? fmtMoney(p.target_price) : 'ไม่มี') + '</td><td class="u">' + diff + '</td></tr>' +
+      '<tr class="ref"><td>ราคาที่ลูกค้าคาดหวัง</td><td class="num">' + (p.target_price ? fmtMoney(p.target_price) : 'ไม่มี') + '</td><td class="u">' + diff + '</td></tr>' +
       '</tbody></table></div>';
   }
 
@@ -6762,7 +7971,7 @@ Pages.ticket = (function () {
       p.shelf_life ? 'อายุ ' + p.shelf_life : '', p.moq != null ? 'MOQ ' + fmtNum(p.moq) : '', p.lead_time_days != null ? 'Lead ' + p.lead_time_days + ' วัน' : '']
       .filter(Boolean).map(esc).join(' · ');
     return '<div class="sell sales-sell"><div class="sell-price"><span class="lbl">ราคาขาย</span><b>' + fmtMoney(p.sell_price_thb) + '</b> <span class="u">' + u + '</span></div>' +
-      '<dl class="kv small"><dt>ราคาเป้าหมายลูกค้า</dt><dd>' + (p.target_price ? fmtMoney(p.target_price) + ' ' + u + ' ' + diff : 'ไม่มี') + '</dd>' +
+      '<dl class="kv small"><dt>ราคาที่ลูกค้าคาดหวัง</dt><dd>' + (p.target_price ? fmtMoney(p.target_price) + ' ' + u + ' ' + diff : 'ไม่มี') + '</dd>' +
       (p.valid_until ? '<dt>ยืนราคาถึง</dt><dd>' + esc(fmtDate(p.valid_until)) + '</dd>' : '') +
       (terms ? '<dt>รายละเอียดสินค้า</dt><dd>' + terms + '</dd>' : '') + '</dl></div>';
   }
@@ -6773,8 +7982,21 @@ Pages.ticket = (function () {
     return v ? v.label : k;
   }
 
+  /** Supplier product photos per offer (winner first) — what SR Manager / GM look at before approving. */
+  function photoReviewHtml(d, it) {
+    const rows = it.quotations.slice().sort(function (a, b) { return (b.is_selected - a.is_selected) || (a.cost_rank - b.cost_rank); })
+      .map(function (q) { return { q: q, list: Photos.of(d.attachments, q.quote_id) }; })
+      .filter(function (r) { return r.list.length; });
+    if (!rows.length) return '<div class="small muted" style="margin-top:6px">📷 ยังไม่มีรูปสินค้าจาก Supplier</div>';
+    return '<div class="prev-photos"><h4>📷 รูปสินค้าจาก Supplier</h4>' + rows.map(function (r) {
+      return '<div class="prev-row' + (r.q.is_selected ? ' win' : '') + '"><div class="small"><b>' + esc(r.q.vendor_name) + '</b>' +
+        (r.q.is_selected ? ' <span class="badge tag-win">✔ ผู้ชนะ</span>' : '') + '</div>' +
+        Photos.html(r.list, { quoteId: r.q.quote_id, editable: false, compact: true }) + '</div>';
+    }).join('') + '</div>';
+  }
+
   function picturesHtml(d, it) {
-    const pics = d.attachments.filter(function (a) { return a.item_id === it.item_id; });
+    const pics = d.attachments.filter(function (a) { return a.item_id === it.item_id && a.category !== 'quote_photo'; });
     if (!pics.length) return '';
     return '<div class="small" style="margin-top:4px">รูปภาพสินค้า: ' + pics.map(function (a) {
       return '<a href="#" data-open="' + esc(a.attachment_id) + '">' + (/^image\//.test(a.mime_type) ? '🖼️ ' : '📄 ') + esc(a.file_name) + '</a>';
@@ -6798,9 +8020,12 @@ Pages.ticket = (function () {
 
   function attachmentsHtml(d) {
     const p = d.permissions;
-    let html = '<div class="card"><h3>ไฟล์แนบ (' + d.attachments.length + ')</h3>';
-    if (!d.attachments.length) html += '<div class="muted small">ยังไม่มีไฟล์แนบ</div>';
-    html += d.attachments.map(function (a) {
+    const files = d.attachments.filter(function (a) { return a.category !== 'quote_photo'; });   // supplier photos: gallery per offer above
+    const nPhotos = d.attachments.length - files.length;
+    let html = '<div class="card"><h3>ไฟล์แนบ (' + files.length + ')</h3>';
+    if (!files.length) html += '<div class="muted small">ยังไม่มีไฟล์แนบ</div>';
+    if (nPhotos) html += '<div class="small muted" style="margin-bottom:6px">📷 รูปสินค้าจาก Supplier ' + nPhotos + ' รูป แสดงใต้ตารางเทียบราคาของแต่ละรายการ</div>';
+    html += files.map(function (a) {
       const mine = a.uploaded_by === state.me.email;
       return '<div class="actions" style="align-items:center;padding:6px 0;border-bottom:1px solid var(--line)">' +
         '<span>📎 <a href="#" data-open="' + esc(a.attachment_id) + '">' + esc(a.file_name) + '</a> <span class="small muted">' +
@@ -6818,7 +8043,7 @@ Pages.ticket = (function () {
 
   const FIELD_LABEL = {
     title: 'ชื่อเรื่อง', description: 'รายละเอียด', customer_name: 'ลูกค้า', priority: 'ความเร่งด่วน', due_date: 'วันที่ต้องการ',
-    product_group_code: 'กลุ่มสินค้า', product_name: 'ชื่อสินค้า', spec: 'Spec', qty: 'จำนวน', uom: 'หน่วย', target_price: 'ราคาเป้าหมาย',
+    product_group_code: 'กลุ่มสินค้า', product_name: 'ชื่อสินค้า', spec: 'Spec', qty: 'จำนวน', uom: 'หน่วย', target_price: 'ราคาที่ลูกค้าคาดหวัง',
     target_currency: 'สกุลเงินเป้าหมาย', vendor_id: 'รหัส vendor', vendor_name: 'Vendor', unit_price: 'ราคาต่อหน่วย', currency: 'สกุลเงิน',
     fx_rate: 'อัตราแลกเปลี่ยน', vat_term: 'VAT', vat_rate: 'อัตรา VAT', moq: 'MOQ', lead_time_days: 'Lead time (วัน)', payment_term: 'เงื่อนไขชำระเงิน',
     valid_until: 'ยืนราคาถึง', remark: 'หมายเหตุ', clearance_thb: 'ค่าเคลียร์ของ (บาท/หน่วย)', gp_percent: 'GP %', attachment_file_id: 'ไฟล์ใบเสนอราคา', is_checked: 'ติ๊กแล้ว', note: 'หมายเหตุ'
@@ -6875,7 +8100,7 @@ Pages.ticket = (function () {
     }
     if (ui.fields) {
       const auto = completeness(d).filter(function (r) { return !r.ok; }).map(function (r) { return r.key; });
-      const REQ_FIELDS = ['รูปภาพสินค้า', 'สเปก / Grade / ขนาด', '% Net Weight', 'Packing', 'ปริมาณ', 'ราคาเป้าหมาย', 'เอกสารที่ต้องการ',
+      const REQ_FIELDS = ['รูปภาพสินค้า', 'สเปก / Grade / ขนาด', '% Net Weight', 'Packing', 'ปริมาณ', 'ราคาที่ลูกค้าคาดหวัง', 'เอกสารที่ต้องการ',
         'ประเทศปลายทาง / กลุ่มลูกค้า', 'วันที่ต้องการ (เร็วเกินไป)', 'อื่นๆ (ระบุในเหตุผล)'];
       html = '<p class="small">เลือกข้อมูลที่ยังขาด (ระบบติ๊กให้ตามที่ตรวจพบ)</p><div class="miss-grid">' + REQ_FIELDS.map(function (f) {
         return '<label class="chk-inline"><input type="checkbox" class="dlg-miss" value="' + esc(f) + '"' + (auto.indexOf(f) !== -1 ? ' checked' : '') + '> ' + esc(f) + '</label>';
@@ -6910,6 +8135,7 @@ Pages.ticket = (function () {
 
   function bind(view, d) {
     const t = d.ticket;
+    Photos.bind(view, { attachments: function () { return d.attachments; } });
     $all('[data-action]', view).forEach(function (b) { b.onclick = function () { runAction(view, d, b.getAttribute('data-action')); }; });
     $all('[data-nav]', view).forEach(function (b) { b.onclick = function () { go({ page: b.getAttribute('data-nav'), id: t.ticket_id }); }; });
     $all('[data-copy]', view).forEach(function (b) { b.onclick = function () { go({ page: 'new', copy: t.ticket_id }); }; });
@@ -7046,10 +8272,10 @@ Pages.new = Pages.edit = (function () {
       field('แพคย่อย', 'Packing Size', '<input type="text" data-k="packing_size" maxlength="100" placeholder="เช่น 1 Kg/Pack หรือ 500 g" value="' + esc(it.packing_size) + '">', { req: true }) +
       field('ปริมาณต่อเดือน', 'Qty / month', '<input type="number" inputmode="decimal" min="0" step="any" data-k="qty" placeholder="0" value="' + esc(it.qty) + '">', { req: true }) +
       field('หน่วย', 'Unit', '<select data-k="uom"><option value="">— เลือก —</option>' + units + '</select>', { req: true }) +
-      field('ราคาเป้าหมาย (บาท/กก.)', 'Target Price', '<input type="number" inputmode="decimal" min="0" step="any" data-k="target_price" placeholder="0.00" value="' +
+      field('ราคาที่ลูกค้าคาดหวัง (บาท/หน่วย)', 'Expected Price', '<input type="number" inputmode="decimal" min="0" step="any" data-k="target_price" placeholder="0.00" value="' +
         esc(it.no_target ? '' : it.target_price) + '"' + (it.no_target ? ' disabled' : '') + '>' +
-        '<label class="chk-inline no-target"><input type="checkbox" data-notarget="' + i + '"' + (it.no_target ? ' checked' : '') + '> ไม่มีราคาเป้าหมาย</label>',
-        { req: true, hint: 'ราคาที่ลูกค้าปิดซื้อได้' }) +
+        '<label class="chk-inline no-target"><input type="checkbox" data-notarget="' + i + '"' + (it.no_target ? ' checked' : '') + '> ลูกค้ายังไม่บอกราคา</label>',
+        { req: true, hint: 'ราคาที่ลูกค้าพร้อมซื้อ — ใช้ติดตามการขายหลังได้ราคา' }) +
       '<div class="field span-3"><span>รูปภาพสินค้า <em>Picture</em></span><div class="drop" data-drop="' + i + '">' +
       '<label class="btn sm"><input type="file" data-pic="' + i + '" multiple hidden accept="image/*,.pdf">＋ เลือกรูป / ไฟล์</label>' +
       '<span class="small muted">หรือลากไฟล์มาวางที่นี่ · รูปหรือ PDF ไม่เกิน ' + state.ref.max_upload_mb + ' MB</span>' +
@@ -7143,7 +8369,7 @@ Pages.new = Pages.edit = (function () {
       if (!get('qty').value || !(Number(get('qty').value) > 0)) mark(get('qty'), 'ปริมาณต้องมากกว่า 0');
       if (!get('uom').value) mark(get('uom'), 'เลือกหน่วย');
       const tp = $('[data-notarget]', row) && $('[data-notarget]', row).checked ? '0' : get('target_price').value;
-      if (tp === '') mark(get('target_price'), 'กรอกราคาเป้าหมาย หรือติ๊ก “ไม่มีราคาเป้าหมาย”');
+      if (tp === '') mark(get('target_price'), 'กรอกราคาที่ลูกค้าคาดหวัง หรือติ๊ก “ลูกค้ายังไม่บอกราคา”');
       else if (Number(tp) < 0) mark(get('target_price'), 'ต้องไม่ติดลบ');
     });
     $('#form-err', view).textContent = errors ? 'ยังกรอกไม่ครบ ' + errors + ' ช่อง (ไฮไลต์สีแดง)' : '';
@@ -7403,7 +8629,7 @@ Pages.new = Pages.edit = (function () {
             state.drafts['new'] = d;
             google.script.history.replace({ page: 'new' }, { page: 'new' });
             mount(view, d, 'new', null);
-            toast('คัดลอกจาก ' + o.ticket.ticket_no + ' แล้ว — ตรวจปริมาณและราคาเป้าหมายก่อนส่ง', 'ok', 7000);
+            toast('คัดลอกจาก ' + o.ticket.ticket_no + ' แล้ว — ตรวจปริมาณและราคาที่ลูกค้าคาดหวังก่อนส่ง', 'ok', 7000);
           }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
           return;
         }
@@ -7812,7 +9038,7 @@ Pages.pricing = (function () {
 
   function filesHtml(d) {
     const quoteFiles = d.attachments.filter(function (a) { return a.category === 'quotation'; });
-    const reqFiles = d.attachments.filter(function (a) { return a.category !== 'quotation'; });
+    const reqFiles = d.attachments.filter(function (a) { return a.category !== 'quotation' && a.category !== 'quote_photo'; });
     const list = function (arr) {
       return arr.length ? arr.map(function (a) {
         return '<div class="small">📎 <a href="#" data-open="' + esc(a.attachment_id) + '">' + esc(a.file_name) + '</a> <span class="muted">' + fileSize(a.size_bytes) + '</span></div>';
@@ -7978,9 +9204,32 @@ Pages.pricing = (function () {
         '<div class="row tight">' + f('Packing', inp('packing', q.packing, 'text', ' maxlength="200" placeholder="เช่น 1 kg × 10/ctn"', ro)) + f('อายุสินค้า', inp('shelf_life', q.shelf_life, 'text', ' maxlength="100" placeholder="เช่น 24 เดือน (-18°C)"', ro)) + '</div>' +
         f('เงื่อนไขส่งมอบ (Incoterm)', sel('incoterm', inco, q.incoterm, ro)) + '</div>'
         : '<div class="row tight">' + f('แบรนด์ / รุ่น', inp('brand', q.brand, 'text', ' maxlength="100"', ro)) + f('Packing', inp('packing', q.packing, 'text', ' maxlength="200"', ro)) + '</div>') +
+      galleryHtml(it, q, editable) +
       f('ไฟล์ใบเสนอราคา', sel('attachment_file_id', files, q.attachment_file_id, ro)) +
       f('หมายเหตุ', '<textarea data-f="remark" maxlength="2000"' + (ro ? ' disabled' : '') + '>' + esc(q.remark) + '</textarea>') +
       '</div>';
+  }
+
+  /** Product photos of this supplier offer (≤ max per supplier) — SR Manager / GM review them before approving. */
+  function galleryHtml(it, q, editable) {
+    return Photos.html(Photos.of(ctx.d.attachments, q.quote_id),
+      { ticketId: ctx.d.ticket.ticket_id, itemId: it.item_id, quoteId: q.quote_id, editable: editable && ctx.d.permissions.can_upload });
+  }
+  function refreshGallery(quoteId) {
+    const g = $('[data-pgal][data-quote="' + quoteId + '"]', ctx.view);
+    if (!g) return;
+    ctx.d.items.forEach(function (it, idx) {
+      const mi = ctx.model.items[idx];
+      const q = mi && mi.quotes.filter(function (x) { return x.quote_id === quoteId; })[0];
+      if (!q) return;
+      const box = document.createElement('div');
+      box.innerHTML = galleryHtml(it, q, ctx.d.permissions.can_edit_quotes);
+      g.replaceWith(box.firstChild);
+      bindPhotos();
+    });
+  }
+  function bindPhotos() {
+    Photos.bind(ctx.view, { attachments: function () { return ctx.d.attachments; }, onChange: refreshGallery });
   }
 
   /** Selling price breakdown per unit (values filled by refreshItem; GP input kept across refreshes). */
@@ -7994,7 +9243,7 @@ Pages.pricing = (function () {
         '" placeholder="' + esc(state.ref.default_gp_percent) + '"' + (editable ? '' : ' disabled') + ' aria-label="GP %"> % ของราคาขาย</td>' +
         '<td class="num" data-c="profit">–</td><td class="u">' + u + '</td></tr>' +
       '<tr class="total"><td>= ราคาขาย</td><td class="num" data-c="sell">–</td><td class="u">' + u + '</td></tr>' +
-      '<tr class="ref"><td>ราคาเป้าหมายลูกค้า</td><td class="num" data-c="target">–</td><td class="u" data-c="diff"></td></tr>' +
+      '<tr class="ref"><td>ราคาที่ลูกค้าคาดหวัง</td><td class="num" data-c="target">–</td><td class="u" data-c="diff"></td></tr>' +
       '</tbody></table></div>';
   }
 
@@ -8028,7 +9277,7 @@ Pages.pricing = (function () {
     return '<details class="card item" data-item="' + idx + '"' + (idx < 2 ? ' open' : '') + '>' +
       '<summary><div class="ihead"><div><b>#' + it.line_no + ' ' + esc(it.product_name) + '</b> <span class="badge">' + esc(it.product_group_name) + '</span>' +
       '<div class="small">' + fmtNum(it.qty) + ' ' + esc(it.uom) + '/เดือน · NW ' + esc(it.net_weight || '–') + ' · Size ' + esc(it.size || '–') +
-      ' · Pack ' + esc(it.packing_size || '–') + (it.target_price ? ' · เป้าหมาย ' + fmtMoney(it.target_price) + ' บาท/กก.' : ' · ไม่มีราคาเป้าหมาย') + '</div></div>' +
+      ' · Pack ' + esc(it.packing_size || '–') + (it.target_price ? ' · ลูกค้าคาดหวัง ' + fmtMoney(it.target_price) + ' บาท/' + esc(it.uom) : ' · ลูกค้ายังไม่บอกราคา') + '</div></div>' +
       '<span class="istatus"></span></div></summary>' +
       (it.description ? '<p class="small muted" style="white-space:pre-wrap">' + esc(it.description) + '</p>' : '') +
       (editable ? '<div class="item-tools"><span class="small muted">หาราคารายการนี้ไม่ได้ตอนนี้?</span>' +
@@ -8054,6 +9303,7 @@ Pages.pricing = (function () {
         '<button class="btn" id="pp-info">ขอข้อมูลเพิ่ม</button><button class="btn" id="pp-save">บันทึกร่าง</button>' +
         '<button class="btn primary" id="pp-submit">ส่งราคาให้ SR Manager ตรวจ</button></div>' : '');
     bind();
+    bindPhotos();
     $all('.card.item', view).forEach(function (card) { refreshItem(Number(card.getAttribute('data-item'))); });
     refreshSummary();
   }
@@ -8135,7 +9385,7 @@ Pages.pricing = (function () {
   }
   function summaryTable(rows) {
     return '<div class="tbl-wrap"><table class="tbl stack sumtbl"><thead><tr><th>สินค้า</th><th>ผู้ขาย (ผู้ชนะ)</th><th class="num">ต้นทุนสินค้า</th>' +
-      '<th class="num">ค่าเคลียร์ของ</th><th class="num">ต้นทุนถึงคลัง</th><th class="num">GP</th><th class="num">กำไร</th><th class="num">ราคาขาย</th><th class="num">ราคาเป้าหมาย</th></tr></thead><tbody>' +
+      '<th class="num">ค่าเคลียร์ของ</th><th class="num">ต้นทุนถึงคลัง</th><th class="num">GP</th><th class="num">กำไร</th><th class="num">ราคาขาย</th><th class="num">ราคาที่ลูกค้าคาดหวัง</th></tr></thead><tbody>' +
       rows.map(function (r) {
         const u = '/' + esc(r.it.uom);
         if (r.stat) {
@@ -8151,7 +9401,7 @@ Pages.pricing = (function () {
           '<td class="num" data-label="GP">' + (r.sp ? fmtNum(r.sp.gp) + '%' : '–') + '</td>' +
           '<td class="num" data-label="กำไร">' + (r.sp ? fmtMoney(r.sp.profit) + u : '–') + '</td>' +
           '<td class="num" data-label="ราคาขาย"><b>' + (r.sp ? fmtMoney(r.sp.sell) + u : '–') + '</b></td>' +
-          '<td class="num" data-label="ราคาเป้าหมาย">' + (r.it.target_price ? fmtMoney(r.it.target_price) + u : 'ไม่มี') + '</td></tr>';
+          '<td class="num" data-label="ราคาที่ลูกค้าคาดหวัง">' + (r.it.target_price ? fmtMoney(r.it.target_price) + u : 'ไม่มี') + '</td></tr>';
       }).join('') + '</tbody></table></div><p class="small muted" style="margin:6px 0 0">ราคาขาย = ต้นทุนถึงคลัง ÷ (1 − GP%) · ทุกตัวเลขเป็นบาทต่อหน่วย</p>';
   }
 
@@ -8350,8 +9600,10 @@ Pages.pricing = (function () {
           markDirty();
           rerenderItem(idx);
         };
-        if (isBlank(q)) { go(); return; }
-        dialog({ title: 'ลบ vendor', message: 'ลบราคาของ "' + (q.vendor_name || 'vendor นี้') + '"? (มีผลเมื่อกดบันทึก)', danger: true, confirmText: 'ลบ' })
+        const nPhotos = Photos.of(ctx.d.attachments, q.quote_id).length;
+        if (isBlank(q) && !nPhotos) { go(); return; }
+        dialog({ title: 'ลบ vendor', message: 'ลบราคาของ "' + (q.vendor_name || 'vendor นี้') + '"?' +
+          (nPhotos ? ' รูปสินค้า ' + nPhotos + ' รูปของเจ้านี้จะถูกลบด้วย' : '') + ' (มีผลเมื่อกดบันทึก)', danger: true, confirmText: 'ลบ' })
           .then(function (r) { if (r) go(); });
       };
     });
@@ -8370,6 +9622,7 @@ Pages.pricing = (function () {
     fresh.open = true;
     old.parentNode.replaceChild(fresh, old);
     bindItem(fresh);
+    bindPhotos();
     refreshItem(idx);
     refreshSummary();
     if (focusLast) {

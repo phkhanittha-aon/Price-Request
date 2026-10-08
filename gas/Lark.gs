@@ -10,7 +10,10 @@
  *        LARK_HOST           (optional, default https://open.larksuite.com — Feishu: https://open.feishu.cn)
  *        LARK_GROUP_CHAT_ID  (optional, oc_xxx — group that receives SLA breach summaries; add the bot to it)
  *        LARK_PRICE_GROUP_CHAT_ID (optional, oc_xxx — group told "ทำราคาเสร็จแล้ว" (status only, no prices) when GM
- *                             approves; blank = use LARK_GROUP_CHAT_ID; add the bot to the group)
+ *                             approves + every other Sales-side group event; blank = use LARK_GROUP_CHAT_ID)
+ *        LARK_MGMT_GROUP_CHAT_ID  (optional, oc_xxx — management group (SR / SR Manager / GM): price waiting for
+ *                             review / GM purchasing approval, returned prices; blank = these are not sent)
+ *      Add the bot to every group. Events per group: Settings › lark_group_events (see Notify.gs GROUP_EVENTS_).
  *   4. Run testLarkConnection() then installTriggers().
  *
  * Rules: a Lark failure never blocks or rolls back a business action. Rows stay in the
@@ -28,7 +31,8 @@ function larkConfig_() {
     app_secret: p.getProperty(CFG.PROP.LARK_APP_SECRET) || '',
     host: p.getProperty(CFG.PROP.LARK_HOST) || 'https://open.larksuite.com',
     group_chat_id: p.getProperty(CFG.PROP.LARK_GROUP_CHAT_ID) || '',
-    price_group_chat_id: p.getProperty(CFG.PROP.LARK_PRICE_GROUP_CHAT_ID) || p.getProperty(CFG.PROP.LARK_GROUP_CHAT_ID) || ''
+    price_group_chat_id: p.getProperty(CFG.PROP.LARK_PRICE_GROUP_CHAT_ID) || p.getProperty(CFG.PROP.LARK_GROUP_CHAT_ID) || '',
+    mgmt_group_chat_id: p.getProperty(CFG.PROP.LARK_MGMT_GROUP_CHAT_ID) || ''
   };
 }
 
@@ -98,11 +102,27 @@ function larkOpenIds_(emails) {
   return out;
 }
 
+/** Chat id of a pseudo-recipient ('#price_group' / '#mgmt_group'), '' when that group is not configured. */
+function groupChatId_(key) {
+  const c = larkConfig_();
+  if (key === PRICE_GROUP_KEY_) return c.price_group_chat_id || '';
+  if (key === MGMT_GROUP_KEY_) return c.mgmt_group_chat_id || '';
+  return '';
+}
+
+function larkCardColor_(type) {
+  const t = String(type);
+  if (t.indexOf('sla_breach') === 0) return 'red';
+  if (t === 'price_done_group') return 'green';
+  const ev = t.indexOf('group_') === 0 ? GROUP_EVENTS_[t.slice(6)] : null;
+  return ev ? ev.color : 'blue';
+}
+
 function larkCard_(n) {
   const link = String(n.link || '');
   const card = {
     config: { wide_screen_mode: true },
-    header: { template: String(n.type).indexOf('sla_breach') === 0 ? 'red' : (n.type === 'price_done_group' ? 'green' : 'blue'), title: { tag: 'plain_text', content: String(n.title).slice(0, 150) } },
+    header: { template: larkCardColor_(n.type), title: { tag: 'plain_text', content: String(n.title).slice(0, 150) } },
     elements: [{ tag: 'div', text: { tag: 'lark_md', content: String(n.body || '').slice(0, 1500) } }]
   };
   if (/^https:\/\//.test(link)) {
@@ -147,9 +167,12 @@ function dispatchNotifications() {
     batch.forEach(function (b) { results[b.notif_id] = { status: 'pending', error: String(e.message).slice(0, 300) }; });
   }
   batch.forEach(function (b) {
-    if (b.email === PRICE_GROUP_KEY_) {           // group message: does not need the open_id lookup
-      const chatId = larkConfig_().price_group_chat_id;
-      if (!chatId) { results[b.notif_id] = { status: 'no_group', error: 'ยังไม่ได้ตั้ง LARK_PRICE_GROUP_CHAT_ID' }; return; }
+    if (b.email.charAt(0) === '#') {              // group message: does not need the open_id lookup
+      const chatId = groupChatId_(b.email);
+      if (!chatId) {
+        results[b.notif_id] = { status: 'no_group', error: 'ยังไม่ได้ตั้ง ' + (b.email === MGMT_GROUP_KEY_ ? 'LARK_MGMT_GROUP_CHAT_ID' : 'LARK_PRICE_GROUP_CHAT_ID') };
+        return;
+      }
       try {
         larkCall_('/open-apis/im/v1/messages?receive_id_type=chat_id', {
           receive_id: chatId, msg_type: 'interactive', content: JSON.stringify(larkCard_(b)), uuid: b.notif_id.slice(0, 50)
