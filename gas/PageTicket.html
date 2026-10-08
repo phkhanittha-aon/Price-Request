@@ -12,7 +12,9 @@ Pages.ticket = (function () {
     manager_reject: { label: 'ไม่อนุมัติ', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ไม่อนุมัติ', confirm: 'ไม่อนุมัติใบ {no}? ใบจะถูกปิดและแก้ไขต่อไม่ได้' },
     gm_approve: { label: '✅ อนุมัติฝั่งขาย', cls: 'primary', comment: 'optional', confirm: 'อนุมัติฝั่งขาย: อนุมัติคำขอราคาใบ {no} ส่งต่อให้ SR หาราคา?' },
     gm_reject: { label: 'ไม่อนุมัติฝั่งขาย', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ไม่อนุมัติ', confirm: 'ไม่อนุมัติคำขอราคาใบ {no}? ใบจะถูกปิด' },
-    claim: { label: 'รับงานนี้', cls: 'primary', comment: 'none', confirm: 'รับงานใบ {no}? ระบบจะบันทึกคุณเป็น SR ผู้รับผิดชอบ' },
+    claim: { label: '✅ รับงาน', cls: 'primary', comment: 'none', confirm: 'รับงานใบ {no}? ระบบจะบันทึกคุณเป็น SR ผู้รับผิดชอบ' },
+    queue_return: { label: '↩ ตีกลับ — ข้อมูลไม่ครบ', cls: 'danger', comment: 'required', commentLabel: 'ข้อมูลที่ขาด / สิ่งที่ต้องการให้ Sales เพิ่ม', fields: true,
+      confirm: 'ส่งใบ {no} กลับให้ Sales เพิ่มข้อมูล — เมื่อ Sales ตอบ งานจะกลับเข้าคิวรอรับงาน' },
     assign: { label: 'มอบหมาย SR', cls: '', comment: 'optional', select: 'sr' },
     srm_approve: { label: 'อนุมัติราคา (SR Manager)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันราคาใบ {no} ส่งต่อให้ GM อนุมัติฝั่งซื้อ?' },
     srm_return: { label: 'ส่งกลับให้ SR แก้ราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ SR แก้ไข' },
@@ -34,6 +36,8 @@ Pages.ticket = (function () {
       '<div class="card"><dl class="kv">' +
       '<dt>ผู้ขอราคา</dt><dd>' + esc(t.requestor_name) + ' <span class="muted small">(' + esc(t.department_code) + ')</span></dd>' +
       '<dt>ลูกค้า (Customer)</dt><dd>' + esc(t.customer_name || '–') + '</dd>' +
+      '<dt>กลุ่มลูกค้า</dt><dd>' + esc(t.customer_group || '–') + '</dd>' +
+      '<dt>ประเทศปลายทาง</dt><dd>' + esc(t.destination_country || 'ไทย') + '</dd>' +
       '<dt>วันที่ต้องการให้ตอบกลับราคา</dt><dd>' + esc(fmtDate(t.due_date)) + (t.priority !== 'normal' ? ' · ' + prioText(t.priority) : '') + '</dd>' +
       '<dt>เอกสารที่ต้องการประกอบ</dt><dd>' + esc(t.documents_needed || 'ไม่ต้องการเอกสารประกอบ') + '</dd>' +
       '<dt>SR ผู้รับงาน</dt><dd>' + esc(t.sr_name || '–') + '</dd>' +
@@ -44,6 +48,31 @@ Pages.ticket = (function () {
       '</dl></div>';
   }
 
+  /** What SR checks before accepting a job: is the request complete enough to quote? */
+  function completeness(d) {
+    const t = d.ticket;
+    const pics = function (it) { return d.attachments.filter(function (a) { return a.item_id === it.item_id; }).length; };
+    const noSpec = d.items.filter(function (it) { return !it.net_weight || !it.size || !it.packing_size || !(it.qty > 0); });
+    const noPic = d.items.filter(function (it) { return !pics(it); });
+    const daysLeft = t.due_date ? Math.round((new Date(t.due_date + 'T00:00:00') - new Date(todayYmd(0) + 'T00:00:00')) / 86400000) : null;
+    return [
+      { ok: !!(t.customer_name && t.customer_group), label: 'ลูกค้า + กลุ่มลูกค้า', detail: [t.customer_name, t.customer_group, t.destination_country].filter(Boolean).join(' · '), key: 'ประเทศปลายทาง / กลุ่มลูกค้า' },
+      { ok: !noSpec.length, label: 'สเปกครบทุกรายการ (NW · Size · Packing · ปริมาณ)', detail: noSpec.length ? 'ไม่ครบ: ' + noSpec.map(function (it) { return '#' + it.line_no; }).join(', ') : d.items.length + ' รายการ', key: 'สเปก / Grade / ขนาด' },
+      { ok: !noPic.length, label: 'รูปภาพสินค้า', detail: noPic.length ? 'ไม่มีรูป: ' + noPic.map(function (it) { return '#' + it.line_no; }).join(', ') : 'มีรูปครบ', key: 'รูปภาพสินค้า', warn: true },
+      { ok: true, label: 'เอกสารที่ลูกค้าต้องการ', detail: t.documents_needed || 'ไม่ต้องการเอกสาร', key: 'เอกสารที่ต้องการ' },
+      { ok: daysLeft == null || daysLeft >= 2, label: 'เวลาหาราคา', detail: daysLeft == null ? '–' : 'เหลือ ' + daysLeft + ' วัน (ต้องการ ' + fmtDate(t.due_date) + ')', key: 'วันที่ต้องการ (เร็วเกินไป)', warn: true }
+    ];
+  }
+  function queueCheck(d) {
+    const rows = completeness(d);
+    const bad = rows.filter(function (r) { return !r.ok && !r.warn; }).length;
+    const warn = rows.filter(function (r) { return !r.ok && r.warn; }).length;
+    return '<div class="notice qcheck"><b>งานใหม่ในคิว — ตรวจความครบถ้วนก่อนรับงาน</b><ul>' + rows.map(function (r) {
+      return '<li class="' + (r.ok ? 'ok' : (r.warn ? 'warn' : 'bad')) + '">' + (r.ok ? '✓' : '⚠') + ' ' + esc(r.label) + ' <span class="small muted">— ' + esc(r.detail) + '</span></li>';
+    }).join('') + '</ul><div class="small">' + (bad ? 'ข้อมูลยังไม่ครบ ' + bad + ' ข้อ → กด <b>↩ ตีกลับ</b> ให้ Sales เพิ่มข้อมูล' :
+      warn ? 'ข้อมูลหลักครบ แต่มี ' + warn + ' ข้อที่ควรดู (⚠) → รับงานได้ หรือกด <b>↩ ตีกลับ</b> ถ้าจำเป็นต้องมี' : 'ข้อมูลครบ → กด <b>✅ รับงาน</b>') + '</div></div>';
+  }
+
   function notices(d) {
     const t = d.ticket;
     let html = '';
@@ -52,7 +81,8 @@ Pages.ticket = (function () {
         const c = d.checklist.filter(function (x) { return x.item_key === k || x.check_id === k; })[0];
         return c ? c.label : k;
       });
-      html += '<div class="notice warn"><b>SR ขอข้อมูลเพิ่ม:</b> ' + esc(t.info_request.comment) +
+      const fromQueue = t.info_request.return_stage === 'pending_assign';
+      html += '<div class="notice warn"><b>' + (fromQueue ? 'SR ตีกลับ — ข้อมูลไม่ครบ:' : 'SR ขอข้อมูลเพิ่ม:') + '</b> ' + esc(t.info_request.comment) +
         (labels.length ? '<div class="small">รายการที่ขาด: ' + esc(labels.join(', ')) + '</div>' : '') + '</div>';
     }
     if (t.stage === 'returned') html += '<div class="notice warn">Sales Manager ส่งกลับให้แก้ไข — ดูเหตุผลใน Timeline ด้านล่าง แล้วกด “แก้ไขใบขอราคา”</div>';
@@ -63,6 +93,7 @@ Pages.ticket = (function () {
         return '<a href="#" data-goto="' + esc(c.ticket_id) + '">' + esc(c.ticket_no) + '</a> <span class="small muted">(' + esc(c.stage_label) + ')</span>';
       }).join(' · ') + '</div>';
     }
+    if (t.stage === 'pending_assign' && (d.me.role === 'sr' || d.me.role === 'sr_manager')) html += queueCheck(d);
     const isGm = d.me.role === 'gm';
     if (t.stage === 'pending_gm') {
       html += '<div class="notice side-sales"><b>🛒 อนุมัติฝั่งขาย</b>' + (isGm ? ' — ตรวจคำขอของ Sales: ลูกค้า สินค้า ปริมาณ และราคาเป้าหมาย ก่อนส่งให้ SR หาราคา' : ' — รอ GM อนุมัติคำขอราคา') + '</div>';
@@ -279,6 +310,14 @@ Pages.ticket = (function () {
         state.ref.sr_users.filter(function (u) { return u.email !== t.sr_email; })
           .map(function (u) { return '<option value="' + esc(u.email) + '">' + esc(u.full_name) + '</option>'; }).join('') + '</select></label>';
     }
+    if (ui.fields) {
+      const auto = completeness(d).filter(function (r) { return !r.ok; }).map(function (r) { return r.key; });
+      const REQ_FIELDS = ['รูปภาพสินค้า', 'สเปก / Grade / ขนาด', '% Net Weight', 'Packing', 'ปริมาณ', 'ราคาเป้าหมาย', 'เอกสารที่ต้องการ',
+        'ประเทศปลายทาง / กลุ่มลูกค้า', 'วันที่ต้องการ (เร็วเกินไป)', 'อื่นๆ (ระบุในเหตุผล)'];
+      html = '<p class="small">เลือกข้อมูลที่ยังขาด (ระบบติ๊กให้ตามที่ตรวจพบ)</p><div class="miss-grid">' + REQ_FIELDS.map(function (f) {
+        return '<label class="chk-inline"><input type="checkbox" class="dlg-miss" value="' + esc(f) + '"' + (auto.indexOf(f) !== -1 ? ' checked' : '') + '> ' + esc(f) + '</label>';
+      }).join('') + '</div>';
+    }
     if (ui.checklist && d.checklist.length) {
       html = '<p class="small">เลือกเอกสารที่ยังขาด (ถ้ามี)</p>' + d.checklist.map(function (c) {
         return '<label style="display:flex;gap:8px;align-items:center;min-height:36px"><input type="checkbox" class="dlg-miss" value="' + esc(c.item_key) + '"' +
@@ -293,7 +332,7 @@ Pages.ticket = (function () {
       if (!res) return;
       const payload = { expected_version: t.version };
       if (ui.select === 'sr') payload.sr_email = $('#dlg-sr', res.root).value;
-      if (ui.checklist) payload.missing_items = $all('.dlg-miss', res.root).filter(function (x) { return x.checked; }).map(function (x) { return x.value; });
+      if (ui.checklist || ui.fields) payload.missing_items = $all('.dlg-miss', res.root).filter(function (x) { return x.checked; }).map(function (x) { return x.value; });
       toast('กำลังบันทึก...');
       api('transitionTicket', t.ticket_id, action, res.comment, payload).then(function (r) {
         toast(ui.label + ' สำเร็จ — ' + r.ticket.ticket_no + ' : ' + r.ticket.stage_label, 'ok');

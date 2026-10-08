@@ -7,7 +7,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.08-2';
+const APP_VERSION = '2026.10.08-3';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -106,7 +106,9 @@ const SCHEMA = {
            // appended in v2026.10.06-3 (Food form + SR Manager / GM price approval)
            'documents_needed', 'quote_submitted_at', 'sr_manager_email', 'sr_manager_approved_at', 'gm_price_approved_at',
            // appended in v2026.10.08-1: a "send later" ticket split out of another one
-           'parent_ticket_id']
+           'parent_ticket_id',
+           // appended v2026.10.08-3: where the goods go and who the customer is
+           'destination_country', 'customer_group']
   },
   TicketItems: {
     key: 'item_id',
@@ -233,8 +235,10 @@ const DEFAULT_SETTINGS = [
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
   ['fx_defaults', JSON.stringify({ USD: 35 }), 'อัตราแลกเปลี่ยนเริ่มต้น (บาทต่อ 1 หน่วย) ที่เติมให้ในหน้าใบเสนอราคา · SR แก้ได้ทุกใบ · สกุลที่ไม่มีในนี้ SR กรอกเอง'],
   ['default_validity_days', '30', 'จำนวนวันยืนราคาเริ่มต้น เมื่อ Supplier ไม่ได้ระบุ'],
+  ['customer_groups', JSON.stringify(['ร้านอาหาร', 'โรงแรม / จัดเลี้ยง', 'ค้าปลีก / Modern Trade', 'ค้าส่ง / ตัวแทนจำหน่าย', 'โรงงานแปรรูปอาหาร', 'ส่งออก', 'อื่นๆ']),
+    'กลุ่มลูกค้าในฟอร์มขอราคา (dropdown) · “ส่งออก” ต้องระบุประเทศปลายทางที่ไม่ใช่ไทย'],
   ['default_due_working_days', '3', 'วันที่ต้องการราคาเริ่มต้นในฟอร์ม Sales = วันนี้ + วันทำการ'],
-  ['document_options', JSON.stringify(['COA', 'Health Certificate', 'Halal', 'Spec sheet', 'ใบวิเคราะห์จุลินทรีย์', 'GMP / HACCP']), 'ตัวเลือกเอกสารในฟอร์มขอราคา'],
+  ['document_options', JSON.stringify(['COA', 'Health Certificate', 'Halal', 'Spec sheet', 'ผลเทสต์ / Test report (Micro, Heavy metal, Chemical)', 'Food Safety Cert (GMP / HACCP / BRC / FSSC 22000)']), 'ตัวเลือกเอกสารในฟอร์มขอราคา'],
   ['allowed_mime_types', JSON.stringify([
     'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic',
     'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv'

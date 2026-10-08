@@ -104,6 +104,7 @@ function referenceData_(me) {
     default_validity_days: Number(setting_('default_validity_days', 30)),
     default_due_working_days: Number(setting_('default_due_working_days', 3)),
     document_options: setting_('document_options', []),
+    customer_groups: setting_('customer_groups', []),
     supplier_types: SUPPLIER_TYPES.map(function (k) { return { key: k, label: SUPPLIER_TYPE_LABEL[k] }; }),
     default_gp_percent: defaultGp_(),
     vat_terms: VAT_TERMS.map(function (k) { return { key: k, label: VAT_TERM_LABEL[k] }; }),

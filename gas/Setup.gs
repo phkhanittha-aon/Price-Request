@@ -43,6 +43,15 @@ function setupDatabase() {
     report.push('Created Drive folder ' + folder.getId());
   }
   const mig = withLock_(function () { return migrateSuppliersCore_(); });
+  // document chips renamed (Test report covers micro + heavy metal + chemical; Food Safety Cert covers GMP/HACCP/BRC …)
+  // only when Admin has not customised the list yet
+  const OLD_DOCS = ['COA', 'Health Certificate', 'Halal', 'Spec sheet', 'ใบวิเคราะห์จุลินทรีย์', 'GMP / HACCP'];
+  const docs = findOne_(TAB.SETTINGS, 'key', 'document_options');
+  if (docs && JSON.stringify(parseJson_(docs.value, [])) === JSON.stringify(OLD_DOCS)) {
+    const fresh = DEFAULT_SETTINGS.filter(function (x) { return x[0] === 'document_options'; })[0][1];
+    withLock_(function () { updateRow_(TAB.SETTINGS, 'document_options', { value: fresh, updated_at: new Date(), updated_by: 'setup' }); });
+    report.push('Settings document_options: renamed to Test report / Food Safety Cert');
+  }
   report.push('Suppliers from old quotations: +' + mig.created + ' created, ' + mig.linked + ' quotations linked');
   console.log(report.join('\n'));
   console.log('Database URL: ' + ss.getUrl());
@@ -268,7 +277,8 @@ function seedDemoTickets_() {
   const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
   const req = function (email, key, header, items) {
     return as(email, function () {
-      return must(createTicket(Object.assign({ client_key: key, due_date: inDays(7) }, header, { items: items }))).ticket;
+      const grp = /โรงแรม|ภัตตาคาร/.test(header.customer_name) ? 'โรงแรม / จัดเลี้ยง' : 'ร้านอาหาร';
+      return must(createTicket(Object.assign({ client_key: key, due_date: inDays(7), customer_group: grp }, header, { items: items }))).ticket;
     });
   };
 

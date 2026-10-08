@@ -29,6 +29,7 @@ function runAcceptanceTests() {
     runFollowUpCases_(results);
     runBoardCases_(results);
     runSupplierCases_(results);
+    runQueueReturnCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -50,6 +51,7 @@ function runAcceptanceTests() {
 function testForm_(p) {
   const o = Object.assign({}, p);
   if (o.customer_name === undefined) o.customer_name = 'ลูกค้าทดสอบ';
+  if (o.customer_group === undefined) o.customer_group = 'ร้านอาหาร';
   if (o.due_date === undefined) o.due_date = fmtDate_(new Date(Date.now() + 3 * 86400000));
   o.items = (o.items || []).map(function (it) {
     const x = Object.assign({}, it);
@@ -752,7 +754,7 @@ function runOrgCases_(results) {
 
   wrap('FORM', function () {
     const t = as(U.salesFood1, function () {
-      return must(createTicket({ client_key: 'form-1', customer_name: 'ร้านอาหาร ทดสอบฟอร์ม', due_date: inDays(4),
+      return must(createTicket({ customer_group: 'ร้านอาหาร', client_key: 'form-1', customer_name: 'ร้านอาหาร ทดสอบฟอร์ม', due_date: inDays(4),
         documents_needed: 'COA, Health Certificate', description: 'ส่งตัวอย่างก่อน',
         items: [item, Object.assign({}, item, { product_name: 'หมึกกล้วย', target_price: '165' })] })).ticket;
     });
@@ -763,7 +765,7 @@ function runOrgCases_(results) {
       its[0].target_price === 0 && its[1].target_price === 165, 'Food form: %NW, size, packing size, target 0 allowed, default group FOOD');
     const bad = function (patch, name) {
       expectErr(as(U.salesFood1, function () {
-        return createTicket({ customer_name: 'X', due_date: inDays(2), items: [Object.assign({}, item, patch)] });
+        return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'X', due_date: inDays(2), items: [Object.assign({}, item, patch)] });
       }), 'VALIDATION', name);
     };
     bad({ net_weight: '' }, 'Food form: % Net Weight required');
@@ -771,14 +773,14 @@ function runOrgCases_(results) {
     bad({ packing_size: '' }, 'Food form: Packing size required');
     bad({ uom: 'เครื่อง' }, 'Food form: unit must come from the list');
     bad({ target_price: '' }, 'Food form: target price required (0 when none)');
-    expectErr(as(U.salesFood1, function () { return createTicket({ customer_name: 'X', due_date: inDays(-1), items: [item] }); }),
+    expectErr(as(U.salesFood1, function () { return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'X', due_date: inDays(-1), items: [item] }); }),
       'VALIDATION', 'Food form: expected date in the past rejected');
-    expectErr(as(U.salesFood1, function () { return createTicket({ customer_name: 'X', items: [item] }); }), 'VALIDATION', 'Food form: expected date required');
+    expectErr(as(U.salesFood1, function () { return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'X', items: [item] }); }), 'VALIDATION', 'Food form: expected date required');
   });
 
   wrap('SKIP_SALES_MANAGER', function () {
     withLock_(function () { updateRow_(TAB.DEPARTMENTS, 'SALES-FOOD', { manager_email: '' }); });
-    const t = as(U.salesFood2, function () { return must(createTicket({ customer_name: 'โรงแรม A', due_date: inDays(3), items: [item] })).ticket; });
+    const t = as(U.salesFood2, function () { return must(createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'โรงแรม A', due_date: inDays(3), items: [item] })).ticket; });
     ok(t.stage === 'pending_gm', 'No Sales Manager → request goes straight to GM');
     const log = findAll_(TAB.LOGS, 'ticket_id', t.ticket_id).filter(function (l) { return l.action === 'create'; })[0];
     ok(parseJson_(log.metadata_json, {}).sales_manager_skipped === true && log.to_stage === 'pending_gm', 'Skip is recorded in the audit log');
@@ -798,15 +800,15 @@ function runOrgCases_(results) {
       updateRow_(TAB.DEPARTMENTS, 'SALES-FOOD', { manager_email: U.mgrFood });
       updateRow_(TAB.USERS, U.mgrFood, { is_active: false });
     });
-    const t2 = as(U.salesFood2, function () { return must(createTicket({ customer_name: 'โรงแรม B', due_date: inDays(3), items: [item] })).ticket; });
+    const t2 = as(U.salesFood2, function () { return must(createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'โรงแรม B', due_date: inDays(3), items: [item] })).ticket; });
     ok(t2.stage === 'pending_gm', 'Inactive Sales Manager → also skipped');
     withLock_(function () { updateRow_(TAB.USERS, U.mgrFood, { is_active: true }); });
-    const t3 = as(U.salesFood2, function () { return must(createTicket({ customer_name: 'โรงแรม C', due_date: inDays(3), items: [item] })).ticket; });
+    const t3 = as(U.salesFood2, function () { return must(createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'โรงแรม C', due_date: inDays(3), items: [item] })).ticket; });
     ok(t3.stage === 'pending_manager', 'Sales Manager configured → step is used again');
   });
 
   wrap('PRICE_CHAIN', function () {
-    const t = as(U.salesFood1, function () { return must(createTicket({ customer_name: 'ร้าน D', due_date: inDays(3), items: [item] })).ticket; });
+    const t = as(U.salesFood1, function () { return must(createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'ร้าน D', due_date: inDays(3), items: [item] })).ticket; });
     const id = t.ticket_id;
     must(go(U.mgrFood, id, 'manager_approve'));
     must(go(U.gm, id, 'gm_approve'));
@@ -871,7 +873,7 @@ function runSellPriceCases_(results) {
   const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
   try {
     const t = as(U.salesFood2, function () {
-      return must(createTicket({ customer_name: 'โรงแรม GP', due_date: inDays(3), items: [
+      return must(createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'โรงแรม GP', due_date: inDays(3), items: [
         { product_name: 'กุ้งขาว PD', net_weight: '90%', size: '41/50', packing_size: '1 kg/pack', qty: 400, uom: 'กก.', target_price: 330 }] })).ticket;
     });
     const id = t.ticket_id;
@@ -998,7 +1000,7 @@ function runFollowUpCases_(results) {
   const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
   try {
     const t = as(U.salesFood3, function () {
-      return must(createTicket({ customer_name: 'ร้าน ส่งตามหลัง', due_date: inDays(4), items: [
+      return must(createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'ร้าน ส่งตามหลัง', due_date: inDays(4), items: [
         { product_name: 'กุ้งขาว HOSO', net_weight: '100%', size: '40/50', packing_size: '1 kg', qty: 300, uom: 'กก.', target_price: 0 },
         { product_name: 'หมึกกล้วย', net_weight: '80%', size: 'U5', packing_size: '1 kg', qty: 200, uom: 'กก.', target_price: 0 },
         { product_name: 'ปลาแซลมอน', net_weight: '100%', size: '3-4 kg', packing_size: 'ตัว', qty: 100, uom: 'กก.', target_price: 0 }] })).ticket;
@@ -1204,5 +1206,67 @@ function runSupplierCases_(results) {
     ok(withIdentity_(U.admin, function () { return migrateSuppliers(); }).created === 0, 'Migration is safe to re-run');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: SUPPLIER — ' + e.message + '\n' + e.stack);
+  }
+}
+
+// =============================================================================
+// Customer group / destination + SR send-back from the queue
+// =============================================================================
+function runQueueReturnCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  const item = { product_name: 'ปลาหมึกกล้วย', net_weight: '80%', size: 'U5', packing_size: '1 kg', qty: 100, uom: 'กก.', target_price: 0 };
+  try {
+    expectErr(as(U.salesFood1, function () { return createTicket({ customer_name: 'X', due_date: inDays(3), items: [item] }); }), 'VALIDATION', 'Customer group is required');
+    expectErr(as(U.salesFood1, function () { return createTicket({ customer_name: 'X', customer_group: 'ลูกค้าแปลก', due_date: inDays(3), items: [item] }); }),
+      'VALIDATION', 'Customer group must come from the list');
+    expectErr(as(U.salesFood1, function () { return createTicket({ customer_name: 'X', customer_group: 'ส่งออก', due_date: inDays(3), items: [item] }); }),
+      'VALIDATION', '“ส่งออก” needs a foreign destination');
+    const t = must(as(U.salesFood1, function () {
+      return createTicket({ customer_name: 'Tokyo Sushi Import', customer_group: 'ส่งออก', destination_country: 'ญี่ปุ่น', due_date: inDays(3), items: [item] });
+    })).ticket;
+    ok(t.customer_group === 'ส่งออก' && t.destination_country === 'ญี่ปุ่น', 'Customer group + destination saved');
+    const t2 = must(as(U.salesFood1, function () { return createTicket({ customer_name: 'ร้านไทย', customer_group: 'ร้านอาหาร', due_date: inDays(3), items: [item] }); })).ticket;
+    ok(t2.destination_country === 'ไทย', 'Destination defaults to ไทย');
+    const h = must(as(U.salesFood1, function () { return getSalesHistory(); }));
+    ok(h.customers.some(function (c) { return c.name === 'Tokyo Sushi Import' && c.customer_group === 'ส่งออก' && c.destination_country === 'ญี่ปุ่น'; }),
+      'History remembers the customer group + destination for auto-fill');
+
+    const id = t.ticket_id;
+    if (ticketById_(id).stage === 'pending_manager') must(go(U.mgrFood, id, 'manager_approve'));
+    must(go(U.gm, id, 'gm_approve'));
+    ok(ticketById_(id).stage === 'pending_assign', 'Request waits in the SR queue');
+    ok(as(U.sr1, function () { return must(getTicket(id)); }).permissions.actions.indexOf('queue_return') !== -1 &&
+      as(U.sr1, function () { return must(getTicket(id)); }).permissions.actions.indexOf('claim') !== -1, 'SR sees both “รับงาน” and “ตีกลับ”');
+    expectErr(go(U.sr1, id, 'queue_return', ''), 'COMMENT_REQUIRED', 'Send-back needs a reason');
+    expectErr(go(U.salesFood1, id, 'queue_return', 'x'), 'FORBIDDEN', 'Sales cannot send back from the queue');
+    const back = must(go(U.sr1, id, 'queue_return', 'ไม่มีรูปสินค้าและไม่ระบุ Grade', { missing_items: ['รูปภาพสินค้า', 'สเปก / Grade'] })).ticket;
+    ok(back.stage === 'need_info' && !back.sr_email, 'SR send-back → Sales (need_info), no SR assigned');
+    const tk = ticketById_(id);
+    ok(tk.info_request.return_stage === 'pending_assign' && tk.info_request.items.length === 2, 'Missing items recorded');
+    ok(findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).some(function (n) { return String(n.user_email) === U.salesFood1 && n.type === 'info_requested'; }),
+      'Sales is notified what is missing');
+    const answered = must(go(U.salesFood1, id, 'respond_info', 'แนบรูปแล้ว Grade A')).ticket;
+    ok(answered.stage === 'pending_assign', 'Sales answer → back to the SR queue');
+    ok(findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).some(function (n) { return String(n.user_email) === U.sr2 && n.type === 'info_provided'; }),
+      'Every SR is told the job is back in the queue');
+    must(go(U.sr2, id, 'claim'));
+    ok(ticketById_(id).sr_email === U.sr2 && ticketById_(id).stage === 'doc_check', 'Another SR can then accept it');
+    expectErr(go(U.sr1, id, 'queue_return', 'x'), 'INVALID_STATE', 'No send-back after the job was accepted (use ขอข้อมูลเพิ่ม)');
+  } catch (e) {
+    results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: QUEUE_RETURN — ' + e.message + '\n' + e.stack);
   }
 }

@@ -440,6 +440,11 @@
     .istat { margin-top: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
     .istat.follow { border-left: 4px solid var(--warn); background: #FFFBF0; }
     .istat.no { border-left: 4px solid #8FA1A7; background: #F5F7F8; }
+    .notice.qcheck { border-left: 4px solid var(--brand); background: #F4F9FB; }
+    .notice.qcheck ul { list-style: none; padding: 0; margin: 8px 0; }
+    .notice.qcheck li { padding: 3px 0; } .notice.qcheck li.ok { color: var(--ok-ink); } .notice.qcheck li.bad { color: var(--danger-ink); } .notice.qcheck li.warn { color: var(--warn-ink); }
+    .miss-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; margin-bottom: 8px; }
+    @media (max-width: 560px) { .miss-grid { grid-template-columns: 1fr; } }
     .notice.side-follow { border-left: 4px solid var(--warn); background: #FFFBF0; }
     .notice.side-sales { border-left: 4px solid #2a78d6; background: #EEF5FD; }
     .notice.side-buy { border-left: 4px solid #1baf7a; background: #EBF8F2; }

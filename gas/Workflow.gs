@@ -31,13 +31,13 @@
  */
 
 const TRANSITION_ACTIONS = ['resubmit', 'cancel', 'manager_approve', 'manager_reject', 'manager_return',
-  'gm_approve', 'gm_reject', 'claim', 'assign', 'request_info', 'respond_info', 'doc_complete',
+  'gm_approve', 'gm_reject', 'claim', 'queue_return', 'assign', 'request_info', 'respond_info', 'doc_complete',
   'submit_quote', 'srm_approve', 'srm_return', 'gm_price_approve', 'gm_price_return', 'accept', 'request_revision'];
 
 const ACTION_LABEL_TH = {
   create: 'สร้างใบขอราคา', resubmit: 'ส่งใบขอราคาอีกครั้ง', cancel: 'ยกเลิกใบขอราคา',
   manager_approve: 'Sales Manager อนุมัติ', manager_reject: 'Sales Manager ไม่อนุมัติ', manager_return: 'Sales Manager ส่งกลับแก้ไข',
-  gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', assign: 'มอบหมายงาน SR',
+  gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
   request_info: 'SR ขอข้อมูลเพิ่ม', respond_info: 'Sales ส่งข้อมูลเพิ่ม', doc_complete: 'SR ตรวจเอกสารครบ',
   submit_quote: 'SR ส่งราคาให้ SR Manager ตรวจ', srm_approve: 'SR Manager อนุมัติราคา', srm_return: 'SR Manager ส่งกลับให้แก้ราคา',
   gm_price_approve: 'GM อนุมัติฝั่งซื้อ (ราคา → ส่งถึง Sales)', gm_price_return: 'GM ฝั่งซื้อ ส่งกลับให้แก้ราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
@@ -79,6 +79,7 @@ function createTicket(payload) {
       const firstStage = firstApprovalStage_(dept);
 
       const customer = requireText_(p.customer_name, 'ชื่อลูกค้า (Customer)', 200);
+      const market = cleanMarket_(p.customer_group, p.destination_country);
       const priority = p.priority ? oneOf_(p.priority, PRIORITIES, 'ความเร่งด่วน') : 'normal';
       const dueDate = parseYmd_(p.due_date, 'วันที่ต้องการให้ตอบกลับราคา (Expected Date)');
       if (fmtDate_(dueDate) < todayBkk_()) throw appError_('VALIDATION', 'วันที่ต้องการให้ตอบกลับราคา ต้องไม่เป็นวันที่ผ่านมาแล้ว');
@@ -112,6 +113,8 @@ function createTicket(payload) {
         description: cleanText_(p.description, CFG.MAX_TEXT),
         customer_name: customer,
         documents_needed: cleanText_(p.documents_needed, CFG.MAX_TEXT),
+        customer_group: market.customer_group,
+        destination_country: market.destination_country,
         priority: priority,
         status: 'requested',
         stage: firstStage,
@@ -266,6 +269,23 @@ function doTransition_(ticketId, action, comment, payload) {
       patch.assigned_at = now;
       break;
     }
+    case 'queue_return': {
+      // SR looks at a new job and finds the request incomplete → back to Sales; the answer returns it to the queue
+      if (u.role !== 'sr' && u.role !== 'sr_manager') forbid('เฉพาะ SR / SR Manager เท่านั้นที่ตีกลับงานในคิวได้');
+      if (t.stage !== 'pending_assign') badState('ตีกลับได้เฉพาะงานที่ยังอยู่ในคิวรอรับงาน');
+      needComment('กรุณาระบุว่าข้อมูลส่วนไหนไม่ครบ');
+      const missing = Array.isArray(payload.missing_items)
+        ? payload.missing_items.map(function (x) { return cleanText_(x, 200); }).filter(String).slice(0, 50)
+        : [];
+      patch.info_request_json = JSON.stringify({
+        items: missing, comment: note, requested_by: u.email,
+        requested_at: now.toISOString(), return_stage: 'pending_assign'
+      });
+      patch.stage = 'need_info';
+      notifyType = 'info_requested';
+      meta = { missing_items: missing, from_queue: true };
+      break;
+    }
     case 'assign': {
       if (!(u.role === 'admin' || u.role === 'sr_manager')) {
         forbid('เฉพาะ SR Manager หรือ Admin เท่านั้นที่มอบหมายงานได้');
@@ -304,7 +324,8 @@ function doTransition_(ticketId, action, comment, payload) {
       if (!isOwner()) forbid('เฉพาะ Sales เจ้าของใบเท่านั้นที่ตอบกลับได้');
       if (t.stage !== 'need_info') badState('ใบนี้ไม่ได้อยู่ในสถานะรอข้อมูลเพิ่ม');
       needComment('กรุณาระบุคำตอบหรือรายละเอียดที่ส่งเพิ่ม');
-      const back = t.info_request && t.info_request.return_stage === 'sourcing' ? 'sourcing' : 'doc_check';
+      const rs = t.info_request && t.info_request.return_stage;
+      const back = rs === 'sourcing' || rs === 'pending_assign' ? rs : 'doc_check';
       meta = { info_request: t.info_request };
       patch.stage = back;
       patch.info_request_json = '';
@@ -578,6 +599,7 @@ function allowedActions_(u, t) {
   }
   if (u.role === 'gm' && t.stage === 'pending_gm' && t.manager_email !== u.email) a.push('gm_approve', 'gm_reject');
   if (u.role === 'sr' && t.stage === 'pending_assign') a.push('claim');
+  if ((u.role === 'sr' || u.role === 'sr_manager') && t.stage === 'pending_assign') a.push('queue_return');
   if (u.role === 'sr_manager' && t.stage === 'pending_sr_manager' && t.sr_email !== u.email) a.push('srm_approve', 'srm_return');
   if (u.role === 'gm' && t.stage === 'pending_gm_price') a.push('gm_price_approve', 'gm_price_return');
   if ((u.role === 'admin' || u.role === 'sr_manager') &&
@@ -781,4 +803,20 @@ function generateChecklist_(ticketId) {
   });
   insertRows_(TAB.CHECKLIST, toInsert);
   return toInsert.length;
+}
+
+/**
+ * Customer group (required, from Settings customer_groups) + destination country (blank = ไทย).
+ * "ส่งออก" must name a foreign destination.
+ */
+function cleanMarket_(group, country) {
+  const groups = setting_('customer_groups', []);
+  const g = cleanText_(group, 100);
+  if (!g) throw appError_('VALIDATION', 'กรุณาเลือกกลุ่มลูกค้า', { field: 'customer_group' });
+  if (groups.length && groups.indexOf(g) === -1) throw appError_('VALIDATION', 'กลุ่มลูกค้าไม่อยู่ในรายการ', { field: 'customer_group' });
+  const c = cleanText_(country, 60) || 'ไทย';
+  if (/ส่งออก/.test(g) && /^(ไทย|thailand|th)$/i.test(c)) {
+    throw appError_('VALIDATION', 'กลุ่มลูกค้า “ส่งออก” ต้องระบุประเทศปลายทาง', { field: 'destination_country' });
+  }
+  return { customer_group: g, destination_country: c };
 }

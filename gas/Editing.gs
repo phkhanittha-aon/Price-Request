@@ -7,7 +7,7 @@
  * and writes a before→after diff to TicketLogs.
  */
 
-const HEADER_FIELDS_ = ['title', 'description', 'customer_name', 'priority', 'due_date', 'documents_needed'];
+const HEADER_FIELDS_ = ['title', 'description', 'customer_name', 'priority', 'due_date', 'documents_needed', 'customer_group', 'destination_country'];
 const ITEM_FIELDS_ = ['product_group_code', 'product_name', 'net_weight', 'size', 'packing_size', 'spec', 'description', 'qty', 'uom',
   'target_price', 'target_currency'];
 const QUOTE_FIELDS_ = ['vendor_id', 'vendor_name', 'unit_price', 'currency', 'fx_rate', 'vat_term', 'moq', 'lead_time_days',
@@ -35,6 +35,12 @@ function updateTicketRequest(ticketId, patch, expectedVersion) {
       if (p.description !== undefined) clean.description = cleanText_(p.description, CFG.MAX_TEXT);
       if (p.customer_name !== undefined) clean.customer_name = requireText_(p.customer_name, 'ชื่อลูกค้า (Customer)', 200);
       if (p.documents_needed !== undefined) clean.documents_needed = cleanText_(p.documents_needed, CFG.MAX_TEXT);
+      if (p.customer_group !== undefined || p.destination_country !== undefined) {
+        const m = cleanMarket_(p.customer_group !== undefined ? p.customer_group : t.customer_group,
+          p.destination_country !== undefined ? p.destination_country : t.destination_country);
+        clean.customer_group = m.customer_group;
+        clean.destination_country = m.destination_country;
+      }
       if (p.priority !== undefined) clean.priority = oneOf_(p.priority, PRIORITIES, 'ความเร่งด่วน');
       if (p.due_date !== undefined) clean.due_date = parseYmd_(p.due_date, 'วันที่ต้องการให้ตอบกลับราคา (Expected Date)');
 

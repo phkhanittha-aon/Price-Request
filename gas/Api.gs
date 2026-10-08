@@ -166,6 +166,8 @@ function summaryRow_(t, ctx, now) {
     ticket_no: String(t.ticket_no),
     title: String(t.title),
     customer_name: String(t.customer_name || ''),
+    customer_group: String(t.customer_group || ''),
+    destination_country: String(t.destination_country || ''),
     priority: String(t.priority),
     status: t.status,
     status_label: STATUS_LABEL_TH[t.status],
@@ -478,7 +480,8 @@ function getSalesHistory() {
       const k = name.toLowerCase();
       if (!name || seenC[k]) return;
       seenC[k] = true;
-      customers.push({ name: name, documents_needed: String(t.documents_needed || ''), last_at: fmtDate_(t.created_at) });
+      customers.push({ name: name, documents_needed: String(t.documents_needed || ''), customer_group: String(t.customer_group || ''),
+        destination_country: String(t.destination_country || ''), last_at: fmtDate_(t.created_at) });
     });
     const ids = {};
     mine.forEach(function (t, i) { ids[t.ticket_id] = i; });

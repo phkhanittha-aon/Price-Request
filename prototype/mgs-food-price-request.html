@@ -444,6 +444,11 @@
     .istat { margin-top: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
     .istat.follow { border-left: 4px solid var(--warn); background: #FFFBF0; }
     .istat.no { border-left: 4px solid #8FA1A7; background: #F5F7F8; }
+    .notice.qcheck { border-left: 4px solid var(--brand); background: #F4F9FB; }
+    .notice.qcheck ul { list-style: none; padding: 0; margin: 8px 0; }
+    .notice.qcheck li { padding: 3px 0; } .notice.qcheck li.ok { color: var(--ok-ink); } .notice.qcheck li.bad { color: var(--danger-ink); } .notice.qcheck li.warn { color: var(--warn-ink); }
+    .miss-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; margin-bottom: 8px; }
+    @media (max-width: 560px) { .miss-grid { grid-template-columns: 1fr; } }
     .notice.side-follow { border-left: 4px solid var(--warn); background: #FFFBF0; }
     .notice.side-sales { border-left: 4px solid #2a78d6; background: #EEF5FD; }
     .notice.side-buy { border-left: 4px solid #1baf7a; background: #EBF8F2; }
@@ -692,7 +697,7 @@ var HtmlService = {};
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.08-2';
+const APP_VERSION = '2026.10.08-3';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -791,7 +796,9 @@ const SCHEMA = {
            // appended in v2026.10.06-3 (Food form + SR Manager / GM price approval)
            'documents_needed', 'quote_submitted_at', 'sr_manager_email', 'sr_manager_approved_at', 'gm_price_approved_at',
            // appended in v2026.10.08-1: a "send later" ticket split out of another one
-           'parent_ticket_id']
+           'parent_ticket_id',
+           // appended v2026.10.08-3: where the goods go and who the customer is
+           'destination_country', 'customer_group']
   },
   TicketItems: {
     key: 'item_id',
@@ -918,8 +925,10 @@ const DEFAULT_SETTINGS = [
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
   ['fx_defaults', JSON.stringify({ USD: 35 }), 'อัตราแลกเปลี่ยนเริ่มต้น (บาทต่อ 1 หน่วย) ที่เติมให้ในหน้าใบเสนอราคา · SR แก้ได้ทุกใบ · สกุลที่ไม่มีในนี้ SR กรอกเอง'],
   ['default_validity_days', '30', 'จำนวนวันยืนราคาเริ่มต้น เมื่อ Supplier ไม่ได้ระบุ'],
+  ['customer_groups', JSON.stringify(['ร้านอาหาร', 'โรงแรม / จัดเลี้ยง', 'ค้าปลีก / Modern Trade', 'ค้าส่ง / ตัวแทนจำหน่าย', 'โรงงานแปรรูปอาหาร', 'ส่งออก', 'อื่นๆ']),
+    'กลุ่มลูกค้าในฟอร์มขอราคา (dropdown) · “ส่งออก” ต้องระบุประเทศปลายทางที่ไม่ใช่ไทย'],
   ['default_due_working_days', '3', 'วันที่ต้องการราคาเริ่มต้นในฟอร์ม Sales = วันนี้ + วันทำการ'],
-  ['document_options', JSON.stringify(['COA', 'Health Certificate', 'Halal', 'Spec sheet', 'ใบวิเคราะห์จุลินทรีย์', 'GMP / HACCP']), 'ตัวเลือกเอกสารในฟอร์มขอราคา'],
+  ['document_options', JSON.stringify(['COA', 'Health Certificate', 'Halal', 'Spec sheet', 'ผลเทสต์ / Test report (Micro, Heavy metal, Chemical)', 'Food Safety Cert (GMP / HACCP / BRC / FSSC 22000)']), 'ตัวเลือกเอกสารในฟอร์มขอราคา'],
   ['allowed_mime_types', JSON.stringify([
     'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic',
     'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv'
@@ -2024,13 +2033,13 @@ function itemStatusLine_(it) {
  */
 
 const TRANSITION_ACTIONS = ['resubmit', 'cancel', 'manager_approve', 'manager_reject', 'manager_return',
-  'gm_approve', 'gm_reject', 'claim', 'assign', 'request_info', 'respond_info', 'doc_complete',
+  'gm_approve', 'gm_reject', 'claim', 'queue_return', 'assign', 'request_info', 'respond_info', 'doc_complete',
   'submit_quote', 'srm_approve', 'srm_return', 'gm_price_approve', 'gm_price_return', 'accept', 'request_revision'];
 
 const ACTION_LABEL_TH = {
   create: 'สร้างใบขอราคา', resubmit: 'ส่งใบขอราคาอีกครั้ง', cancel: 'ยกเลิกใบขอราคา',
   manager_approve: 'Sales Manager อนุมัติ', manager_reject: 'Sales Manager ไม่อนุมัติ', manager_return: 'Sales Manager ส่งกลับแก้ไข',
-  gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', assign: 'มอบหมายงาน SR',
+  gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
   request_info: 'SR ขอข้อมูลเพิ่ม', respond_info: 'Sales ส่งข้อมูลเพิ่ม', doc_complete: 'SR ตรวจเอกสารครบ',
   submit_quote: 'SR ส่งราคาให้ SR Manager ตรวจ', srm_approve: 'SR Manager อนุมัติราคา', srm_return: 'SR Manager ส่งกลับให้แก้ราคา',
   gm_price_approve: 'GM อนุมัติฝั่งซื้อ (ราคา → ส่งถึง Sales)', gm_price_return: 'GM ฝั่งซื้อ ส่งกลับให้แก้ราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
@@ -2072,6 +2081,7 @@ function createTicket(payload) {
       const firstStage = firstApprovalStage_(dept);
 
       const customer = requireText_(p.customer_name, 'ชื่อลูกค้า (Customer)', 200);
+      const market = cleanMarket_(p.customer_group, p.destination_country);
       const priority = p.priority ? oneOf_(p.priority, PRIORITIES, 'ความเร่งด่วน') : 'normal';
       const dueDate = parseYmd_(p.due_date, 'วันที่ต้องการให้ตอบกลับราคา (Expected Date)');
       if (fmtDate_(dueDate) < todayBkk_()) throw appError_('VALIDATION', 'วันที่ต้องการให้ตอบกลับราคา ต้องไม่เป็นวันที่ผ่านมาแล้ว');
@@ -2105,6 +2115,8 @@ function createTicket(payload) {
         description: cleanText_(p.description, CFG.MAX_TEXT),
         customer_name: customer,
         documents_needed: cleanText_(p.documents_needed, CFG.MAX_TEXT),
+        customer_group: market.customer_group,
+        destination_country: market.destination_country,
         priority: priority,
         status: 'requested',
         stage: firstStage,
@@ -2259,6 +2271,23 @@ function doTransition_(ticketId, action, comment, payload) {
       patch.assigned_at = now;
       break;
     }
+    case 'queue_return': {
+      // SR looks at a new job and finds the request incomplete → back to Sales; the answer returns it to the queue
+      if (u.role !== 'sr' && u.role !== 'sr_manager') forbid('เฉพาะ SR / SR Manager เท่านั้นที่ตีกลับงานในคิวได้');
+      if (t.stage !== 'pending_assign') badState('ตีกลับได้เฉพาะงานที่ยังอยู่ในคิวรอรับงาน');
+      needComment('กรุณาระบุว่าข้อมูลส่วนไหนไม่ครบ');
+      const missing = Array.isArray(payload.missing_items)
+        ? payload.missing_items.map(function (x) { return cleanText_(x, 200); }).filter(String).slice(0, 50)
+        : [];
+      patch.info_request_json = JSON.stringify({
+        items: missing, comment: note, requested_by: u.email,
+        requested_at: now.toISOString(), return_stage: 'pending_assign'
+      });
+      patch.stage = 'need_info';
+      notifyType = 'info_requested';
+      meta = { missing_items: missing, from_queue: true };
+      break;
+    }
     case 'assign': {
       if (!(u.role === 'admin' || u.role === 'sr_manager')) {
         forbid('เฉพาะ SR Manager หรือ Admin เท่านั้นที่มอบหมายงานได้');
@@ -2297,7 +2326,8 @@ function doTransition_(ticketId, action, comment, payload) {
       if (!isOwner()) forbid('เฉพาะ Sales เจ้าของใบเท่านั้นที่ตอบกลับได้');
       if (t.stage !== 'need_info') badState('ใบนี้ไม่ได้อยู่ในสถานะรอข้อมูลเพิ่ม');
       needComment('กรุณาระบุคำตอบหรือรายละเอียดที่ส่งเพิ่ม');
-      const back = t.info_request && t.info_request.return_stage === 'sourcing' ? 'sourcing' : 'doc_check';
+      const rs = t.info_request && t.info_request.return_stage;
+      const back = rs === 'sourcing' || rs === 'pending_assign' ? rs : 'doc_check';
       meta = { info_request: t.info_request };
       patch.stage = back;
       patch.info_request_json = '';
@@ -2571,6 +2601,7 @@ function allowedActions_(u, t) {
   }
   if (u.role === 'gm' && t.stage === 'pending_gm' && t.manager_email !== u.email) a.push('gm_approve', 'gm_reject');
   if (u.role === 'sr' && t.stage === 'pending_assign') a.push('claim');
+  if ((u.role === 'sr' || u.role === 'sr_manager') && t.stage === 'pending_assign') a.push('queue_return');
   if (u.role === 'sr_manager' && t.stage === 'pending_sr_manager' && t.sr_email !== u.email) a.push('srm_approve', 'srm_return');
   if (u.role === 'gm' && t.stage === 'pending_gm_price') a.push('gm_price_approve', 'gm_price_return');
   if ((u.role === 'admin' || u.role === 'sr_manager') &&
@@ -2776,6 +2807,22 @@ function generateChecklist_(ticketId) {
   return toInsert.length;
 }
 
+/**
+ * Customer group (required, from Settings customer_groups) + destination country (blank = ไทย).
+ * "ส่งออก" must name a foreign destination.
+ */
+function cleanMarket_(group, country) {
+  const groups = setting_('customer_groups', []);
+  const g = cleanText_(group, 100);
+  if (!g) throw appError_('VALIDATION', 'กรุณาเลือกกลุ่มลูกค้า', { field: 'customer_group' });
+  if (groups.length && groups.indexOf(g) === -1) throw appError_('VALIDATION', 'กลุ่มลูกค้าไม่อยู่ในรายการ', { field: 'customer_group' });
+  const c = cleanText_(country, 60) || 'ไทย';
+  if (/ส่งออก/.test(g) && /^(ไทย|thailand|th)$/i.test(c)) {
+    throw appError_('VALIDATION', 'กลุ่มลูกค้า “ส่งออก” ต้องระบุประเทศปลายทาง', { field: 'destination_country' });
+  }
+  return { customer_group: g, destination_country: c };
+}
+
 // ==== Editing.gs ====
 /**
  * File: Editing.gs
@@ -2786,7 +2833,7 @@ function generateChecklist_(ticketId) {
  * and writes a before→after diff to TicketLogs.
  */
 
-const HEADER_FIELDS_ = ['title', 'description', 'customer_name', 'priority', 'due_date', 'documents_needed'];
+const HEADER_FIELDS_ = ['title', 'description', 'customer_name', 'priority', 'due_date', 'documents_needed', 'customer_group', 'destination_country'];
 const ITEM_FIELDS_ = ['product_group_code', 'product_name', 'net_weight', 'size', 'packing_size', 'spec', 'description', 'qty', 'uom',
   'target_price', 'target_currency'];
 const QUOTE_FIELDS_ = ['vendor_id', 'vendor_name', 'unit_price', 'currency', 'fx_rate', 'vat_term', 'moq', 'lead_time_days',
@@ -2814,6 +2861,12 @@ function updateTicketRequest(ticketId, patch, expectedVersion) {
       if (p.description !== undefined) clean.description = cleanText_(p.description, CFG.MAX_TEXT);
       if (p.customer_name !== undefined) clean.customer_name = requireText_(p.customer_name, 'ชื่อลูกค้า (Customer)', 200);
       if (p.documents_needed !== undefined) clean.documents_needed = cleanText_(p.documents_needed, CFG.MAX_TEXT);
+      if (p.customer_group !== undefined || p.destination_country !== undefined) {
+        const m = cleanMarket_(p.customer_group !== undefined ? p.customer_group : t.customer_group,
+          p.destination_country !== undefined ? p.destination_country : t.destination_country);
+        clean.customer_group = m.customer_group;
+        clean.destination_country = m.destination_country;
+      }
       if (p.priority !== undefined) clean.priority = oneOf_(p.priority, PRIORITIES, 'ความเร่งด่วน');
       if (p.due_date !== undefined) clean.due_date = parseYmd_(p.due_date, 'วันที่ต้องการให้ตอบกลับราคา (Expected Date)');
 
@@ -3897,6 +3950,8 @@ function summaryRow_(t, ctx, now) {
     ticket_no: String(t.ticket_no),
     title: String(t.title),
     customer_name: String(t.customer_name || ''),
+    customer_group: String(t.customer_group || ''),
+    destination_country: String(t.destination_country || ''),
     priority: String(t.priority),
     status: t.status,
     status_label: STATUS_LABEL_TH[t.status],
@@ -4209,7 +4264,8 @@ function getSalesHistory() {
       const k = name.toLowerCase();
       if (!name || seenC[k]) return;
       seenC[k] = true;
-      customers.push({ name: name, documents_needed: String(t.documents_needed || ''), last_at: fmtDate_(t.created_at) });
+      customers.push({ name: name, documents_needed: String(t.documents_needed || ''), customer_group: String(t.customer_group || ''),
+        destination_country: String(t.destination_country || ''), last_at: fmtDate_(t.created_at) });
     });
     const ids = {};
     mine.forEach(function (t, i) { ids[t.ticket_id] = i; });
@@ -4961,6 +5017,7 @@ function referenceData_(me) {
     default_validity_days: Number(setting_('default_validity_days', 30)),
     default_due_working_days: Number(setting_('default_due_working_days', 3)),
     document_options: setting_('document_options', []),
+    customer_groups: setting_('customer_groups', []),
     supplier_types: SUPPLIER_TYPES.map(function (k) { return { key: k, label: SUPPLIER_TYPE_LABEL[k] }; }),
     default_gp_percent: defaultGp_(),
     vat_terms: VAT_TERMS.map(function (k) { return { key: k, label: VAT_TERM_LABEL[k] }; }),
@@ -5034,6 +5091,15 @@ function setupDatabase() {
     report.push('Created Drive folder ' + folder.getId());
   }
   const mig = withLock_(function () { return migrateSuppliersCore_(); });
+  // document chips renamed (Test report covers micro + heavy metal + chemical; Food Safety Cert covers GMP/HACCP/BRC …)
+  // only when Admin has not customised the list yet
+  const OLD_DOCS = ['COA', 'Health Certificate', 'Halal', 'Spec sheet', 'ใบวิเคราะห์จุลินทรีย์', 'GMP / HACCP'];
+  const docs = findOne_(TAB.SETTINGS, 'key', 'document_options');
+  if (docs && JSON.stringify(parseJson_(docs.value, [])) === JSON.stringify(OLD_DOCS)) {
+    const fresh = DEFAULT_SETTINGS.filter(function (x) { return x[0] === 'document_options'; })[0][1];
+    withLock_(function () { updateRow_(TAB.SETTINGS, 'document_options', { value: fresh, updated_at: new Date(), updated_by: 'setup' }); });
+    report.push('Settings document_options: renamed to Test report / Food Safety Cert');
+  }
   report.push('Suppliers from old quotations: +' + mig.created + ' created, ' + mig.linked + ' quotations linked');
   console.log(report.join('\n'));
   console.log('Database URL: ' + ss.getUrl());
@@ -5259,7 +5325,8 @@ function seedDemoTickets_() {
   const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
   const req = function (email, key, header, items) {
     return as(email, function () {
-      return must(createTicket(Object.assign({ client_key: key, due_date: inDays(7) }, header, { items: items }))).ticket;
+      const grp = /โรงแรม|ภัตตาคาร/.test(header.customer_name) ? 'โรงแรม / จัดเลี้ยง' : 'ร้านอาหาร';
+      return must(createTicket(Object.assign({ client_key: key, due_date: inDays(7), customer_group: grp }, header, { items: items }))).ticket;
     });
   };
 
@@ -5525,7 +5592,7 @@ function fakeDrive_() {
     </aside>
     <div class="content">
       <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.08-2 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.08-3 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
     </div>
   </div>
   <div class="side-ov" id="side-ov"></div>
@@ -6278,7 +6345,7 @@ Pages.tickets = (function () {
   }
   function textMatch(r, q) {
     if (!q) return true;
-    const hay = (r.ticket_no + ' ' + r.title + ' ' + r.customer_name + ' ' + r.item_names + ' ' + r.requestor_name + ' ' + (r.sr_name || '')).toLowerCase();
+    const hay = (r.ticket_no + ' ' + r.title + ' ' + r.customer_name + ' ' + (r.customer_group || '') + ' ' + (r.destination_country || '') + ' ' + r.item_names + ' ' + r.requestor_name + ' ' + (r.sr_name || '')).toLowerCase();
     return q.toLowerCase().split(/\s+/).filter(String).every(function (w) { return hay.indexOf(w) !== -1; });
   }
   const SORTS = {
@@ -6508,7 +6575,9 @@ Pages.ticket = (function () {
     manager_reject: { label: 'ไม่อนุมัติ', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ไม่อนุมัติ', confirm: 'ไม่อนุมัติใบ {no}? ใบจะถูกปิดและแก้ไขต่อไม่ได้' },
     gm_approve: { label: '✅ อนุมัติฝั่งขาย', cls: 'primary', comment: 'optional', confirm: 'อนุมัติฝั่งขาย: อนุมัติคำขอราคาใบ {no} ส่งต่อให้ SR หาราคา?' },
     gm_reject: { label: 'ไม่อนุมัติฝั่งขาย', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ไม่อนุมัติ', confirm: 'ไม่อนุมัติคำขอราคาใบ {no}? ใบจะถูกปิด' },
-    claim: { label: 'รับงานนี้', cls: 'primary', comment: 'none', confirm: 'รับงานใบ {no}? ระบบจะบันทึกคุณเป็น SR ผู้รับผิดชอบ' },
+    claim: { label: '✅ รับงาน', cls: 'primary', comment: 'none', confirm: 'รับงานใบ {no}? ระบบจะบันทึกคุณเป็น SR ผู้รับผิดชอบ' },
+    queue_return: { label: '↩ ตีกลับ — ข้อมูลไม่ครบ', cls: 'danger', comment: 'required', commentLabel: 'ข้อมูลที่ขาด / สิ่งที่ต้องการให้ Sales เพิ่ม', fields: true,
+      confirm: 'ส่งใบ {no} กลับให้ Sales เพิ่มข้อมูล — เมื่อ Sales ตอบ งานจะกลับเข้าคิวรอรับงาน' },
     assign: { label: 'มอบหมาย SR', cls: '', comment: 'optional', select: 'sr' },
     srm_approve: { label: 'อนุมัติราคา (SR Manager)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันราคาใบ {no} ส่งต่อให้ GM อนุมัติฝั่งซื้อ?' },
     srm_return: { label: 'ส่งกลับให้ SR แก้ราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ SR แก้ไข' },
@@ -6530,6 +6599,8 @@ Pages.ticket = (function () {
       '<div class="card"><dl class="kv">' +
       '<dt>ผู้ขอราคา</dt><dd>' + esc(t.requestor_name) + ' <span class="muted small">(' + esc(t.department_code) + ')</span></dd>' +
       '<dt>ลูกค้า (Customer)</dt><dd>' + esc(t.customer_name || '–') + '</dd>' +
+      '<dt>กลุ่มลูกค้า</dt><dd>' + esc(t.customer_group || '–') + '</dd>' +
+      '<dt>ประเทศปลายทาง</dt><dd>' + esc(t.destination_country || 'ไทย') + '</dd>' +
       '<dt>วันที่ต้องการให้ตอบกลับราคา</dt><dd>' + esc(fmtDate(t.due_date)) + (t.priority !== 'normal' ? ' · ' + prioText(t.priority) : '') + '</dd>' +
       '<dt>เอกสารที่ต้องการประกอบ</dt><dd>' + esc(t.documents_needed || 'ไม่ต้องการเอกสารประกอบ') + '</dd>' +
       '<dt>SR ผู้รับงาน</dt><dd>' + esc(t.sr_name || '–') + '</dd>' +
@@ -6540,6 +6611,31 @@ Pages.ticket = (function () {
       '</dl></div>';
   }
 
+  /** What SR checks before accepting a job: is the request complete enough to quote? */
+  function completeness(d) {
+    const t = d.ticket;
+    const pics = function (it) { return d.attachments.filter(function (a) { return a.item_id === it.item_id; }).length; };
+    const noSpec = d.items.filter(function (it) { return !it.net_weight || !it.size || !it.packing_size || !(it.qty > 0); });
+    const noPic = d.items.filter(function (it) { return !pics(it); });
+    const daysLeft = t.due_date ? Math.round((new Date(t.due_date + 'T00:00:00') - new Date(todayYmd(0) + 'T00:00:00')) / 86400000) : null;
+    return [
+      { ok: !!(t.customer_name && t.customer_group), label: 'ลูกค้า + กลุ่มลูกค้า', detail: [t.customer_name, t.customer_group, t.destination_country].filter(Boolean).join(' · '), key: 'ประเทศปลายทาง / กลุ่มลูกค้า' },
+      { ok: !noSpec.length, label: 'สเปกครบทุกรายการ (NW · Size · Packing · ปริมาณ)', detail: noSpec.length ? 'ไม่ครบ: ' + noSpec.map(function (it) { return '#' + it.line_no; }).join(', ') : d.items.length + ' รายการ', key: 'สเปก / Grade / ขนาด' },
+      { ok: !noPic.length, label: 'รูปภาพสินค้า', detail: noPic.length ? 'ไม่มีรูป: ' + noPic.map(function (it) { return '#' + it.line_no; }).join(', ') : 'มีรูปครบ', key: 'รูปภาพสินค้า', warn: true },
+      { ok: true, label: 'เอกสารที่ลูกค้าต้องการ', detail: t.documents_needed || 'ไม่ต้องการเอกสาร', key: 'เอกสารที่ต้องการ' },
+      { ok: daysLeft == null || daysLeft >= 2, label: 'เวลาหาราคา', detail: daysLeft == null ? '–' : 'เหลือ ' + daysLeft + ' วัน (ต้องการ ' + fmtDate(t.due_date) + ')', key: 'วันที่ต้องการ (เร็วเกินไป)', warn: true }
+    ];
+  }
+  function queueCheck(d) {
+    const rows = completeness(d);
+    const bad = rows.filter(function (r) { return !r.ok && !r.warn; }).length;
+    const warn = rows.filter(function (r) { return !r.ok && r.warn; }).length;
+    return '<div class="notice qcheck"><b>งานใหม่ในคิว — ตรวจความครบถ้วนก่อนรับงาน</b><ul>' + rows.map(function (r) {
+      return '<li class="' + (r.ok ? 'ok' : (r.warn ? 'warn' : 'bad')) + '">' + (r.ok ? '✓' : '⚠') + ' ' + esc(r.label) + ' <span class="small muted">— ' + esc(r.detail) + '</span></li>';
+    }).join('') + '</ul><div class="small">' + (bad ? 'ข้อมูลยังไม่ครบ ' + bad + ' ข้อ → กด <b>↩ ตีกลับ</b> ให้ Sales เพิ่มข้อมูล' :
+      warn ? 'ข้อมูลหลักครบ แต่มี ' + warn + ' ข้อที่ควรดู (⚠) → รับงานได้ หรือกด <b>↩ ตีกลับ</b> ถ้าจำเป็นต้องมี' : 'ข้อมูลครบ → กด <b>✅ รับงาน</b>') + '</div></div>';
+  }
+
   function notices(d) {
     const t = d.ticket;
     let html = '';
@@ -6548,7 +6644,8 @@ Pages.ticket = (function () {
         const c = d.checklist.filter(function (x) { return x.item_key === k || x.check_id === k; })[0];
         return c ? c.label : k;
       });
-      html += '<div class="notice warn"><b>SR ขอข้อมูลเพิ่ม:</b> ' + esc(t.info_request.comment) +
+      const fromQueue = t.info_request.return_stage === 'pending_assign';
+      html += '<div class="notice warn"><b>' + (fromQueue ? 'SR ตีกลับ — ข้อมูลไม่ครบ:' : 'SR ขอข้อมูลเพิ่ม:') + '</b> ' + esc(t.info_request.comment) +
         (labels.length ? '<div class="small">รายการที่ขาด: ' + esc(labels.join(', ')) + '</div>' : '') + '</div>';
     }
     if (t.stage === 'returned') html += '<div class="notice warn">Sales Manager ส่งกลับให้แก้ไข — ดูเหตุผลใน Timeline ด้านล่าง แล้วกด “แก้ไขใบขอราคา”</div>';
@@ -6559,6 +6656,7 @@ Pages.ticket = (function () {
         return '<a href="#" data-goto="' + esc(c.ticket_id) + '">' + esc(c.ticket_no) + '</a> <span class="small muted">(' + esc(c.stage_label) + ')</span>';
       }).join(' · ') + '</div>';
     }
+    if (t.stage === 'pending_assign' && (d.me.role === 'sr' || d.me.role === 'sr_manager')) html += queueCheck(d);
     const isGm = d.me.role === 'gm';
     if (t.stage === 'pending_gm') {
       html += '<div class="notice side-sales"><b>🛒 อนุมัติฝั่งขาย</b>' + (isGm ? ' — ตรวจคำขอของ Sales: ลูกค้า สินค้า ปริมาณ และราคาเป้าหมาย ก่อนส่งให้ SR หาราคา' : ' — รอ GM อนุมัติคำขอราคา') + '</div>';
@@ -6775,6 +6873,14 @@ Pages.ticket = (function () {
         state.ref.sr_users.filter(function (u) { return u.email !== t.sr_email; })
           .map(function (u) { return '<option value="' + esc(u.email) + '">' + esc(u.full_name) + '</option>'; }).join('') + '</select></label>';
     }
+    if (ui.fields) {
+      const auto = completeness(d).filter(function (r) { return !r.ok; }).map(function (r) { return r.key; });
+      const REQ_FIELDS = ['รูปภาพสินค้า', 'สเปก / Grade / ขนาด', '% Net Weight', 'Packing', 'ปริมาณ', 'ราคาเป้าหมาย', 'เอกสารที่ต้องการ',
+        'ประเทศปลายทาง / กลุ่มลูกค้า', 'วันที่ต้องการ (เร็วเกินไป)', 'อื่นๆ (ระบุในเหตุผล)'];
+      html = '<p class="small">เลือกข้อมูลที่ยังขาด (ระบบติ๊กให้ตามที่ตรวจพบ)</p><div class="miss-grid">' + REQ_FIELDS.map(function (f) {
+        return '<label class="chk-inline"><input type="checkbox" class="dlg-miss" value="' + esc(f) + '"' + (auto.indexOf(f) !== -1 ? ' checked' : '') + '> ' + esc(f) + '</label>';
+      }).join('') + '</div>';
+    }
     if (ui.checklist && d.checklist.length) {
       html = '<p class="small">เลือกเอกสารที่ยังขาด (ถ้ามี)</p>' + d.checklist.map(function (c) {
         return '<label style="display:flex;gap:8px;align-items:center;min-height:36px"><input type="checkbox" class="dlg-miss" value="' + esc(c.item_key) + '"' +
@@ -6789,7 +6895,7 @@ Pages.ticket = (function () {
       if (!res) return;
       const payload = { expected_version: t.version };
       if (ui.select === 'sr') payload.sr_email = $('#dlg-sr', res.root).value;
-      if (ui.checklist) payload.missing_items = $all('.dlg-miss', res.root).filter(function (x) { return x.checked; }).map(function (x) { return x.value; });
+      if (ui.checklist || ui.fields) payload.missing_items = $all('.dlg-miss', res.root).filter(function (x) { return x.checked; }).map(function (x) { return x.value; });
       toast('กำลังบันทึก...');
       api('transitionTicket', t.ticket_id, action, res.comment, payload).then(function (r) {
         toast(ui.label + ' สำเร็จ — ' + r.ticket.ticket_no + ' : ' + r.ticket.stage_label, 'ok');
@@ -6896,12 +7002,14 @@ Pages.new = Pages.edit = (function () {
     return d.toISOString().slice(0, 10);
   }
   function newDraft() {
-    return { client_key: uuid(), customer_name: '', documents_needed: '', due_date: workingDaysFromToday(state.ref.default_due_working_days || 3),
+    return { client_key: uuid(), customer_name: '', customer_group: '', destination_country: 'ไทย', documents_needed: '', due_date: workingDaysFromToday(state.ref.default_due_working_days || 3),
       description: '', items: [blankItem()], _dueDefault: true };
   }
   function historyLists() {
     const h = state.salesHistory || { customers: [], products: [] };
     return '<datalist id="cust-list">' + h.customers.map(function (c) { return '<option value="' + esc(c.name) + '">'; }).join('') + '</datalist>' +
+      '<datalist id="dest-list">' + ['ไทย', 'ญี่ปุ่น', 'จีน', 'เกาหลีใต้', 'สิงคโปร์', 'มาเลเซีย', 'เวียดนาม', 'กัมพูชา', 'ลาว', 'เมียนมา', 'ฮ่องกง', 'ไต้หวัน', 'สหรัฐอเมริกา', 'ออสเตรเลีย', 'สหภาพยุโรป', 'ตะวันออกกลาง']
+        .map(function (c) { return '<option value="' + c + '">'; }).join('') + '</datalist>' +
       '<datalist id="prod-list">' + h.products.map(function (p) { return '<option value="' + esc(p.name) + '">'; }).join('') + '</datalist>';
   }
   function docChips(d) {
@@ -6969,6 +7077,10 @@ Pages.new = Pages.edit = (function () {
       '<form id="pr-form" novalidate>' +
       '<section class="card fsec"><h2><span class="sn">1</span>ข้อมูลลูกค้า</h2><div class="fgrid">' +
       field('ชื่อลูกค้า', 'Customer', '<input type="text" id="f-customer" list="cust-list" maxlength="200" placeholder="พิมพ์หรือเลือกลูกค้าที่เคยขอ" value="' + esc(d.customer_name) + '">', { req: true }) +
+      field('กลุ่มลูกค้า', 'Customer Group', '<select id="f-cgroup"><option value="">— เลือก —</option>' + (state.ref.customer_groups || []).map(function (g) {
+        return '<option' + (d.customer_group === g ? ' selected' : '') + '>' + esc(g) + '</option>'; }).join('') + '</select>', { req: true }) +
+      field('ประเทศปลายทาง', 'Destination', '<input type="text" id="f-dest" list="dest-list" maxlength="60" value="' + esc(d.destination_country || 'ไทย') + '">',
+        { hint: 'ขายในประเทศ = ไทย · ส่งออกให้ระบุประเทศ' }) +
       field('วันที่ต้องการให้ตอบกลับราคา', 'Expected Date', '<input type="date" id="f-due" min="' + todayYmd(0) + '" value="' + esc(d.due_date) + '"' + (d._dueDefault ? ' class="auto"' : '') + '>' +
         '<div class="due-quick"><button type="button" class="btn sm ghost" data-due="3">+3 วันทำการ</button><button type="button" class="btn sm ghost" data-due="5">+5 วันทำการ</button><button type="button" class="btn sm ghost" data-due="10">+2 สัปดาห์</button></div>', { req: true }) +
       field('ผู้ร้องขอ', 'Requester', '<input type="text" id="f-requester" disabled value="' + esc(state.me.full_name) + '">', { hint: 'ใช้บัญชีที่เข้าสู่ระบบ' }) +
@@ -6991,6 +7103,8 @@ Pages.new = Pages.edit = (function () {
 
   function collect(view, d) {
     d.customer_name = $('#f-customer', view).value;
+    d.customer_group = $('#f-cgroup', view).value;
+    d.destination_country = $('#f-dest', view).value;
     d.documents_needed = $('#f-docs', view).value;
     d.due_date = $('#f-due', view).value;
     d.description = $('#f-remark', view).value;
@@ -7016,6 +7130,8 @@ Pages.new = Pages.edit = (function () {
       el.parentNode.appendChild(m);
     };
     if (!d.customer_name.trim()) mark($('#f-customer', view), 'กรุณากรอกชื่อลูกค้า');
+    if (!d.customer_group) mark($('#f-cgroup', view), 'กรุณาเลือกกลุ่มลูกค้า');
+    else if (/ส่งออก/.test(d.customer_group) && /^(ไทย|thailand|th)?$/i.test(String(d.destination_country || '').trim())) mark($('#f-dest', view), 'ส่งออก — ระบุประเทศปลายทาง');
     if (!d.due_date) mark($('#f-due', view), 'กรุณาเลือกวันที่ต้องการให้ตอบกลับราคา');
     else if (d.due_date < todayYmd(0)) mark($('#f-due', view), 'วันที่ต้องไม่เป็นวันที่ผ่านมาแล้ว');
     $all('.item-row', view).forEach(function (row) {
@@ -7076,6 +7192,7 @@ Pages.new = Pages.edit = (function () {
     setBusy(view, true, 'กำลังส่ง...');
     api('createTicket', {
       client_key: d.client_key, title: autoTitle(d), customer_name: d.customer_name.trim(), documents_needed: d.documents_needed,
+      customer_group: d.customer_group, destination_country: d.destination_country,
       due_date: d.due_date, description: d.description, items: d.items.map(payloadItem)
     }).then(function (res) {
       const t = res.ticket;
@@ -7101,6 +7218,7 @@ Pages.new = Pages.edit = (function () {
     const steps = [];
     steps.push(function () {
       return api('updateTicketRequest', t.ticket_id, { title: autoTitle(d), customer_name: d.customer_name.trim(), documents_needed: d.documents_needed,
+        customer_group: d.customer_group, destination_country: d.destination_country,
         due_date: d.due_date, description: d.description }, version).then(function (r) { version = r.ticket.version; });
     });
     const keep = {};
@@ -7198,6 +7316,11 @@ Pages.new = Pages.edit = (function () {
     // customer picked from history → documents asked last time (only when still empty)
     $('#f-customer', view).addEventListener('change', function () {
       const c = ((state.salesHistory || {}).customers || []).filter(function (x) { return x.name.toLowerCase() === this.value.trim().toLowerCase(); }, this)[0];
+      if (c && c.customer_group && !$('#f-cgroup', view).value) {
+        $('#f-cgroup', view).value = c.customer_group; $('#f-cgroup', view).classList.add('auto');
+        if (c.destination_country) { $('#f-dest', view).value = c.destination_country; $('#f-dest', view).classList.add('auto'); }
+        collect(view, d);
+      }
       if (c && c.documents_needed && !$('#f-docs', view).value.trim()) {
         $('#f-docs', view).value = c.documents_needed;
         $('#f-docs', view).classList.add('auto');
@@ -7268,6 +7391,8 @@ Pages.new = Pages.edit = (function () {
             if (!isCurrent()) return;
             const d = newDraft();
             d.customer_name = o.ticket.customer_name || '';
+            d.customer_group = o.ticket.customer_group || '';
+            d.destination_country = o.ticket.destination_country || 'ไทย';
             d.documents_needed = o.ticket.documents_needed || '';
             d.description = '';
             d.items = o.items.map(function (it) {
@@ -7297,7 +7422,8 @@ Pages.new = Pages.edit = (function () {
         const key = 'edit:' + route.id;
         const t = o.ticket;
         const d = state.drafts[key] = state.drafts[key] || {
-          customer_name: t.customer_name || '', documents_needed: t.documents_needed || '', due_date: t.due_date || '', description: t.description || '',
+          customer_name: t.customer_name || '', customer_group: t.customer_group || '', destination_country: t.destination_country || 'ไทย',
+          documents_needed: t.documents_needed || '', due_date: t.due_date || '', description: t.description || '',
           items: o.items.map(function (it) {
             return { item_id: it.item_id, product_group_code: it.product_group_code === 'FOOD' ? '' : it.product_group_code, product_name: it.product_name,
               net_weight: it.net_weight, size: it.size, packing_size: it.packing_size, qty: it.qty, uom: it.uom,
@@ -7676,7 +7802,8 @@ Pages.pricing = (function () {
       '<div class="card"><div class="row" style="gap:6px 24px">' +
       '<div><div class="muted small">เรื่อง</div><b>' + esc(t.title) + '</b></div>' +
       '<div><div class="muted small">ผู้ขอราคา</div>' + esc(t.requestor_name) + '</div>' +
-      '<div><div class="muted small">ลูกค้า</div>' + esc(t.customer_name || '–') + '</div>' +
+      '<div><div class="muted small">ลูกค้า</div>' + esc(t.customer_name || '–') +
+        '<div class="small muted">' + esc([t.customer_group, t.destination_country && t.destination_country !== 'ไทย' ? 'ปลายทาง ' + t.destination_country : ''].filter(Boolean).join(' · ')) + '</div></div>' +
       '<div><div class="muted small">ต้องการราคาภายใน</div>' + esc(fmtDate(t.due_date)) + ' ' + prioText(t.priority) + '</div>' +
       '<div><div class="muted small">เอกสารที่ต้องการ</div>' + esc(t.documents_needed || '–') + '</div>' +
       '</div>' + (t.description ? '<p class="small" style="white-space:pre-wrap;margin:10px 0 0">' + esc(t.description) + '</p>' : '') +

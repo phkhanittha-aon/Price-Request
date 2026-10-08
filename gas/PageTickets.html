@@ -79,7 +79,7 @@ Pages.tickets = (function () {
   }
   function textMatch(r, q) {
     if (!q) return true;
-    const hay = (r.ticket_no + ' ' + r.title + ' ' + r.customer_name + ' ' + r.item_names + ' ' + r.requestor_name + ' ' + (r.sr_name || '')).toLowerCase();
+    const hay = (r.ticket_no + ' ' + r.title + ' ' + r.customer_name + ' ' + (r.customer_group || '') + ' ' + (r.destination_country || '') + ' ' + r.item_names + ' ' + r.requestor_name + ' ' + (r.sr_name || '')).toLowerCase();
     return q.toLowerCase().split(/\s+/).filter(String).every(function (w) { return hay.indexOf(w) !== -1; });
   }
   const SORTS = {
