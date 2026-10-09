@@ -608,55 +608,6 @@
     .tstats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center; }
     .tstats div { background: var(--surface-2); border-radius: 9px; padding: 6px 2px; } .tstats b { display: block; font-size: 1.1rem; font-family: var(--font-mono); } .tstats span { font-size: .7rem; color: var(--muted); }
 
-    /* ===== หน้ารวมผู้บริหาร (portal) ===== */
-    .portal .hero { padding: 24px 26px 20px; }
-    .hero-row { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
-    .hero-k { font-size: .74rem; letter-spacing: .12em; text-transform: uppercase; opacity: .85; font-weight: 600; margin-bottom: 4px; }
-    .hero-side { display: flex; align-items: center; gap: 10px; } .hint-w { font-size: .78rem; opacity: .85; }
-    .hero-btn { background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.4); color: #fff; } .hero-btn:hover { background: rgba(255,255,255,.26); }
-    .hero-go { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 18px; }
-    .go-card { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.14);
-      color: #fff; text-decoration: none; text-align: left; font: inherit; cursor: pointer; backdrop-filter: blur(4px); transition: background .15s, transform .15s; }
-    .go-card:hover { background: rgba(255,255,255,.24); transform: translateY(-1px); }
-    .go-card:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
-    .go-card.off { opacity: .6; cursor: default; }
-    .go-card .gi { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: #fff; color: var(--brand-dark); font-size: 1.4rem; flex: none; }
-    .go-card b { display: block; font-family: var(--font-head); font-size: 1.15rem; } .go-card small { opacity: .9; font-size: .8rem; }
-    .go-card > span:nth-child(2) { flex: 1; min-width: 0; } .go-card .ga { font-size: 1.4rem; }
-    .pkpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
-    .pk { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; background: #fff; border: 1px solid var(--line); border-radius: 14px; }
-    .pk .v { font-family: var(--font-mono); font-size: 1.8rem; font-weight: 600; line-height: 1.15; } .pk .l { font-weight: 600; font-size: .86rem; } .pk .s { font-size: .76rem; color: var(--muted); }
-    .pk.warn { box-shadow: inset 0 -3px 0 var(--warn); } .pk.warn .v { color: #8a5d05; } .pk.ok .v { color: var(--ok-ink); }
-    @media (max-width: 860px) { .pkpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    .psystems { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr)); gap: 16px; }
-    .psys { display: flex; flex-direction: column; gap: 14px; margin-bottom: 0; }
-    .ps-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .ps-ic { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 13px; font-size: 1.5rem; flex: none; }
-    .ps-ic.food { background: var(--brand-soft); } .ps-ic.mech { background: #FFF1DD; }
-    .ps-t { flex: 1; min-width: 160px; } .ps-t h2 { margin: 0; font-size: 1.3rem; }
-    .pflow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
-    .pflow li { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 10px 10px 12px; border-radius: 12px; background: var(--surface-2); min-width: 0; }
-    .pflow li:not(:last-child)::after { content: "›"; position: absolute; right: -6px; top: 12px; color: var(--muted); font-size: 1rem; z-index: 1; }
-    .pflow li.hot { background: var(--warn-soft); } .pflow li:last-child { background: var(--ok-soft); }
-    .pf-n { font-family: var(--font-mono); font-size: 1.35rem; font-weight: 600; line-height: 1.1; } .pf-l { font-size: .74rem; color: var(--ink-2); line-height: 1.25; }
-    .pf-bar { height: 4px; border-radius: 2px; background: rgba(16,35,31,.08); margin-top: 6px; overflow: hidden; } .pf-bar i { display: block; height: 100%; background: var(--brand); }
-    @media (max-width: 560px) { .pflow { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pflow li::after { display: none; } .pflow li:last-child { grid-column: span 2; } }
-    .pms { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-    .pm { padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; } .pm b { display: block; font-family: var(--font-mono); font-size: 1.05rem; font-weight: 600; }
-    .pm span { font-size: .74rem; color: var(--muted); }
-    @media (max-width: 560px) { .pms { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    .banner-s { padding: 8px 12px; border-radius: 10px; font-size: .84rem; } .banner-s.red { background: var(--danger-soft); color: var(--danger-ink); } .banner-s.blue { background: var(--blue-soft); color: var(--blue); }
-    .ps-sub h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: .95rem; }
-    .pwait { list-style: none; margin: 0; padding: 0; }
-    .pwait a, .pwait .pw-row { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--line); color: var(--text); text-decoration: none; flex-wrap: wrap; }
-    .pwait li:last-child a, .pwait li:last-child .pw-row { border-bottom: 0; }
-    .pwait a:hover { background: #F2F8F5; } .pwait .mono { font-size: .78rem; color: var(--muted); }
-    .pw-t { flex: 1; min-width: 120px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ptrend { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; align-items: end; height: 120px; }
-    .pt-col { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; } .pt-col span { font-size: .7rem; color: var(--muted); white-space: nowrap; }
-    .pt-bar { position: relative; flex: 1; width: 60%; max-width: 38px; border-radius: 6px 6px 0 0; background: var(--surface-2); }
-    .pt-bar i { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 6px 6px 0 0; } .pt-bar i.q { background: #A6DDCF; } .pt-bar i.w { background: var(--brand); left: 22%; right: 22%; }
-    .lg-q, .lg-w { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; } .lg-q { background: #A6DDCF; } .lg-w { background: var(--brand); }
     /* ===== THEME: MGS green · light base (look of the MGS Sales app: paper background, white cards,
        rounded 14–16 px, pill tags, Inter / Sarabun body, Sora headings, JetBrains Mono figures) ===== */
     .topbar { background: rgba(243,248,246,.92); color: var(--text); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -743,12 +694,6 @@
     .savebar { background: rgba(243,248,246,.95); backdrop-filter: blur(6px); }
     .pgal { background: var(--surface-2); border-color: var(--line-2); }
     .pth { border-radius: 10px; }
-    /* hero band (portal / home) — the green gradient of the brand image */
-    .hero { position: relative; overflow: hidden; border-radius: 20px; padding: 22px 24px; margin-bottom: 16px; color: #fff; background: var(--grad); box-shadow: 0 10px 30px rgba(11,99,119,.22); }
-    .hero::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255,255,255,.035) 0 1px, transparent 1px 4px), radial-gradient(120% 90% at 85% 120%, rgba(6,58,72,.45), transparent 60%); pointer-events: none; }
-    .hero > * { position: relative; z-index: 1; }
-    .hero h1 { margin: 0 0 4px; font-size: 1.55rem; }
-    .hero .sub { opacity: .9; font-size: .92rem; }
   </style>
 </head>
 <body>
@@ -782,7 +727,6 @@
   <div id="tip" role="tooltip"></div>
 
   <?!= include_('App'); ?>
-  <?!= include_('PagePortal'); ?>
   <?!= include_('PageHome'); ?>
   <?!= include_('PageDashboard'); ?>
   <?!= include_('PageDeals'); ?>

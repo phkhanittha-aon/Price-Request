@@ -16,7 +16,7 @@ Workflow: **Sales → Manager → GM → SR (Sourcing) → Sales** พร้อ�
 | 4 | ฟอร์มขอราคา Food, Dashboard แบบง่าย, สายอนุมัติ Sales→(Sales Manager)→GM / SR→SR Manager→GM, ราคาขาย (ต้นทุน + ค่าเคลียร์ + GP) ต่อหน่วย, Sales เห็นเฉพาะราคาขายของตัวเอง, GM อนุมัติฝั่งขาย/ฝั่งซื้อ, ไม่เสนอ/ส่งตามหลัง | ✅ [docs/phase4-food-org.md](docs/phase4-food-org.md) |
 | 5 | ปรับ UX: รายการใบแบบแถบสถานะ (ไม่ค้าง), ฐานข้อมูล Supplier + ค้นหาเติมอัตโนมัติ, ค่าเริ่มต้น (USD = 35 ฯลฯ), หน้าแรกตามบทบาท | ✅ [docs/phase5-ux.md](docs/phase5-ux.md) |
 | 6 | รูปสินค้า Supplier (≤ 10 รูป/เจ้า) ให้ผู้บริหารดูตอนอนุมัติ, แจ้งเตือนกลุ่ม Lark อัตโนมัติ (กลุ่ม Sales / ผู้บริหาร), ติดตามการขาย New Item, สรุป GP & อัตราปิดการขาย | ✅ [docs/phase6-photos-deals-gp.md](docs/phase6-photos-deals-gp.md) |
-| 7 | ธีมเขียวพื้นสว่าง (Inter / Sarabun / Sora / JetBrains Mono), ติดตามการขายแบบ Sales app (สถานะกับลูกค้า · ขั้นตอนถัดไป · ต้องอัปเดตทุก 7 วัน · ทีมขาย), หน้ารวมผู้บริหาร Food + Mech | ✅ [docs/phase7-theme-followup-portal.md](docs/phase7-theme-followup-portal.md) |
+| 7 | ธีมเขียวพื้นสว่าง (Inter / Sarabun / Sora / JetBrains Mono), ติดตามการขายแบบ Sales app (สถานะกับลูกค้า · ขั้นตอนถัดไป · ต้องอัปเดตทุก 7 วัน · ทีมขาย), หน้ารวมผู้บริหาร Food + Mech เป็นเว็บแยก (`portal/`) | ✅ [docs/phase7-theme-followup-portal.md](docs/phase7-theme-followup-portal.md) |
 
 ## โครงสร้าง
 

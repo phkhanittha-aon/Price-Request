@@ -16,7 +16,7 @@ const path = require('path');
 const out = process.argv[2];
 if (!out) { console.error('usage: node dev/build-prototype.js <output.html>'); process.exit(2); }
 const gasDir = path.join(__dirname, '..', 'gas');
-const FILE_ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify', 'Workflow', 'Editing', 'Suppliers', 'Deals', 'Portal',
+const FILE_ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify', 'Workflow', 'Editing', 'Suppliers', 'Deals',
   'Api', 'Files', 'Lark', 'Jobs', 'Code', 'Setup', 'Tests'];
 
 const read = (f) => fs.readFileSync(path.join(gasDir, f), 'utf8');
@@ -55,33 +55,6 @@ ${gs}
   seedDemoData();
   TEST_HTTP_ = fakeHttp_();     // uploads go to a fake Drive
   TEST_DRIVE_ = fakeDrive_();
-  // หน้ารวม: sample rows of the Mech system (MGS Project Pricing "Quotations" summary columns)
-  (function seedMech() {
-    const H = ['Id', 'DocType', 'DocNo', 'Title', 'Customer', 'Sales', 'Currency', 'Exrate', 'OfferDate', 'Status', 'Total', 'Cost', 'Profit', 'GP', 'UpdatedAt', 'Deleted'];
-    const mo = function (k) { const d = new Date(); d.setDate(10); d.setMonth(d.getMonth() - k); return d.toISOString().slice(0, 10); };
-    const q = function (no, type, title, cust, status, total, gp, k, cur) {
-      const t = Number(total), p = Math.round(t * gp) / 100;
-      return [no, type, no, title, cust, 'Sales Mech', cur || 'THB', cur === 'USD' ? 35 : 0, mo(k), status, t, t - p, p, gp, mo(k), ''];
-    };
-    TEST_MECH_ = { headers: H, rows: [
-      q('SR-2610-001', 'SR', 'โซลาร์รูฟท็อป 500 kWp', 'โรงงานสยามแพค', 'Submitted', 0, 0, 0),
-      q('SR-2610-002', 'SR', 'EV Charger 10 จุด', 'คอนโด ริเวอร์ไลน์', 'Accepted', 0, 0, 0),
-      q('QT-2610-014', 'QT', 'Inverter SG110CX × 8', 'บจก. กรีนพาวเวอร์', 'In Progress', 1850000, 14, 0),
-      q('QT-2610-012', 'QT', 'Mounting + Cable 1 MW', 'โรงแรมภูเก็ตบีช', 'Submitted', 2460000, 12.5, 0),
-      q('QT-2610-011', 'QT', 'Sungrow SG250HX × 4', 'นิคมฯ อมตะ', 'Partial Approved', 98000, 16, 0, 'USD'),
-      q('QT-2610-009', 'QT', 'Hybrid Inverter 50 kW', 'ฟาร์มไก่ สุพรรณ', 'Approved', 640000, 18, 0),
-      q('QT-2609-031', 'QT', 'Solar Carport 200 kWp', 'ห้างเซ็นทรัล พลาซ่า', 'Pending', 5300000, 15, 1),
-      q('QT-2609-027', 'QT', 'EV Charger DC 120 kW', 'ปั๊ม PT สาขา 12', 'Pending', 1280000, 17, 1),
-      q('QT-2609-020', 'QT', 'Inverter SG125CX × 6', 'โรงงานน้ำแข็งชลบุรี', 'Won', 1720000, 16.5, 1),
-      q('QT-2608-018', 'QT', 'Rooftop 300 kWp', 'โรงพยาบาลเอกชน', 'Won', 3900000, 14.5, 2),
-      q('QT-2608-011', 'QT', 'Cable DC 4 mm² 20 km', 'ผู้รับเหมา Solar', 'Closed', 760000, 9, 2),
-      q('QT-2607-030', 'QT', 'Mounting Ground 2 MW', 'Solar Farm โคราช', 'Won', 8600000, 13, 3),
-      q('QT-2607-012', 'QT', 'EV Charger AC × 30', 'หมู่บ้านจัดสรร', 'Closed', 990000, 11, 3),
-      q('QT-2606-022', 'QT', 'Inverter SG33CX × 12', 'โรงงานพลาสติก', 'Won', 1450000, 15, 4),
-      q('QT-2605-008', 'QT', 'Rooftop 150 kWp', 'โรงเรียนนานาชาติ', 'Pending', 2100000, 16, 5)
-    ] };
-    PropertiesService.getScriptProperties().setProperty(CFG.PROP.MECH_WEBAPP_URL, '#mech-prototype');
-  })();
   // sample supplier photos (drawn on a canvas) so the review gallery has something to show
   (function seedPhotos() {
     const draw = function (title, sub, hue, n) {
@@ -170,7 +143,7 @@ const bar = `
   <span class="proto-note">ข้อมูลตัวอย่าง · รีเฟรชหน้า = เริ่มใหม่</span>
   <label class="proto-who">ดูในมุมมองของ <select id="proto-user"></select></label>
   <span class="proto-links">
-    <button type="button" class="btn sm" data-jump="portal">🌐 หน้ารวมผู้บริหาร (GM)</button>
+    <button type="button" class="btn sm" data-jump="dash">🏠 หน้าแรก (GM)</button>
     <button type="button" class="btn sm" data-jump="form">📝 ฟอร์มขอราคา (Sales)</button>
     <button type="button" class="btn sm" data-jump="deals">🎯 ติดตามการขาย (Sales)</button>
     <button type="button" class="btn sm" data-jump="sup">🏭 Supplier (SR)</button>
@@ -208,7 +181,7 @@ const bar = `
       const w = window.__proto.who;
       const j = b.getAttribute('data-jump');
       if (j === 'form') switchTo(w.sales, { page: 'new' });
-      if (j === 'portal') switchTo(w.gm, { page: 'portal' });
+      if (j === 'dash') switchTo(w.gm, { page: 'home' });
       if (j === 'deals') switchTo(w.sales, { page: 'deals' });
       if (j === 'sup') switchTo(w.sr, { page: 'suppliers' });
       if (j === 'pricing') switchTo(w.sr, { page: 'pricing', id: t.pricing });

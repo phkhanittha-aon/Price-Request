@@ -8,6 +8,7 @@
  *   Files        : Drive folder in Script Property DRIVE_ROOT_FOLDER_ID.
  *   Lark         : Script Properties LARK_APP_ID, LARK_APP_SECRET, (LARK_HOST, LARK_GROUP_CHAT_ID,
  *                  LARK_PRICE_GROUP_CHAT_ID, LARK_MGMT_GROUP_CHAT_ID) — group events: Notify.gs GROUP_EVENTS_.
+ *   Portal       : the management overview (Food + Mech) is a SEPARATE web app — see portal/ (not part of this app).
  *   Roles        : tab "Users" (Admin edits). Department approvers: tab "Departments".manager_email.
  *   Deploy       : Deploy → Manage deployments → ✏️ → Version: New version → Deploy.
  *                  Saving the script does NOT update the live /exec URL.
@@ -16,8 +17,8 @@
  * Deployment settings: Execute as = Me (owner), Who has access = Anyone within <company domain>.
  */
 
-const PAGES_ = ['portal', 'home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
-const PARTIALS_ = ['App', 'PagePortal', 'PageHome', 'PageDashboard', 'PageGp', 'PageDeals', 'PageTickets', 'PageTicket', 'PageForm', 'PageSuppliers', 'PagePricing'];
+const PAGES_ = ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
+const PARTIALS_ = ['App', 'PageHome', 'PageDashboard', 'PageGp', 'PageDeals', 'PageTickets', 'PageTicket', 'PageForm', 'PageSuppliers', 'PagePricing'];
 
 function doGet(e) {
   const t = HtmlService.createTemplateFromFile('Index');
@@ -60,13 +61,7 @@ function getBootstrap() {
  */
 function menuFor_(u) {
   const MAIN = 'เมนูหลัก';
-  const PORTAL = { key: 'portal', group: MAIN, icon: '🌐', label: 'หน้ารวม', hint: 'Food + Mech', route: { page: 'portal' } };
-  if (u.role === 'viewer') return [PORTAL];                       // executive viewer: the overview only
-  const m = [];
-  // GM lands on the portal (its 5 menu slots: หน้ารวม + list + two approvals + reports); others keep their homepage first
-  if (u.role === 'gm') m.push(PORTAL);
-  else m.push({ key: 'home', group: MAIN, icon: '🏠', label: 'หน้าแรก', route: { page: 'home' } });
-  if (u.role === 'admin' || u.role === 'sr_manager') m.push(PORTAL);
+  const m = [{ key: 'home', group: MAIN, icon: '🏠', label: 'หน้าแรก', route: { page: 'home' } }];
   m.push({ key: 'tickets', group: MAIN, icon: '📄', label: 'ใบเสนอราคา', route: { page: 'tickets' }, badge: 'inbox' });
   if (u.role === 'sales') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
   if (u.role === 'sales') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามการขาย', hint: 'ลูกค้าซื้อหรือยัง', route: { page: 'deals' }, badge: 'deals_due' });

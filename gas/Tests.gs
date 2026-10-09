@@ -31,7 +31,7 @@ function runAcceptanceTests() {
     runSupplierCases_(results);
     runQueueReturnCases_(results);
     runPhotoDealCases_(results);
-    runPortalCases_(results);
+    runFollowUpV2Cases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -464,8 +464,7 @@ function runPhase2Cases_(results) {
     ['admin', 'gm', 'manager', 'salesFood1', 'sr1', 'srManager'].forEach(function (k) {
       const key = { manager: 'mgrFood' }[k] || k;
       const menu = menuFor_(userByEmail_(U[key]));
-      ok(menu.length <= 5 && menu[0].key === (k === 'gm' ? 'portal' : 'home') && menu.some(function (m) { return m.key === 'tickets'; }),
-        'Menu for ' + k + ': ' + menu.length + ' items (≤ 5), ' + (k === 'gm' ? 'หน้ารวม' : 'homepage') + ' first');
+      ok(menu.length <= 5 && menu[0].key === 'home' && menu.some(function (m) { return m.key === 'tickets'; }), 'Menu for ' + k + ': ' + menu.length + ' items (≤ 5), homepage first');
     });
     ok(!menuFor_(userByEmail_(U.salesFood1)).some(function (m) { return m.key === 'reports' || m.key === 'suppliers'; }) &&
       menuFor_(userByEmail_(U.gm)).some(function (m) { return m.key === 'reports'; }), 'Reports for managers only; Supplier not for Sales');
@@ -1494,9 +1493,9 @@ function runPhotoDealCases_(results) {
 }
 
 // =============================================================================
-// Follow-up v2 (customer stage / next step / update every N days) · หน้ารวมผู้บริหาร (Food + Mech)
+// Follow-up v2 (customer stage / next step / update every N days)
 // =============================================================================
-function runPortalCases_(results) {
+function runFollowUpV2Cases_(results) {
   const U = demoUsers_();
   const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
   const expectErr = function (res, code, name) {
@@ -1535,52 +1534,9 @@ function runPortalCases_(results) {
     const w = as(U.salesFood3, function () { return must(updateDeal(r.item_id, { status: 'won', stage: 'ใกล้ปิดการขาย', next_step: 'รอ PO' })); }).deal;
     ok(!w.deal_stage && !w.deal_next_step && !w.is_due, 'Follow-up: won clears stage / next step and is never due');
 
-    // ---------- portal ----------
-    expectErr(as(U.salesFood1, function () { return getPortal(); }), 'FORBIDDEN', 'Portal: Sales cannot open หน้ารวม');
-    expectErr(as(U.mgrFood, function () { return getPortal(); }), 'FORBIDDEN', 'Portal: Sales Manager cannot open หน้ารวม (cost / GP inside)');
-    expectErr(as(U.sr1, function () { return getPortal(); }), 'FORBIDDEN', 'Portal: SR cannot open หน้ารวม');
-    TEST_MECH_ = null;
-    const p0 = as(U.gm, function () { return must(getPortal()); });
-    ok(p0.food.configured && p0.mech.configured === false && p0.months.length === 6, 'Portal: Food summary; Mech “not configured” until MECH_SHEET_ID is set');
-    const all = rows_(TAB.TICKETS).map(normTicket_);
-    const cnt = function (st) { return all.filter(function (t) { return st.indexOf(t.stage) !== -1; }).length; };
-    ok(p0.food.stages.approval === cnt(['pending_sr_manager', 'pending_gm_price']) && p0.food.stages.req === cnt(['pending_manager', 'returned', 'pending_gm']) &&
-      p0.food.waiting_total === cnt(['pending_gm', 'pending_gm_price', 'pending_sr_manager']), 'Portal: Food stage counts match the tickets');
-    const gp = as(U.gm, function () { return must(getGpSummary()); }).rows;
-    ok(p0.food.quoted === gp.length && p0.food.won === gp.filter(function (x) { return x.deal_status === 'won'; }).length, 'Portal: Food quoted / won match the GP summary');
-    const H = ['Id', 'DocType', 'DocNo', 'Title', 'Customer', 'Sales', 'Currency', 'Exrate', 'OfferDate', 'Status', 'Total', 'Cost', 'Profit', 'GP', 'UpdatedAt', 'Deleted'];
-    const today = todayBkk_();
-    TEST_MECH_ = { headers: H, rows: [
-      ['1', 'SR', 'SR-1', 'Solar 500 kWp', 'A', 's', 'THB', 0, today, 'Submitted', 0, 0, 0, 0, today, ''],
-      ['2', 'QT', 'QT-1', 'Inverter', 'B', 's', 'THB', 0, today, 'Submitted', 1000000, 850000, 150000, 15, today, ''],
-      ['3', 'QT', 'QT-2', 'Mounting', 'C', 's', 'USD', 35, today, 'Partial Approved', 10000, 8000, 2000, 20, today, ''],
-      ['4', 'QT', 'QT-3', 'Carport', 'D', 's', 'THB', 0, today, 'Pending', 500000, 400000, 100000, 20, today, ''],
-      ['5', 'QT', 'QT-4', 'EV', 'E', 's', 'THB', 0, today, 'Won', 300000, 255000, 45000, 15, today, ''],
-      ['6', 'QT', 'QT-5', 'Cable', 'F', 's', 'THB', 0, today, 'Closed', 200000, 180000, 20000, 10, today, ''],
-      ['7', 'QT', 'QT-6', 'deleted one', 'G', 's', 'THB', 0, today, 'Won', 999999, 0, 0, 0, today, 'TRUE'],
-      ['8', 'QT', 'QT-7', 'Euro offer', 'H', 's', 'EUR', 0, today, 'Pending', 1000, 800, 200, 20, today, '']
-    ] };
-    const p1 = as(U.admin, function () { return must(getPortal()); });
-    const m = p1.mech;
-    ok(m.configured && m.stages.req === 1 && m.stages.approval === 2 && m.stages.ready === 2 && m.stages.won === 1 && m.stages.closed === 1,
-      'Portal: Mech statuses mapped (SR request · approval incl. Partial Approved · Pending = ราคาถึง Sales · Won · Closed) and deleted rows skipped');
-    ok(m.waiting_total === 2 && m.waiting[0].doc_no === 'QT-1' && m.waiting[1].value_thb === 350000, 'Portal: Mech “รอผู้บริหารอนุมัติ” list, USD converted with the quote rate (10,000 × 35)');
-    ok(m.ready_value === 500000 && m.won_value === 300000 && m.unconverted === 1, 'Portal: Mech value waiting / won in THB; other currencies counted separately');
-    ok(m.close_rate === Math.round(1 / 4 * 1000) / 10 && m.gp_percent === Math.round((100000 + 45000 + 20000 + 0) / (500000 + 300000 + 200000) * 1000) / 10,
-      'Portal: Mech close rate + GP % over quoted offers');
-    ok(m.trend[5].quoted === 4 && m.trend[5].won === 1, 'Portal: Mech trend for this month');
-    ok(as(U.srManager, function () { return must(getPortal()); }).mech.configured && as(U.exec, function () { return must(getPortal()); }).can_open_food === false,
-      'Portal: SR Manager and the viewer role open it (viewer cannot enter the Food workflow)');
-    const vm = menuFor_(userByEmail_(U.exec));
-    ok(vm.length === 1 && vm[0].key === 'portal' && !as(U.exec, function () { return must(listTicketBoard()); }).rows.length,
-      'Portal: viewer role sees only หน้ารวม — no tickets');
-    expectErr(as(U.exec, function () { return getGpSummary(); }), 'FORBIDDEN', 'Portal: viewer cannot open ticket-level GP');
-    ok(['gm', 'admin', 'srManager'].every(function (k) { return menuFor_(userByEmail_(U[k])).some(function (x) { return x.key === 'portal'; }) && menuFor_(userByEmail_(U[k])).length <= 5; }),
-      'Portal: in the menu of GM / Admin / SR Manager (menus still ≤ 5)');
-    ok(PARTIALS_.indexOf('PagePortal') !== -1 && PAGES_.indexOf('portal') !== -1, 'Portal: page file allowed by include_');
+    ok(!menuFor_(userByEmail_(U.gm)).some(function (x) { return x.key === 'portal'; }) && PAGES_.indexOf('portal') === -1,
+      'The management portal is not part of the Food app (separate web app in portal/)');
   } catch (e) {
-    results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: PORTAL — ' + e.message + '\n' + e.stack);
-  } finally {
-    TEST_MECH_ = null;
+    results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: FOLLOW_UP_V2 — ' + e.message + '\n' + e.stack);
   }
 }

@@ -7,7 +7,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.09-1';
+const APP_VERSION = '2026.10.09-2';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -27,8 +27,6 @@ const CFG = {
     LARK_GROUP_CHAT_ID: 'LARK_GROUP_CHAT_ID',
     LARK_PRICE_GROUP_CHAT_ID: 'LARK_PRICE_GROUP_CHAT_ID',
     LARK_MGMT_GROUP_CHAT_ID: 'LARK_MGMT_GROUP_CHAT_ID',
-    MECH_SHEET_ID: 'MECH_SHEET_ID',          // หน้ารวม: spreadsheet ของระบบ MGS Project Pricing (Mech) — อ่านอย่างเดียว
-    MECH_WEBAPP_URL: 'MECH_WEBAPP_URL',      // หน้ารวม: ลิงก์ /exec ของระบบทำราคา Mech
     WEBAPP_URL: 'WEBAPP_URL'
   }
 };
@@ -177,8 +175,8 @@ const SCHEMA = {
  *   Sales → Sales Manager (manager) → GM          (Sales Manager step is skipped when the department has none)
  *   SR    → SR Manager (sr_manager) → GM          (price approval — never skipped)
  */
-const ROLES = ['sales', 'manager', 'gm', 'sr', 'sr_manager', 'admin', 'viewer'];
-const ROLE_LABEL_TH = { sales: 'Sales', manager: 'Sales Manager', gm: 'GM', sr: 'SR (Sourcing)', sr_manager: 'SR Manager', admin: 'Admin', viewer: 'ผู้บริหาร (ดูหน้ารวม)' };
+const ROLES = ['sales', 'manager', 'gm', 'sr', 'sr_manager', 'admin'];
+const ROLE_LABEL_TH = { sales: 'Sales', manager: 'Sales Manager', gm: 'GM', sr: 'SR (Sourcing)', sr_manager: 'SR Manager', admin: 'Admin' };
 
 const STATUS = ['requested', 'on_process', 'completed', 'closed', 'rejected'];
 const STATUS_LABEL_TH = {
