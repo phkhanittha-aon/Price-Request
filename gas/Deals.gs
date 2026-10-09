@@ -45,8 +45,11 @@ function dealRows_(u, withCost) {
       const quotedAt = new Date(t.gm_price_approved_at);
       const quotedYmd = fmtDate_(quotedAt);
       const open = it.deal_status !== 'won' && it.deal_status !== 'lost';
-      const due = open && (it.deal_next_date ? it.deal_next_date <= today
-        : !it.deal_status && fmtDate_(new Date(quotedAt.getTime() + followDays * 86400000)) <= today);
+      // same rule as the MGS Sales app: an open deal needs an update when the follow-up date has come,
+      // or nobody updated it for deal_follow_days (counted from the price / the last update)
+      const lastTouch = it.deal_updated_at ? new Date(it.deal_updated_at) : quotedAt;
+      const stale = fmtDate_(new Date(lastTouch.getTime() + followDays * 86400000)) <= today;
+      const due = open && ((it.deal_next_date && it.deal_next_date <= today) || stale);
       const row = {
         ticket_id: t.ticket_id, ticket_no: String(t.ticket_no), item_id: it.item_id, line_no: it.line_no,
         customer_name: String(t.customer_name || ''), customer_group: String(t.customer_group || ''),
@@ -63,6 +66,11 @@ function dealRows_(u, withCost) {
         deal_reason: it.deal_reason, deal_note: it.deal_note, deal_next_date: it.deal_next_date,
         deal_updated_at: it.deal_updated_at, deal_updated_by: it.deal_updated_by ? (ctx.names[it.deal_updated_by] || it.deal_updated_by) : '',
         deal_closed_at: it.deal_closed_at, is_open: open, is_due: due,
+        deal_stage: it.deal_stage, deal_next_step: it.deal_next_step,
+        days_since_update: Math.max(0, Math.floor((Date.now() - lastTouch.getTime()) / 86400000)),
+        monthly_value_thb: round_(p.sell_price_thb * it.qty, 2),
+        // offer terms Sales sends the customer (no cost) — for "คัดลอกเป็นข้อความ"
+        offer: salesPricing_(it, win),
         can_edit: canEditDeal_(u, t)
       };
       if (withCost) {
@@ -99,6 +107,9 @@ function listDeals() {
       today: todayBkk_(),
       follow_days: dealFollowDays_(),
       lost_reasons: setting_('deal_lost_reasons', []),
+      customer_stages: setting_('deal_customer_stages', []),
+      next_steps: setting_('deal_next_steps', []),
+      people: u.role === 'sales' ? [] : activeUsersByRole_('sales').map(function (x) { return { email: x.email, full_name: x.full_name, department_code: x.department_code }; }),
       statuses: [''].concat(DEAL_STATUSES).map(function (k) { return { key: k, label: DEAL_STATUS_LABEL_TH[k] }; }),
       can_see_everyone: u.role !== 'sales'
     };
@@ -106,7 +117,8 @@ function listDeals() {
 }
 
 /**
- * patch: { status: 'follow'|'sample'|'won'|'lost', reason? (required for lost), note?, next_date? (yyyy-MM-dd) }
+ * patch: { status: 'follow'|'sample'|'won'|'lost', reason? (required for lost), note?, next_date? (yyyy-MM-dd),
+ *          stage? (Settings deal_customer_stages), next_step? (Settings deal_next_steps) }
  * follow / sample without a date → next follow-up = today + deal_follow_days.
  */
 function updateDeal(itemId, patch) {
@@ -124,6 +136,12 @@ function updateDeal(itemId, patch) {
       }
       if (String(row.quote_status || '')) throw appError_('INVALID_STATE', 'รายการนี้ไม่ได้เสนอราคา จึงไม่มีผลการขาย');
       const status = oneOf_(p.status, DEAL_STATUSES, 'สถานะการขาย');
+      const stages = setting_('deal_customer_stages', []);
+      const steps = setting_('deal_next_steps', []);
+      const stage = cleanText_(p.stage, 100);
+      const nextStep = cleanText_(p.next_step, 100);
+      if (stage && stages.length && stages.indexOf(stage) === -1) throw appError_('VALIDATION', 'สถานะกับลูกค้าไม่อยู่ในรายการ');
+      if (nextStep && steps.length && steps.indexOf(nextStep) === -1) throw appError_('VALIDATION', 'ขั้นตอนถัดไปไม่อยู่ในรายการ');
       const reasons = setting_('deal_lost_reasons', []);
       let reason = cleanText_(p.reason, 200);
       const note = cleanText_(p.note, CFG.MAX_TEXT);
@@ -143,13 +161,14 @@ function updateDeal(itemId, patch) {
       const now = new Date();
       updateRow_(TAB.ITEMS, String(row.item_id), {
         deal_status: status, deal_reason: reason, deal_note: note, deal_next_date: next,
+        deal_stage: status === 'won' || status === 'lost' ? '' : stage, deal_next_step: status === 'won' || status === 'lost' ? '' : nextStep,
         deal_updated_by: u.email, deal_updated_at: now,
         deal_closed_at: status === 'won' || status === 'lost' ? (before.status === status && row.deal_closed_at ? row.deal_closed_at : now) : '',
         updated_at: now
       });
       appendLog_({ ticket_id: t.ticket_id, action: 'deal_update', actor_email: u.email, actor_role: u.role, comment: note,
         metadata: { item_id: String(row.item_id), line_no: Number(row.line_no), product_name: String(row.product_name),
-          from: before.status, to: status, reason: reason, next_date: next ? fmtDate_(next) : '' } });
+          from: before.status, to: status, reason: reason, stage: stage, next_step: nextStep, next_date: next ? fmtDate_(next) : '' } });
       if (status === 'won' && before.status !== 'won') {
         const qty = Number(row.qty);
         enqueueGroupEvent_('deal_won', t, { items: false, lines: ['• #' + row.line_no + ' ' + row.product_name +

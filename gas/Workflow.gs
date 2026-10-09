@@ -715,7 +715,8 @@ function activeItemsOf_(ticketId) {
         follow_up_ticket_id: String(r.follow_up_ticket_id || ''),
         deal_status: String(r.deal_status || ''), deal_reason: String(r.deal_reason || ''), deal_note: String(r.deal_note || ''),
         deal_next_date: r.deal_next_date ? fmtDate_(r.deal_next_date) : '', deal_updated_by: String(r.deal_updated_by || ''),
-        deal_updated_at: isoOrBlank_(r.deal_updated_at), deal_closed_at: isoOrBlank_(r.deal_closed_at)
+        deal_updated_at: isoOrBlank_(r.deal_updated_at), deal_closed_at: isoOrBlank_(r.deal_closed_at),
+        deal_stage: String(r.deal_stage || ''), deal_next_step: String(r.deal_next_step || '')
       };
     })
     .sort(function (a, b) { return a.line_no - b.line_no; });

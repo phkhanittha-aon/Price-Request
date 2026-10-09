@@ -7,7 +7,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.08-4';
+const APP_VERSION = '2026.10.09-1';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -27,6 +27,8 @@ const CFG = {
     LARK_GROUP_CHAT_ID: 'LARK_GROUP_CHAT_ID',
     LARK_PRICE_GROUP_CHAT_ID: 'LARK_PRICE_GROUP_CHAT_ID',
     LARK_MGMT_GROUP_CHAT_ID: 'LARK_MGMT_GROUP_CHAT_ID',
+    MECH_SHEET_ID: 'MECH_SHEET_ID',          // หน้ารวม: spreadsheet ของระบบ MGS Project Pricing (Mech) — อ่านอย่างเดียว
+    MECH_WEBAPP_URL: 'MECH_WEBAPP_URL',      // หน้ารวม: ลิงก์ /exec ของระบบทำราคา Mech
     WEBAPP_URL: 'WEBAPP_URL'
   }
 };
@@ -122,7 +124,9 @@ const SCHEMA = {
            // SR decision per item (appended): '' = quote · 'not_offered' = will not quote · 'follow_up' = split to a new ticket
            'quote_status', 'quote_status_reason', 'follow_up_ticket_id',
            // Sales follow-up after the price (appended v2026.10.08-4): did the customer buy? (see Deals.gs)
-           'deal_status', 'deal_reason', 'deal_note', 'deal_next_date', 'deal_updated_by', 'deal_updated_at', 'deal_closed_at']
+           'deal_status', 'deal_reason', 'deal_note', 'deal_next_date', 'deal_updated_by', 'deal_updated_at', 'deal_closed_at',
+           // follow-up v2 (appended v2026.10.09-1, same structure as the MGS Sales app): where the customer is + what Sales does next
+           'deal_stage', 'deal_next_step']
   },
   Quotations: {
     key: 'quote_id',
@@ -173,8 +177,8 @@ const SCHEMA = {
  *   Sales → Sales Manager (manager) → GM          (Sales Manager step is skipped when the department has none)
  *   SR    → SR Manager (sr_manager) → GM          (price approval — never skipped)
  */
-const ROLES = ['sales', 'manager', 'gm', 'sr', 'sr_manager', 'admin'];
-const ROLE_LABEL_TH = { sales: 'Sales', manager: 'Sales Manager', gm: 'GM', sr: 'SR (Sourcing)', sr_manager: 'SR Manager', admin: 'Admin' };
+const ROLES = ['sales', 'manager', 'gm', 'sr', 'sr_manager', 'admin', 'viewer'];
+const ROLE_LABEL_TH = { sales: 'Sales', manager: 'Sales Manager', gm: 'GM', sr: 'SR (Sourcing)', sr_manager: 'SR Manager', admin: 'Admin', viewer: 'ผู้บริหาร (ดูหน้ารวม)' };
 
 const STATUS = ['requested', 'on_process', 'completed', 'closed', 'rejected'];
 const STATUS_LABEL_TH = {
@@ -251,7 +255,11 @@ const DEFAULT_SETTINGS = [
     'กลุ่มผู้บริหาร: price_review, gm_buy, price_returned, revision · ข้อความกลุ่มไม่มีราคา/ต้นทุน/ชื่อ Supplier'],
   ['deal_lost_reasons', JSON.stringify(['ราคาสูงกว่าคู่แข่ง', 'ราคาสูงกว่าที่ลูกค้าคาดหวัง', 'สเปก / คุณภาพไม่ตรง', 'MOQ สูงเกินไป',
     'Lead time ไม่ทัน', 'ลูกค้าเลื่อน / ยกเลิกโครงการ', 'ลูกค้าไม่ตอบกลับ', 'อื่นๆ']), 'เหตุผลที่ไม่ได้งาน (dropdown ในหน้าติดตามการขาย)'],
-  ['deal_follow_days', '7', 'ถ้า Sales ไม่ได้ระบุวันติดตาม ระบบนัดติดตามครั้งถัดไป = วันนี้ + จำนวนวันนี้ · ราคาที่ส่งถึง Sales แล้วเกินจำนวนวันนี้โดยยังไม่อัปเดต = ถึงกำหนดติดตาม'],
+  ['deal_follow_days', '7', 'Sales ต้องอัปเดตความคืบหน้ากับลูกค้าอย่างน้อยทุกกี่วัน (นับจากวันที่ได้ราคา / อัปเดตครั้งล่าสุด) · ไม่ระบุวันนัด = วันนี้ + จำนวนวันนี้'],
+  ['deal_customer_stages', JSON.stringify(['เพิ่งส่งราคาให้ลูกค้า', 'ลูกค้ากำลังเทียบราคา', 'อยู่ระหว่างต่อรองราคา', 'ส่งตัวอย่าง / ลูกค้าทดลองสินค้า',
+    'รออนุมัติภายในของลูกค้า', 'ใกล้ปิดการขาย', 'ลูกค้าเลื่อนโครงการ']), 'สถานะกับลูกค้าตอนนี้ (dropdown ในการอัปเดตความคืบหน้า)'],
+  ['deal_next_steps', JSON.stringify(['โทรติดตาม', 'นัดเข้าพบลูกค้า', 'ส่งตัวอย่างสินค้า', 'ส่งเอกสาร / ข้อมูลเพิ่มเติม', 'ขอปรับราคาจาก SR', 'รอ PO',
+    'ปิดการขาย', 'ยุติการติดตาม']), 'ขั้นตอนถัดไปของ Sales (dropdown ในการอัปเดตความคืบหน้า)'],
   ['max_photos_per_quote', '10', 'จำนวนรูปสินค้าสูงสุดต่อ Supplier 1 เจ้า (ต่อใบเสนอราคา 1 รายการ)'],
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
   ['fx_defaults', JSON.stringify({ USD: 35 }), 'อัตราแลกเปลี่ยนเริ่มต้น (บาทต่อ 1 หน่วย) ที่เติมให้ในหน้าใบเสนอราคา · SR แก้ได้ทุกใบ · สกุลที่ไม่มีในนี้ SR กรอกเอง'],

@@ -563,7 +563,8 @@ function splitFollowUp_(u, t, it, why, now) {
   SCHEMA.TicketItems.cols.forEach(function (c) { item[c] = src[c] === undefined ? '' : src[c]; });
   Object.assign(item, { item_id: newItemId, ticket_id: ticketId, line_no: 1, quote_status: '', quote_status_reason: '',
     follow_up_ticket_id: '', gp_percent: src.gp_percent === undefined ? '' : src.gp_percent, sell_price_thb: '', created_at: now, updated_at: now,
-    deal_status: '', deal_reason: '', deal_note: '', deal_next_date: '', deal_updated_by: '', deal_updated_at: '', deal_closed_at: '' });
+    deal_status: '', deal_reason: '', deal_note: '', deal_next_date: '', deal_updated_by: '', deal_updated_at: '', deal_closed_at: '',
+    deal_stage: '', deal_next_step: '' });
   insertRow_(TAB.ITEMS, item);
   // vendor prices + item pictures + quotation files move with the item
   const moved = activeQuotesOfItem_(it.item_id).map(function (q) {

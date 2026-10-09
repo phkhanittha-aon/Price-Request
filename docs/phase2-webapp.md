@@ -66,6 +66,8 @@ Apps Script → ⚙️ Project Settings → **Script properties**
 | `LARK_GROUP_CHAT_ID` | Admin (ไม่บังคับ) | `oc_xxx` กลุ่มรับสรุป SLA เกิน / self-test ล้มเหลว (ต้องเชิญ bot เข้ากลุ่ม) |
 | `LARK_PRICE_GROUP_CHAT_ID` | Admin (ไม่บังคับ) | `oc_xxx` กลุ่ม Sales — แจ้งสถานะอัตโนมัติ (ไม่มีราคา) · ว่าง = ใช้ `LARK_GROUP_CHAT_ID` · ดู phase 6 |
 | `LARK_MGMT_GROUP_CHAT_ID` | Admin (ไม่บังคับ) | `oc_xxx` กลุ่มผู้บริหาร (SR / SR Manager / GM) — ราคารอตรวจ / รอ GM อนุมัติฝั่งซื้อ · ว่าง = ไม่ส่ง |
+| `MECH_SHEET_ID` | Admin (ไม่บังคับ) | หน้ารวม: ID ไฟล์ Sheets ของระบบ Mech (อ่านอย่างเดียว) · ดู phase 7 |
+| `MECH_WEBAPP_URL` | Admin (ไม่บังคับ) | หน้ารวม: ลิงก์ /exec ของระบบทำราคา Mech |
 | `WEBAPP_URL` | Admin (ไม่บังคับ) | URL `/exec` ถ้าต้องการบังคับลิงก์ใน Lark (ปกติระบบหาเองจาก deployment) |
 
 ## 4. ติดตั้งตั้งแต่ศูนย์จนใช้งานได้

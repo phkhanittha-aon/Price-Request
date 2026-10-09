@@ -221,7 +221,7 @@ function demoUsers_() {
   return {
     admin: 'admin' + d, gm: 'gm' + d, mgrFood: 'mgr.food' + d,
     salesFood1: 'sales.food1' + d, salesFood2: 'sales.food2' + d, salesFood3: 'sales.food3' + d,
-    srManager: 'sr.manager' + d, sr1: 'sr1' + d, sr2: 'sr2' + d
+    srManager: 'sr.manager' + d, sr1: 'sr1' + d, sr2: 'sr2' + d, exec: 'exec' + d
   };
 }
 
@@ -237,7 +237,8 @@ function seedUsers_() {
     [U.salesFood3, 'คุณภูมิ Sales', 'sales', 'SALES-FOOD'],
     [U.srManager, 'คุณอร SR Manager', 'sr_manager', 'SOURCING'],
     [U.sr1, 'คุณบอย SR', 'sr', 'SOURCING'],
-    [U.sr2, 'คุณนุ่น SR', 'sr', 'SOURCING']
+    [U.sr2, 'คุณนุ่น SR', 'sr', 'SOURCING'],
+    [U.exec, 'คุณประธาน (ผู้บริหาร)', 'viewer', 'MGMT']
   ].filter(function (u) { return !userByEmail_(u[0]); })
     .map(function (u) {
       return { email: u[0], full_name: u[1], role: u[2], department_code: u[3], is_active: true,

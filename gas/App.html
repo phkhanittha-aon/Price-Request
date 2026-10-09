@@ -199,7 +199,7 @@ const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome'
 function cleanRoute(p) {
   const r = {};
   ROUTE_KEYS.forEach(function (k) { if (p && p[k]) r[k] = String(p[k]); });
-  if (!r.page || ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'].indexOf(r.page) === -1) r.page = 'home';
+  if (!r.page || ['portal', 'home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'].indexOf(r.page) === -1) r.page = 'home';
   return r;
 }
 function go(route, replace) {
@@ -210,6 +210,7 @@ function go(route, replace) {
 }
 function render(route) {
   state.route = cleanRoute(route);
+  if (state.me && state.me.role === 'viewer' && state.route.page !== 'portal') state.route = { page: 'portal' };   // executive viewer: overview only
   const seq = ++state.renderSeq;
   renderNav();
   window.scrollTo(0, 0);
@@ -225,7 +226,7 @@ function render(route) {
   }
 }
 function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || '') + (r.follow || ''); }
-const PAGE_TITLE = { home: 'หน้าแรก', dashboard: 'รายงาน', gp: 'สรุป GP & การปิดการขาย', deals: 'ติดตามการขาย', suppliers: 'Supplier', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
+const PAGE_TITLE = { portal: 'หน้ารวม', home: 'หน้าแรก', dashboard: 'รายงาน', gp: 'สรุป GP & การปิดการขาย', deals: 'ติดตามการขาย', suppliers: 'Supplier', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
 /** Tabs on top of the report pages: ภาพรวม · ติดตามการขาย · สรุป GP (only the ones this role may open). */
 function reportTabs(active) {
   const role = state.me.role;
@@ -583,7 +584,11 @@ const App = {
         ' <span class="email">· ' + esc(b.me.email) + '</span></small>';
       applyPoll(b.poll);
       google.script.history.setChangeHandler(function (e) { render(e.state || (e.location && e.location.parameter) || {}); });
-      google.script.url.getLocation(function (loc) { render(loc.parameter || {}); });
+      google.script.url.getLocation(function (loc) {
+        const p = Object.assign({}, loc.parameter || {});
+        if (!p.page && state.menu[0]) p.page = state.menu[0].route.page;   // GM / viewer land on หน้ารวม
+        render(p);
+      });
       startPolling();
     }).catch(function (e) {
       $('#nav').innerHTML = '';

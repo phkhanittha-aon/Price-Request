@@ -1,0 +1,120 @@
+<!--
+  File: PagePortal.html
+  หน้ารวมผู้บริหาร: the pricing work of BOTH systems on one screen, then a button into each pricing web app.
+    Food = this app (MGS Food Price Request) · Mech = MGS Project Pricing (Solar & Mechanical, separate web app)
+  Data: getPortal() (GM / SR Manager / Admin / viewer). Food values are per month (selling price × volume/month),
+  Mech values are per project (quotation total in THB).
+-->
+<script>
+Pages.portal = (function () {
+  let data = null, user = '';
+  const FLOW = [['req', 'คำขอราคา'], ['wip', 'กำลังทำราคา'], ['approval', 'รอผู้บริหารอนุมัติ'], ['ready', 'ราคาถึง Sales'], ['won', 'ปิดการขายได้']];
+  const baht = function (v) { return v == null ? '–' : '฿' + fmtInt(Math.round(v)); };
+  const pct = function (v) { return v == null ? '–' : (Math.round(v * 10) / 10).toFixed(1) + '%'; };
+
+  function flow(st) {
+    const max = Math.max.apply(null, FLOW.map(function (f) { return st[f[0]] || 0; }).concat([1]));
+    return '<ol class="pflow">' + FLOW.map(function (f) {
+      const n = st[f[0]] || 0;
+      return '<li class="' + (f[0] === 'approval' && n ? 'hot' : '') + '"><span class="pf-n">' + fmtInt(n) + '</span><span class="pf-l">' + esc(f[1]) + '</span>' +
+        '<span class="pf-bar"><i style="width:' + (n / max * 100) + '%"></i></span></li>';
+    }).join('') + '</ol>';
+  }
+  function trend(t) {
+    const max = Math.max.apply(null, t.map(function (x) { return x.quoted; }).concat([1]));
+    return '<div class="ptrend" role="img" aria-label="จำนวนที่เสนอราคาและปิดได้ 6 เดือนล่าสุด">' + t.map(function (x) {
+      return '<div class="pt-col" data-tip="' + esc(fmtMonth(x.month) + ' · เสนอ ' + x.quoted + ' · ปิดได้ ' + x.won) + '"><div class="pt-bar">' +
+        '<i class="q" style="height:' + (x.quoted / max * 100) + '%"></i><i class="w" style="height:' + (x.won / max * 100) + '%"></i></div>' +
+        '<span>' + esc(fmtMonth(x.month)) + '</span></div>';
+    }).join('') + '</div><div class="legend small"><span><i class="lg-q"></i>เสนอราคา</span><span><i class="lg-w"></i>ปิดได้</span></div>';
+  }
+  function mini(v, l) { return '<div class="pm"><b>' + v + '</b><span>' + esc(l) + '</span></div>'; }
+
+  function foodCard(d) {
+    const f = d.food;
+    const st = { req: f.stages.req, wip: f.stages.wip, approval: f.stages.approval, ready: f.open, won: f.won };
+    return '<section class="card psys" aria-labelledby="ps-food"><div class="ps-head"><span class="ps-ic food" aria-hidden="true">🐟</span>' +
+      '<div class="ps-t"><h2 id="ps-food">Food</h2><div class="hint">อาหารแช่แข็ง · อาหารทะเล · สินค้าอาหารนำเข้า</div></div>' +
+      (d.can_open_food ? '<button class="btn primary" data-open-food>เข้าระบบทำราคา Food →</button>' : '') + '</div>' +
+      flow(st) +
+      '<div class="pms">' + mini(baht(f.open_value_month), 'รอลูกค้าตัดสินใจ /เดือน') + mini(baht(f.won_value_month), 'ปิดได้แล้ว /เดือน') +
+        mini(pct(f.gp_percent), 'GP % ที่เสนอ') + mini(pct(f.close_rate), 'อัตราปิดการขาย') + '</div>' +
+      (f.breach ? '<div class="banner-s red">⛔ เกิน SLA ' + f.breach + ' ใบ — ค้างในขั้นตอนนานเกินกำหนด</div>' : '') +
+      '<div class="ps-sub"><h3>รอผู้บริหารอนุมัติ <span class="tag ' + (f.waiting_total ? 'amber' : 'grey') + '">' + f.waiting_total + '</span></h3>' +
+        (f.waiting.length ? '<ul class="pwait">' + f.waiting.map(function (w) {
+          return '<li><a href="#" data-ticket="' + esc(w.ticket_id) + '"><span class="mono">' + esc(w.doc_no) + '</span><span class="pw-t">' + esc(w.title) + '</span>' +
+            '<span class="tag ' + (w.stage === 'pending_gm' ? 'blue' : 'purple') + '">' + esc(w.label) + '</span><span class="hint">' + fmtHours(w.age_hours) + '</span></a></li>';
+        }).join('') + '</ul>' : '<p class="hint">ไม่มีงานรออนุมัติ 🎉</p>') + '</div>' +
+      '<div class="ps-sub"><h3>แนวโน้ม 6 เดือน</h3>' + trend(f.trend) + '</div></section>';
+  }
+
+  function mechCard(d) {
+    const m = d.mech;
+    const head = '<div class="ps-head"><span class="ps-ic mech" aria-hidden="true">⚡</span><div class="ps-t"><h2 id="ps-mech">Mech</h2>' +
+      '<div class="hint">Solar · Inverter Sungrow · Mounting · Cable · EV Charger</div></div>' +
+      (d.links.mech ? '<a class="btn primary" data-open-mech href="' + esc(d.links.mech) + '" target="_top">เข้าระบบทำราคา Mech →</a>' : '') + '</div>';
+    if (!m.configured) {
+      return '<section class="card psys" aria-labelledby="ps-mech">' + head + '<div class="notice">ยังไม่ได้เชื่อมข้อมูลระบบ Mech — ผู้ดูแลระบบตั้ง Script Properties ' +
+        '<code>MECH_SHEET_ID</code> (ไฟล์ Google Sheets ของ MGS Project Pricing) และ <code>MECH_WEBAPP_URL</code> (ลิงก์ /exec) แล้วกดรีเฟรช</div></section>';
+    }
+    if (m.error) return '<section class="card psys" aria-labelledby="ps-mech">' + head + '<div class="notice danger">' + esc(m.error) + '</div></section>';
+    const st = { req: m.stages.req, wip: m.stages.wip, approval: m.stages.approval + m.stages.approved, ready: m.stages.ready, won: m.stages.won };
+    return '<section class="card psys" aria-labelledby="ps-mech">' + head + flow(st) +
+      '<div class="pms">' + mini(baht(m.ready_value), 'ราคาถึง Sales รอปิด') + mini(baht(m.won_value), 'ปิดได้แล้ว') +
+        mini(pct(m.gp_percent), 'GP % ที่เสนอ') + mini(pct(m.close_rate), 'อัตราปิดการขาย') + '</div>' +
+      (m.stages.approved ? '<div class="banner-s blue">🔓 อนุมัติแล้ว รอปล่อยราคาให้ Sales ' + m.stages.approved + ' ใบ</div>' : '') +
+      (m.unconverted ? '<div class="hint">* ' + m.unconverted + ' ใบเป็นสกุลเงินอื่น ไม่ได้รวมในมูลค่า ฿</div>' : '') +
+      '<div class="ps-sub"><h3>รอผู้บริหารอนุมัติ <span class="tag ' + (m.waiting_total ? 'amber' : 'grey') + '">' + m.waiting_total + '</span></h3>' +
+        (m.waiting.length ? '<ul class="pwait">' + m.waiting.map(function (w) {
+          return '<li><div class="pw-row"><span class="mono">' + esc(w.doc_no) + '</span><span class="pw-t">' + esc(w.title) + (w.customer && w.customer !== w.title ? ' · ' + esc(w.customer) : '') + '</span>' +
+            '<span class="tag amber">' + esc(w.label) + '</span><span class="mono small">' + baht(w.value_thb) + '</span>' + (w.gp != null ? '<span class="hint">GP ' + pct(w.gp) + '</span>' : '') + '</div></li>';
+        }).join('') + '</ul>' : '<p class="hint">ไม่มีงานรออนุมัติ 🎉</p>') + '</div>' +
+      '<div class="ps-sub"><h3>แนวโน้ม 6 เดือน</h3>' + trend(m.trend) + '</div></section>';
+  }
+
+  function draw(view) {
+    const f = data.food, m = data.mech.configured && !data.mech.error ? data.mech : null;
+    const n = function (x) { return x || 0; };
+    const openWork = n(f.stages.req) + n(f.stages.wip) + n(f.stages.approval) + (m ? n(m.stages.req) + n(m.stages.wip) + n(m.stages.approval) + n(m.stages.approved) : 0);
+    const waitMgmt = n(f.waiting_total) + (m ? n(m.waiting_total) : 0);
+    const atSales = n(f.open) + (m ? n(m.stages.ready) : 0);
+    const won = n(f.won) + (m ? n(m.stages.won) : 0);
+    const kpi = function (v, l, s, cls) { return '<div class="pk ' + (cls || '') + '"><span class="v">' + fmtInt(v) + '</span><span class="l">' + esc(l) + '</span><span class="s">' + s + '</span></div>'; };
+    view.innerHTML = '<div class="portal">' +
+      '<header class="hero"><div class="hero-row"><div><div class="hero-k">MGS · M Global Sourcing</div><h1>หน้ารวมการทำราคา</h1>' +
+        '<div class="sub">ภาพรวมงานทำราคาทั้ง 2 ระบบ — เลือก Food หรือ Mech เพื่อเข้าไปทำงานในระบบนั้น</div></div>' +
+        '<div class="hero-side"><span class="hint-w">อัปเดต ' + esc(fmtDateTime(data.generated_at)) + '</span><button class="btn sm hero-btn" data-refresh>↻ รีเฟรช</button></div></div>' +
+        '<div class="hero-go">' + (data.can_open_food ? '<button class="go-card" data-open-food><span class="gi">🐟</span><span><b>Food</b><small>MGS Food Price Request</small></span><span class="ga">→</span></button>' : '') +
+          (data.links.mech ? '<a class="go-card" data-open-mech href="' + esc(data.links.mech) + '" target="_top"><span class="gi">⚡</span><span><b>Mech</b><small>MGS Project Pricing · Solar & Mechanical</small></span><span class="ga">→</span></a>' :
+            '<span class="go-card off"><span class="gi">⚡</span><span><b>Mech</b><small>ยังไม่ได้ตั้งลิงก์ MECH_WEBAPP_URL</small></span></span>') + '</div></header>' +
+      '<div class="pkpis">' + kpi(openWork, 'งานทำราคาที่เปิดอยู่', 'Food ' + (n(f.stages.req) + n(f.stages.wip) + n(f.stages.approval)) + (m ? ' · Mech ' + (n(m.stages.req) + n(m.stages.wip) + n(m.stages.approval) + n(m.stages.approved)) : '')) +
+        kpi(waitMgmt, 'รอผู้บริหารอนุมัติ', 'Food ' + n(f.waiting_total) + (m ? ' · Mech ' + n(m.waiting_total) : ''), waitMgmt ? 'warn' : '') +
+        kpi(atSales, 'ราคาถึง Sales · รอลูกค้า', 'Food ' + n(f.open) + (m ? ' · Mech ' + n(m.stages.ready) : '')) +
+        kpi(won, 'ปิดการขายได้', 'Food ' + n(f.won) + (m ? ' · Mech ' + n(m.stages.won) : ''), 'ok') + '</div>' +
+      '<div class="psystems">' + foodCard(data) + mechCard(data) + '</div>' +
+      '<p class="hint" style="text-align:center">มูลค่า Food = ราคาขาย × ปริมาณที่ลูกค้าใช้ต่อเดือน · มูลค่า Mech = ยอดรวมใบเสนอราคา (บาท) · ข้อมูลต้นทุน / GP เห็นเฉพาะผู้บริหาร</p></div>';
+    $all('[data-open-food]', view).forEach(function (b) { b.onclick = function () { go({ page: 'home' }); }; });
+    $all('[data-ticket]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-ticket') }); }; });
+    $all('a[data-open-mech]', view).forEach(function (a) {
+      if (a.getAttribute('href').charAt(0) === '#') a.onclick = function (e) { e.preventDefault(); toast('Prototype: ปุ่มนี้จะเปิดระบบทำราคา Mech (MECH_WEBAPP_URL)', 'ok'); };
+    });
+    $('[data-refresh]', view).onclick = function () { load(view, function () { return true; }); };
+  }
+
+  function load(view, isCurrent) {
+    const who = state.me.email;
+    return api('getPortal').then(function (d) {
+      data = d; user = who;
+      if (isCurrent()) draw(view);
+    }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+  }
+
+  return {
+    render: function (view, route, isCurrent) {
+      if (['gm', 'admin', 'sr_manager', 'viewer'].indexOf(state.me.role) === -1) { go({ page: 'home' }, true); return; }
+      if (data && user === state.me.email) draw(view); else view.innerHTML = loadingHtml('กำลังรวมข้อมูล Food + Mech...');
+      load(view, isCurrent);
+    }
+  };
+})();
+</script>

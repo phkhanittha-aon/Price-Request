@@ -140,7 +140,7 @@ Pages.ticket = (function () {
         html += '<div class="tbl-wrap" style="margin-top:8px"><table class="tbl stack"><thead><tr><th>Vendor</th><th class="num">ราคา/หน่วย</th>' +
           '<th>VAT</th><th class="num">ต้นทุนสินค้า/หน่วย (฿)</th><th class="num">ค่าเคลียร์ของ/หน่วย (฿)</th><th class="num">ต้นทุนถึงคลัง/หน่วย (฿)</th><th>เงื่อนไข</th></tr></thead><tbody>' +
           it.quotations.slice().sort(function (a, b) { return a.cost_rank - b.cost_rank; }).map(function (q) {
-            return '<tr' + (q.is_selected ? ' style="background:#F1F8FB"' : '') + '><td class="main">' + esc(q.vendor_name) + ' ' +
+            return '<tr' + (q.is_selected ? ' style="background:#EEF7F3"' : '') + '><td class="main">' + esc(q.vendor_name) + ' ' +
               (q.is_selected ? '<span class="badge tag-win">✔ ผู้ชนะ</span> ' : '') + (q.is_cheapest ? '<span class="badge tag-cheap">ถูกที่สุด</span>' : '') +
               (q.supplier_warnings || []).map(function (w) { return ' <span class="sla ' + (w.level === 'expired' ? 'breach' : 'warning') + '">⚠ ' + esc(w.name) + (w.level === 'expired' ? ' หมดอายุ' : ' ใกล้หมดอายุ') + '</span>'; }).join('') +
               (q.is_selected && q.selection_reason ? '<div class="small muted">เหตุผล: ' + esc(q.selection_reason) + '</div>' : '') + '</td>' +
