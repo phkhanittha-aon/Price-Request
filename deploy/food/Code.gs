@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.10-2
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.10-4
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,14 +18,14 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.10-2';
+const APP_VERSION = '2026.10.10-4';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
   TZ: 'Asia/Bangkok',
   LOCK_TIMEOUT_MS: 25000,
   MAX_ITEMS_PER_TICKET: 100,
-  MAX_VENDORS_PER_ITEM: 3,
+  MAX_VENDORS_PER_ITEM: 5,
   MAX_TEXT: 2000,
   MAX_COMMENT: 2000,
   // Script Properties keys
@@ -38,6 +38,9 @@ const CFG = {
     LARK_GROUP_CHAT_ID: 'LARK_GROUP_CHAT_ID',
     LARK_PRICE_GROUP_CHAT_ID: 'LARK_PRICE_GROUP_CHAT_ID',
     LARK_MGMT_GROUP_CHAT_ID: 'LARK_MGMT_GROUP_CHAT_ID',
+    // Lark Custom Bot webhooks (group "Food Price Request") — Script Properties only, never in the sheet
+    FPR_BOT_URL: 'FPR_BOT_URL', FPR_BOT_SECRET: 'FPR_BOT_SECRET',
+    FPR_REMINDER_URL: 'FPR_REMINDER_URL', FPR_REMINDER_SECRET: 'FPR_REMINDER_SECRET',
     WEBAPP_URL: 'WEBAPP_URL'
   }
 };
@@ -59,6 +62,8 @@ const TAB = {
   LOGS: 'TicketLogs',
   NOTIFICATIONS: 'Notifications',
   SLA_ALERTS: 'SlaAlerts',
+  NOTIF_LOG: 'NotifLog',
+  HOLIDAYS: 'Holidays',
   ERRORS: 'ErrorLog'
 };
 
@@ -120,7 +125,9 @@ const SCHEMA = {
            // appended in v2026.10.08-1: a "send later" ticket split out of another one
            'parent_ticket_id',
            // appended v2026.10.08-3: where the goods go and who the customer is
-           'destination_country', 'customer_group']
+           'destination_country', 'customer_group',
+           // appended v2026.10.10-3 (FPR): start of the current pricing round (SLA) · last SLA reminder sent
+           'pricing_started_at', 'last_reminded_at']
   },
   TicketItems: {
     key: 'item_id',
@@ -135,7 +142,9 @@ const SCHEMA = {
            // Sales follow-up after the price (appended v2026.10.08-4): did the customer buy? (see Deals.gs)
            'deal_status', 'deal_reason', 'deal_note', 'deal_next_date', 'deal_updated_by', 'deal_updated_at', 'deal_closed_at',
            // follow-up v2 (appended v2026.10.09-1, same structure as the MGS Sales app): where the customer is + what Sales does next
-           'deal_stage', 'deal_next_step']
+           'deal_stage', 'deal_next_step',
+           // appended v2026.10.10-3 (FPR): why this item has fewer suppliers than Settings › min_suppliers
+           'supplier_shortfall_reason']
   },
   Quotations: {
     key: 'quote_id',
@@ -147,7 +156,9 @@ const SCHEMA = {
            // Food-specific (optional) — appended later, keep at the end
            'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life',
            // Selling price (appended): clearance cost per unit and landed cost = net cost + clearance
-           'clearance_thb', 'landed_unit_cost_thb']
+           'clearance_thb', 'landed_unit_cost_thb',
+           // appended v2026.10.10-3 (FPR): landed-cost breakdown per unit (THB) behind clearance_thb · date of the FX rate
+           'cost_breakdown_json', 'fx_date']
   },
   Checklist: {
     key: 'check_id',
@@ -173,6 +184,14 @@ const SCHEMA = {
   SlaAlerts: {
     key: 'alert_key',
     cols: ['alert_key', 'ticket_id', 'stage', 'stage_entered_at', 'level', 'created_at']
+  },
+  NotifLog: {
+    key: 'log_id',
+    cols: ['log_id', 'ts', 'ticket_id', 'ticket_no', 'bot', 'event', 'status', 'http_code', 'attempts', 'response', 'summary']
+  },
+  Holidays: {
+    key: 'date',
+    cols: ['date', 'name']
   },
   ErrorLog: {
     key: 'ts',
@@ -242,6 +261,8 @@ const UNITS = ['กก.', 'ตัน', 'กล่อง', 'แพ็ค', 'ถ�
 /** Delivery terms on a vendor quotation (food imports are usually CIF / CFR; local suppliers deliver). */
 const INCOTERMS = ['EXW', 'FCA', 'FOB', 'CFR', 'CIF', 'DAP', 'DDP', 'DELIVERED'];
 const INCOTERM_LABEL = { EXW: 'EXW', FCA: 'FCA', FOB: 'FOB', CFR: 'CFR (C&F)', CIF: 'CIF', DAP: 'DAP', DDP: 'DDP', DELIVERED: 'ส่งถึงคลัง MGS' };
+/** Drive folder for attachments (created by setupDatabase): <root>/FPR-YYMM-#### */
+const DRIVE_ROOT_NAME = 'FPR Attachments';
 const ATTACHMENT_CATEGORIES = ['request', 'info_response', 'quotation', 'quote_photo', 'other'];
 /** Purchasing-side files (vendor quotation documents + supplier product photos): cost roles only, never Sales. */
 const COST_FILE_CATEGORIES_ = ['quotation', 'quote_photo'];
@@ -269,6 +290,14 @@ const DEFAULT_SETTINGS = [
     'รออนุมัติภายในของลูกค้า', 'ใกล้ปิดการขาย', 'ลูกค้าเลื่อนโครงการ']), 'สถานะกับลูกค้าตอนนี้ (dropdown ในการอัปเดตความคืบหน้า)'],
   ['deal_next_steps', JSON.stringify(['โทรติดตาม', 'นัดเข้าพบลูกค้า', 'ส่งตัวอย่างสินค้า', 'ส่งเอกสาร / ข้อมูลเพิ่มเติม', 'ขอปรับราคาจาก SR', 'รอ PO',
     'ปิดการขาย', 'ยุติการติดตาม']), 'ขั้นตอนถัดไปของ Sales (dropdown ในการอัปเดตความคืบหน้า)'],
+  ['sales_manager_step', 'false', 'true = คำขอผ่าน Sales Manager ก่อน GM · false (FPR) = ส่งตรงถึง GM'],
+  ['gm_assigns_sr', 'true', 'true (FPR) = GM เลือก Sourcing ผู้ทำราคาตอนอนุมัติ · false = เข้าคิวให้ SR กดรับงานเอง'],
+  ['min_suppliers', '3', 'จำนวน supplier ขั้นต่ำต่อรายการก่อนส่งราคา (น้อยกว่านี้ต้องกรอกเหตุผล)'],
+  ['min_gp_percent', '10', 'GP % ขั้นต่ำ — ต่ำกว่านี้แสดงเตือนสีแดงในหน้าทำราคาและหน้าอนุมัติ'],
+  ['fpr_sla', JSON.stringify({ GM_REVIEW: { hours: 4 }, PRICING: { days: 2 }, SM_REVIEW: { hours: 4 }, GM_FINAL_REVIEW: { hours: 4 } }),
+    'SLA ของ FPR นับเฉพาะเวลาทำงาน (work_hours) ไม่นับเสาร์-อาทิตย์และวันในแท็บ Holidays · hours = ชั่วโมงทำงาน, days = วันทำการ'],
+  ['work_hours', JSON.stringify({ start: '08:30', end: '17:30', days: [1, 2, 3, 4, 5] }), 'เวลาทำงานสำหรับนับ SLA (days: 1 = จันทร์ … 6 = เสาร์, 7 = อาทิตย์)'],
+  ['reminder_repeat_work_hours', '8', 'FPR Reminder แจ้งซ้ำรายการเดิมได้ไม่เกิน 1 ครั้งต่อกี่ชั่วโมงทำงาน'],
   ['max_photos_per_quote', '10', 'จำนวนรูปสินค้าสูงสุดต่อ Supplier 1 เจ้า (ต่อใบเสนอราคา 1 รายการ)'],
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
   ['fx_defaults', JSON.stringify({ USD: 35 }), 'อัตราแลกเปลี่ยนเริ่มต้น (บาทต่อ 1 หน่วย) ที่เติมให้ในหน้าใบเสนอราคา · SR แก้ได้ทุกใบ · สกุลที่ไม่มีในนี้ SR กรอกเอง'],
@@ -320,8 +349,12 @@ function appError_(code, message, details) {
  */
 function api_(fnName, fn) {
   try {
-    return { ok: true, data: fn() };
+    const data = fn();
+    // Lark cards queued during the request are sent only now, after everything is committed (Bots.gs)
+    if (BOT_QUEUE_.length) { try { flushBotQueue_(); } catch (e) { console.error('flushBotQueue_', e); } }
+    return { ok: true, data: data };
   } catch (err) {
+    BOT_QUEUE_ = [];   // nothing was approved → nothing is announced
     if (err && err.isApp) {
       return { ok: false, code: err.code, error: err.message, details: err.details || null };
     }
@@ -876,12 +909,20 @@ function withIdentity_(email, fn) {
   }
 }
 
+/** Users › role: our keys, plus the FPR names (Requester / Sourcing / SourcingManager / GM / Admin). */
+const ROLE_ALIAS_ = { requester: 'sales', sourcing: 'sr', sourcingmanager: 'sr_manager', 'sourcing manager': 'sr_manager', 'sourcing_manager': 'sr_manager',
+  'sales manager': 'manager', salesmanager: 'manager', 'sr manager': 'sr_manager' };
+function roleOf_(raw) {
+  const k = String(raw || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return ROLE_ALIAS_[k] || ROLE_ALIAS_[k.replace(/ /g, '')] || k;
+}
+
 function normUser_(r) {
   if (!r) return null;
   return {
     email: String(r.email).trim().toLowerCase(),
     full_name: String(r.full_name || r.email),
-    role: String(r.role || '').trim().toLowerCase(),
+    role: roleOf_(r.role),
     department_code: String(r.department_code || '').trim(),
     is_active: toBool_(r.is_active),
     lark_open_id: String(r.lark_open_id || '')
@@ -1058,7 +1099,9 @@ function ticketById_(ticketId) {
 
 /** Load a ticket the user is allowed to see; otherwise NOT_FOUND (do not reveal existence). */
 function ticketForUser_(u, ticketId) {
-  const t = ticketById_(cleanText_(ticketId));
+  const key = cleanText_(ticketId);
+  // links from Lark cards use the FPR number (?id=FPR-2610-0001); the app uses the ticket_id
+  const t = /^(FPR|PR)-/i.test(key) ? (function () { const r = findOne_(TAB.TICKETS, 'ticket_no', key.toUpperCase()); return r ? normTicket_(r) : null; })() : ticketById_(key);
   if (!t || !canSeeTicket_(u, t)) {
     throw appError_('NOT_FOUND', 'ไม่พบใบขอราคา หรือคุณไม่มีสิทธิ์เข้าถึง');
   }
@@ -1109,6 +1152,28 @@ function quoteCosts_(unitPrice, fxRate, vatTerm, vatRate, clearance) {
   };
 }
 
+/**
+ * Landed-cost breakdown per unit (THB) → total import cost (stored as clearance_thb):
+ *   CIF   = net unit cost THB + freight + insurance
+ *   duty  = CIF × duty %
+ *   total = freight + insurance + duty + import fees (อย. / กรมประมง) + cold storage + inland transport + other
+ * bd: { freight, insurance, duty_pct, fees, cold, inland, other } — returns a copy with duty_thb + total_thb.
+ */
+const COST_PARTS_ = ['freight', 'insurance', 'fees', 'cold', 'inland', 'other'];
+function costBreakdown_(netUnitCostThb, bd) {
+  const out = {};
+  COST_PARTS_.forEach(function (k) { out[k] = Number(bd[k]) || 0; });
+  out.duty_pct = Number(bd.duty_pct) || 0;
+  out.duty_thb = round_((netUnitCostThb + out.freight + out.insurance) * out.duty_pct / 100, 4);
+  out.total_thb = round_(out.freight + out.insurance + out.duty_thb + out.fees + out.cold + out.inland + out.other, 4);
+  return out;
+}
+
+function minGpPercent_() {
+  const v = Number(setting_('min_gp_percent', 10));
+  return isFinite(v) && v >= 0 && v < 100 ? v : 10;
+}
+
 function defaultGp_() {
   const v = Number(setting_('default_gp_percent', 15));
   return isFinite(v) && v >= 0 && v < 100 ? v : 15;
@@ -1126,6 +1191,8 @@ function itemPricing_(it, winner) {
     landed_cost_thb: round_(winner.landed_unit_cost_thb, 2),
     gp_percent: gp,
     gp_is_default: it.gp_percent === null || it.gp_percent === '',
+    gp_below_min: gp < minGpPercent_(),
+    min_gp_percent: minGpPercent_(),
     profit_thb: round_(sell - round_(winner.landed_unit_cost_thb, 2), 2),   // table rows add up: landed + profit = selling
     sell_price_thb: sell,
     target_price: it.target_price || 0,
@@ -1180,6 +1247,9 @@ function normQuote_(r) {
     incoterm: String(r.incoterm || ''),
     shelf_life: String(r.shelf_life || ''),
     clearance_thb: r.clearance_thb === '' || r.clearance_thb === undefined ? 0 : Number(r.clearance_thb),
+    cost_breakdown: r.cost_breakdown_json ? parseJson_(r.cost_breakdown_json, null) : null,
+    cost_breakdown_json: String(r.cost_breakdown_json || ''),
+    fx_date: r.fx_date ? fmtDate_(r.fx_date) : '',
     landed_unit_cost_thb: r.landed_unit_cost_thb === '' || r.landed_unit_cost_thb === undefined
       ? Number(r.net_unit_cost_thb) + (r.clearance_thb === '' || r.clearance_thb === undefined ? 0 : Number(r.clearance_thb))
       : Number(r.landed_unit_cost_thb),
@@ -1319,53 +1389,39 @@ const PRICE_GROUP_KEY_ = '#price_group';
 const MGMT_GROUP_KEY_ = '#mgmt_group';
 
 /**
- * Automatic Lark group messages. Each event goes to ONE group:
- *   sales = LARK_PRICE_GROUP_CHAT_ID (blank → LARK_GROUP_CHAT_ID) — the group with every Sales
- *   mgmt  = LARK_MGMT_GROUP_CHAT_ID  (blank → not sent)            — SR, SR Manager, GM
- * Which events are sent: Settings › lark_group_events (JSON list of keys; default = all).
- * RULE: a group message NEVER carries a price, cost, vendor name, GP or a free-text comment
- * (comments may talk about cost). It says what happened, to which request, and links to the app,
- * where each person sees only what their role allows.
+ * Group messages now go to ONE Lark group ("Food Price Request") through the custom bot "FPR Bot" — see Bots.gs.
+ * RULE (unchanged): a group card NEVER carries a price, cost, vendor name or GP; free-text comments only for
+ * sales-side decisions (request rejected / returned / cancelled), never for price reviews.
  */
-const GROUP_EVENTS_ = {
-  new_request:    { group: 'sales', icon: '🆕', color: 'blue',      label: 'คำขอราคาใหม่' },
-  sales_approved: { group: 'sales', icon: '🛒', color: 'turquoise', label: 'GM อนุมัติฝั่งขายแล้ว — เข้าคิว SR' },
-  sr_claimed:     { group: 'sales', icon: '🙋', color: 'turquoise', label: 'SR รับงานแล้ว' },
-  queue_return:   { group: 'sales', icon: '↩️', color: 'orange',    label: 'SR ตีกลับ — ข้อมูลไม่ครบ' },
-  need_info:      { group: 'sales', icon: '❓', color: 'orange',    label: 'SR ขอข้อมูลเพิ่ม' },
-  rejected:       { group: 'sales', icon: '⛔', color: 'red',       label: 'ไม่อนุมัติคำขอราคา' },
-  price_done:     { group: 'sales', icon: '✅', color: 'green',     label: 'ทำราคาเสร็จแล้ว' },
-  follow_up:      { group: 'sales', icon: '📌', color: 'orange',    label: 'แยกรายการส่งราคาตามหลัง' },
-  deal_won:       { group: 'sales', icon: '🎉', color: 'green',     label: 'ปิดการขายได้' },
-  price_review:   { group: 'mgmt',  icon: '🧾', color: 'purple',    label: 'ราคารอ SR Manager ตรวจ' },
-  gm_buy:         { group: 'mgmt',  icon: '📦', color: 'purple',    label: 'ราคารอ GM อนุมัติฝั่งซื้อ' },
-  price_returned: { group: 'mgmt',  icon: '🔁', color: 'orange',    label: 'ตีกลับให้ SR แก้ราคา' },
-  revision:       { group: 'mgmt',  icon: '✏️', color: 'orange',    label: 'Sales ขอให้ปรับราคา' }
-};
-const GROUP_KEY_OF_ = { sales: PRICE_GROUP_KEY_, mgmt: MGMT_GROUP_KEY_ };
 
-/** transition → group event (null = no group message). */
-function groupEventOfTransition_(action, saved) {
-  if (saved.stage === 'rejected' && (action === 'manager_reject' || action === 'gm_reject')) return 'rejected';
-  return {
-    gm_approve: 'sales_approved', claim: 'sr_claimed', queue_return: 'queue_return', request_info: 'need_info',
-    submit_quote: 'price_review', srm_approve: 'gm_buy', srm_return: 'price_returned', gm_price_return: 'price_returned',
-    gm_price_approve: 'price_done', request_revision: 'revision'
-  }[action] || null;
-}
-
-function groupEventsEnabled_() {
-  const v = setting_('lark_group_events', null);
-  return Array.isArray(v) ? v : Object.keys(GROUP_EVENTS_);
-}
-
-/** Item lines for a group message: product + spec only (no price, no vendor). */
-function groupItemLines_(t) {
-  return activeItemsOf_(t.ticket_id).map(function (it) {
-    if (it.quote_status) return '• ' + itemStatusLine_(it).replace(/\*\*/g, '');
-    const spec = [it.size, it.packing_size].filter(Boolean).join(' · ');
-    return '• #' + it.line_no + ' ' + it.product_name + (spec ? ' (' + spec + ')' : '') + ' — ' + fmtQty_(it.qty) + ' ' + it.uom + '/เดือน';
-  });
+/** transition → { event, extra } for the FPR Bot (null = no card). */
+function groupEventOfTransition_(action, saved, note, meta) {
+  const sales = [saved.requestor_email];
+  const sr = [saved.sr_email];
+  switch (action) {
+    case 'resubmit':
+    case 'manager_approve': return saved.stage === 'pending_gm' ? { event: 'submitted', extra: {} } : null;
+    case 'gm_approve': return { event: saved.stage === 'doc_check' ? 'assigned' : 'queued', extra: {} };
+    case 'claim':
+    case 'assign': return { event: 'assigned', extra: {} };
+    case 'queue_return':
+    case 'request_info': return { event: 'need_info', extra: { lines: meta && meta.missing_items && meta.missing_items.length ? ['**ข้อมูลที่ต้องเพิ่ม:** ' + meta.missing_items.join(', ')] : [] } };
+    case 'submit_quote': return { event: 'sm_review', extra: { lines: reviewFacts_(saved) } };
+    case 'srm_approve': return { event: 'gm_final', extra: { lines: reviewFacts_(saved) } };
+    case 'gm_price_approve': return { event: 'approved', extra: { lines: ['ราคาขายส่งถึงผู้ขอในระบบแล้ว · ผู้ขอกด “รับทราบราคา” หรือ “ขอปรับราคา” ได้ในหน้ารายการ'] } };
+    case 'srm_return':
+    case 'gm_price_return': return { event: 'returned', extra: { fixer: sr, lines: ['ตีกลับให้ Sourcing แก้ราคา — ดูเหตุผลในระบบ'] } };
+    case 'gm_return':
+    case 'manager_return': return { event: 'returned', extra: { fixer: sales, reason: note, lines: ['ตีกลับให้ผู้ขอแก้ไขคำขอ แล้วส่งใหม่'] } };
+    case 'manager_reject':
+    case 'gm_reject': return { event: 'rejected', extra: { reason: note } };
+    case 'srm_reject':
+    case 'gm_price_reject': return { event: 'rejected', extra: { lines: ['ปฏิเสธในขั้นอนุมัติราคา — ดูเหตุผลในระบบ'] } };
+    case 'cancel':
+    case 'admin_cancel': return { event: 'cancelled', extra: { reason: note } };
+    case 'request_revision': return { event: 'revision', extra: { lines: ['ผู้ขอขอให้ปรับราคา — ดูรายละเอียดในระบบ'] } };
+    default: return null;
+  }
 }
 
 function fmtQty_(n) {
@@ -1373,34 +1429,9 @@ function fmtQty_(n) {
   return isFinite(v) ? String(Math.round(v * 100) / 100).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '-';
 }
 
-/**
- * Queue one group message for `event` (skipped when the event is switched off in Settings).
- * extra: { lines: [...] } — structured, price-free facts only.
- */
+/** Queue one FPR Bot card (sent after the request commits). Kept for callers: deal_won, follow_up, submitted … */
 function enqueueGroupEvent_(event, t, extra) {
-  const ev = GROUP_EVENTS_[event];
-  if (!ev || groupEventsEnabled_().indexOf(event) === -1) return 0;
-  const x = extra || {};
-  const req = userByEmail_(t.requestor_email);
-  const sr = t.sr_email ? userByEmail_(t.sr_email) : null;
-  const actor = safeEmail_() ? userByEmail_(safeEmail_()) : null;
-  const head = [
-    'ลูกค้า: **' + (t.customer_name || '-') + '**' + (t.customer_group ? ' · ' + t.customer_group : '') +
-      (t.destination_country && t.destination_country !== 'ไทย' ? ' · ปลายทาง ' + t.destination_country : ''),
-    'Sales: ' + (req ? req.full_name : t.requestor_email) + (sr ? ' · SR: ' + sr.full_name : '') +
-      (actor && event !== 'new_request' ? ' · โดย ' + actor.full_name : '')
-  ];
-  if (event === 'new_request' && t.due_date) head.push('ต้องการราคาภายใน ' + fmtDate_(t.due_date, 'dd/MM/yyyy') + (t.priority === 'urgent' || t.priority === 'high' ? ' · ⚡ ด่วน' : ''));
-  const body = head.join('\n') + '\n\n' + (x.items === false ? '' : groupItemLines_(t).join('\n')) +
-    ((x.lines || []).length ? '\n\n' + x.lines.join('\n') : '') +
-    (event === 'price_done' ? '\n\nราคาขายส่งถึง Sales ผู้ขอทาง Lark ส่วนตัวแล้ว · ดูรายละเอียดในระบบ' : '');
-  insertRows_(TAB.NOTIFICATIONS, [{
-    notif_id: uuid_(), user_email: GROUP_KEY_OF_[ev.group], ticket_id: t.ticket_id, type: 'group_' + event,
-    title: ev.icon + ' [' + t.ticket_no + '] ' + ev.label + ' — ' + (t.customer_name || t.title),
-    body: body.slice(0, 1500), link: ticketLink_(t, 'ticket'), is_read: false, read_at: '', created_at: new Date(),
-    lark_status: 'pending', lark_attempts: 0, lark_error: '', lark_sent_at: ''
-  }]);
-  return 1;
+  return queueFprCard_(event, t, extra || {});
 }
 
 /** Facts for the management group when a price goes to review: how many offers / photos (never vendor names or prices). */
@@ -1430,9 +1461,9 @@ function sellPriceLines_(t) {
   });
 }
 
-/** "Price finished" group message — status only, NO prices (kept as a named helper for callers / tests). */
+/** "Price approved" group card — status only, NO prices. */
 function enqueuePriceDoneGroup_(t) {
-  return enqueueGroupEvent_('price_done', t);
+  return queueFprCard_('approved', t, {});
 }
 
 /** 1234.5 → "1,234.50" (Lark message text). */
@@ -1490,12 +1521,13 @@ function itemStatusLine_(it) {
 
 const TRANSITION_ACTIONS = ['resubmit', 'cancel', 'manager_approve', 'manager_reject', 'manager_return',
   'gm_approve', 'gm_reject', 'claim', 'queue_return', 'assign', 'request_info', 'respond_info', 'doc_complete',
-  'submit_quote', 'srm_approve', 'srm_return', 'gm_price_approve', 'gm_price_return', 'accept', 'request_revision'];
+  'submit_quote', 'srm_approve', 'srm_return', 'gm_price_approve', 'gm_price_return', 'accept', 'request_revision',
+  'gm_price_reject', 'admin_cancel', 'srm_reject', 'gm_return'];
 
 const ACTION_LABEL_TH = {
   create: 'สร้างใบขอราคา', resubmit: 'ส่งใบขอราคาอีกครั้ง', cancel: 'ยกเลิกใบขอราคา',
   manager_approve: 'Sales Manager อนุมัติ', manager_reject: 'Sales Manager ไม่อนุมัติ', manager_return: 'Sales Manager ส่งกลับแก้ไข',
-  deal_update: 'อัปเดตผลการขาย', gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
+  deal_update: 'อัปเดตผลการขาย', gm_price_reject: 'GM ปฏิเสธราคา', srm_reject: 'SR Manager ปฏิเสธ', gm_return: 'GM ตีกลับให้ผู้ขอแก้ไข', admin_cancel: 'ผู้ดูแลระบบยกเลิกใบ', gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
   request_info: 'SR ขอข้อมูลเพิ่ม', respond_info: 'Sales ส่งข้อมูลเพิ่ม', doc_complete: 'SR ตรวจเอกสารครบ',
   submit_quote: 'SR ส่งราคาให้ SR Manager ตรวจ', srm_approve: 'SR Manager อนุมัติราคา', srm_return: 'SR Manager ส่งกลับให้แก้ราคา',
   gm_price_approve: 'GM อนุมัติฝั่งซื้อ (ราคา → ส่งถึง Sales)', gm_price_return: 'GM ฝั่งซื้อ ส่งกลับให้แก้ราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
@@ -1562,11 +1594,9 @@ function createTicket(payload) {
       });
 
       const title = cleanText_(p.title, 200) || autoTitle_(customer, cleanItems);
-      const year = fmtDate_(now, 'yyyy');
-      const no = nextCounter_('ticket_no_' + year);
       const ticket = {
         ticket_id: ticketId,
-        ticket_no: 'PR-' + year + '-' + ('000' + no).slice(-Math.max(4, String(no).length)),
+        ticket_no: nextTicketNo_(now),
         title: title,
         description: cleanText_(p.description, CFG.MAX_TEXT),
         customer_name: customer,
@@ -1607,7 +1637,7 @@ function createTicket(payload) {
       const t = normTicket_(ticket);
       enqueueNotifications_(stageAssignees_(t), t, 'approval_required',
         '[' + t.ticket_no + '] ใบขอราคาใหม่รออนุมัติ', t.title + ' — ' + u.full_name, ticketLink_(t));
-      enqueueGroupEvent_('new_request', t);
+      if (t.stage === 'pending_gm') queueFprCard_('submitted', t, {});
       return { ticket: publicTicket_(t), duplicate: false };
     });
   });
@@ -1708,9 +1738,24 @@ function doTransition_(ticketId, action, comment, payload) {
       if (t.stage !== 'pending_gm') badState();
       patch.gm_email = u.email;
       if (action === 'gm_approve') {
-        patch.stage = 'pending_assign';
         patch.gm_approved_at = now;
-        notifyType = 'job_available';
+        if (toBool_(setting_('gm_assigns_sr', true))) {
+          // FPR: GM picks the Sourcing person who prices it → straight to ASSIGNED (document check + pricing)
+          const target = userByEmail_(payload.sr_email);
+          if (!target || !target.is_active || target.role !== 'sr') {
+            throw appError_('INVALID_ASSIGNEE', 'กรุณาเลือก Sourcing ผู้ทำราคา (ต้องเป็น SR ที่ใช้งานอยู่)');
+          }
+          patch.sr_email = target.email;
+          patch.stage = 'doc_check';
+          patch.assigned_at = now;
+          patch.pricing_started_at = now;
+          meta = { assigned_to: target.email };
+          extraRecipients = [target.email];
+          notifyType = 'job_assigned';
+        } else {
+          patch.stage = 'pending_assign';
+          notifyType = 'job_available';
+        }
       } else {
         needComment('กรุณาระบุเหตุผลที่ไม่อนุมัติ');
         patch.stage = 'rejected';
@@ -1726,6 +1771,7 @@ function doTransition_(ticketId, action, comment, payload) {
       patch.sr_email = u.email;
       patch.stage = 'doc_check';
       patch.assigned_at = now;
+      patch.pricing_started_at = now;
       break;
     }
     case 'queue_return': {
@@ -1760,6 +1806,7 @@ function doTransition_(ticketId, action, comment, payload) {
       notifyType = 'job_assigned';
       patch.sr_email = target.email;
       patch.assigned_at = now;
+      patch.pricing_started_at = now;
       if (t.stage === 'pending_assign') patch.stage = 'doc_check';
       break;
     }
@@ -1832,8 +1879,51 @@ function doTransition_(ticketId, action, comment, payload) {
       } else {
         needComment('กรุณาระบุสิ่งที่ต้องการให้ SR แก้ไขราคา');
         patch.stage = 'sourcing';
+        patch.pricing_started_at = now;
         notifyType = 'price_returned';
       }
+      break;
+    }
+    case 'srm_reject': {
+      // FPR: Sourcing Manager may end the request at the price review (reason required)
+      if (u.role !== 'sr_manager') forbid('เฉพาะ SR Manager เท่านั้นที่ปฏิเสธได้');
+      if (t.sr_email === u.email) throw appError_('SELF_APPROVAL', 'ไม่สามารถตัดสินราคาที่ตัวเองเป็นผู้หาได้');
+      if (t.stage !== 'pending_sr_manager') badState();
+      needComment('กรุณาระบุเหตุผลที่ปฏิเสธ');
+      patch.stage = 'rejected';
+      patch.rejected_at = now;
+      patch.rejection_reason = note;
+      extraRecipients = [t.requestor_email, t.sr_email];
+      break;
+    }
+    case 'gm_return': {
+      // FPR GM_REVIEW: send the request back to the requester to fix (resubmit → GM again)
+      if (u.role !== 'gm') forbid('เฉพาะ GM เท่านั้นที่ตีกลับคำขอได้');
+      if (t.stage !== 'pending_gm') badState();
+      needComment('กรุณาระบุสิ่งที่ต้องการให้ผู้ขอแก้ไข');
+      patch.gm_email = u.email;
+      patch.stage = 'returned';
+      break;
+    }
+    case 'gm_price_reject': {
+      // FPR: GM may end the request at the final price review (reason required)
+      if (u.role !== 'gm') forbid('เฉพาะ GM เท่านั้นที่ปฏิเสธราคาได้');
+      if (t.stage !== 'pending_gm_price') badState();
+      needComment('กรุณาระบุเหตุผลที่ปฏิเสธ');
+      patch.stage = 'rejected';
+      patch.rejected_at = now;
+      patch.rejection_reason = note;
+      extraRecipients = [t.requestor_email, t.sr_email];
+      break;
+    }
+    case 'admin_cancel': {
+      if (u.role !== 'admin') forbid('เฉพาะผู้ดูแลระบบเท่านั้น');
+      if (OPEN_STATUSES.indexOf(t.status) === -1) badState('ใบนี้ปิดไปแล้ว');
+      needComment('กรุณาระบุเหตุผลที่ยกเลิก');
+      patch.stage = 'cancelled';
+      patch.cancelled_at = now;
+      patch.rejection_reason = note;
+      extraRecipients = [t.requestor_email, t.sr_email];
       break;
     }
     case 'gm_price_approve':
@@ -1885,7 +1975,7 @@ function doTransition_(ticketId, action, comment, payload) {
 
   const saved = normTicket_(updateRow_(TAB.TICKETS, t.ticket_id, patch));
 
-  if (t.stage === 'pending_assign' && saved.stage === 'doc_check') {
+  if ((t.stage === 'pending_assign' || t.stage === 'pending_gm') && saved.stage === 'doc_check') {
     generateChecklist_(saved.ticket_id);
   }
 
@@ -1917,15 +2007,8 @@ function doTransition_(ticketId, action, comment, payload) {
   } else {
     enqueueNotifications_(recipients, saved, notifyType, nTitle, nBody + (note ? '\n' + note : ''), ticketLink_(saved, page));
   }
-  const groupEvent = groupEventOfTransition_(action, saved);
-  if (groupEvent) {
-    const lines = [];
-    if ((action === 'queue_return' || action === 'request_info') && meta && meta.missing_items && meta.missing_items.length) {
-      lines.push('ข้อมูลที่ต้องเพิ่ม: ' + meta.missing_items.join(', '));
-    }
-    if (groupEvent === 'price_review' || groupEvent === 'gm_buy') Array.prototype.push.apply(lines, reviewFacts_(saved));
-    enqueueGroupEvent_(groupEvent, saved, { lines: lines });
-  }
+  const ge = groupEventOfTransition_(action, saved, note, meta);
+  if (ge) queueFprCard_(ge.event, saved, ge.extra);
 
   return { ticket: publicTicket_(saved) };
 }
@@ -1959,11 +2042,14 @@ function validateQuotesForSubmit_(t) {
   const expired = [];
   const winners = [];
   const today = todayBkk_();
+  const minSup = Math.max(1, Number(setting_('min_suppliers', 3)) || 1);
+  const fewSup = [];
   let grand = 0;
   items.forEach(function (it) {
     if (it.quote_status) return;   // 'not_offered' / 'follow_up': answered without a price (follow-up = its own ticket)
     const quotes = activeQuotesOfItem_(it.item_id);
     if (!quotes.length) { noQuote.push(it.line_no); return; }
+    if (quotes.length < minSup && !it.supplier_shortfall_reason) fewSup.push(it.line_no);
     const cmp = compareQuotes_(it.qty, quotes);
     const w = cmp.filter(function (q) { return q.is_selected; });
     if (w.length > 1) {
@@ -1980,6 +2066,10 @@ function validateQuotesForSubmit_(t) {
       gp_percent: pr.gp_percent, sell_price_thb: pr.sell_price_thb });
   });
   if (noQuote.length) throw appError_('MISSING_QUOTATION', 'รายการที่ยังไม่มีราคา vendor: ลำดับที่ ' + noQuote.join(', '), { lines: noQuote });
+  if (fewSup.length) {
+    throw appError_('FEW_SUPPLIERS', 'ต้องมีราคา supplier อย่างน้อย ' + minSup + ' ราย หรือกรอกเหตุผลที่มีไม่ถึง: ลำดับที่ ' + fewSup.join(', '),
+      { lines: fewSup, min: minSup });
+  }
   if (noWinner.length) throw appError_('MISSING_WINNER', 'รายการที่ยังไม่ได้เลือกผู้ชนะ: ลำดับที่ ' + noWinner.join(', '), { lines: noWinner });
   if (noReason.length) {
     throw appError_('REASON_REQUIRED', 'เลือกผู้ชนะที่ไม่ใช่ราคาต่ำสุด ต้องระบุเหตุผล: ลำดับที่ ' + noReason.join(', '), { lines: noReason });
@@ -2070,10 +2160,21 @@ function ticketDetail_(u, t) {
         actions: allowedActions_(u, t)
       },
       me: { email: u.email, full_name: u.full_name, role: u.role },
+      sla: fprSlaInfo_(t),
       vat_rate: vatRate_(),
       app_version: APP_VERSION
     };
   }
+}
+
+/** SLA deadline of the current FPR step for the web page (working time, Bangkok), or null. */
+function fprSlaInfo_(t) {
+  try {
+    const s = slaDue_(t, workHours_(), holidaySet_());
+    if (!s) return null;
+    return { key: s.key, label: SLA_LABEL_[s.key], due: s.due.toISOString(), due_text: fmtDate_(s.due, 'dd/MM/yyyy HH:mm'),
+      hours: Math.round(s.minutes / 6) / 10, overdue: new Date() > s.due };
+  } catch (e) { return null; }
 }
 
 /** Actions to show as buttons (UI hint only — doTransition_ re-checks everything). */
@@ -2087,11 +2188,12 @@ function allowedActions_(u, t) {
     const d = departmentByCode_(t.department_code);
     if (d && d.manager_email === u.email) a.push('manager_approve', 'manager_reject', 'manager_return');
   }
-  if (u.role === 'gm' && t.stage === 'pending_gm' && t.manager_email !== u.email) a.push('gm_approve', 'gm_reject');
+  if (u.role === 'gm' && t.stage === 'pending_gm' && t.manager_email !== u.email) a.push('gm_approve', 'gm_return', 'gm_reject');
   if (u.role === 'sr' && t.stage === 'pending_assign') a.push('claim');
   if ((u.role === 'sr' || u.role === 'sr_manager') && t.stage === 'pending_assign') a.push('queue_return');
-  if (u.role === 'sr_manager' && t.stage === 'pending_sr_manager' && t.sr_email !== u.email) a.push('srm_approve', 'srm_return');
-  if (u.role === 'gm' && t.stage === 'pending_gm_price') a.push('gm_price_approve', 'gm_price_return');
+  if (u.role === 'sr_manager' && t.stage === 'pending_sr_manager' && t.sr_email !== u.email) a.push('srm_approve', 'srm_return', 'srm_reject');
+  if (u.role === 'gm' && t.stage === 'pending_gm_price') a.push('gm_price_approve', 'gm_price_return', 'gm_price_reject');
+  if (u.role === 'admin' && OPEN_STATUSES.indexOf(t.status) !== -1) a.push('admin_cancel');
   if ((u.role === 'admin' || u.role === 'sr_manager') &&
       ['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1) a.push('assign');
   if (assigned && (t.stage === 'doc_check' || t.stage === 'sourcing')) a.push('request_info');
@@ -2141,8 +2243,20 @@ function groupName_(code) {
   return g ? String(g.name) : String(code);
 }
 
-/** First approval stage: Sales Manager, or straight to GM when the department has no Sales Manager. */
+/** FPR-YYMM-#### — running number per month (Counters › fpr_YYMM). Must run inside withLock_. */
+function nextTicketNo_(now) {
+  const ym = fmtDate_(now, 'yyyy-MM');
+  const yymm = ym.slice(2, 4) + ym.slice(5, 7);
+  const no = nextCounter_('fpr_' + yymm);
+  return 'FPR-' + yymm + '-' + ('000' + no).slice(-Math.max(4, String(no).length));
+}
+
+/**
+ * First approval stage. FPR (Settings › sales_manager_step = false): straight to GM.
+ * Old flow (true): the department's Sales Manager first, GM when the department has none.
+ */
 function firstApprovalStage_(dept) {
+  if (!toBool_(setting_('sales_manager_step', false))) return 'pending_gm';
   const mgr = dept && dept.manager_email ? userByEmail_(dept.manager_email) : null;
   return mgr && mgr.is_active && mgr.role === 'manager' ? 'pending_manager' : 'pending_gm';
 }
@@ -2197,7 +2311,8 @@ function activeItemsOf_(ticketId) {
         deal_status: String(r.deal_status || ''), deal_reason: String(r.deal_reason || ''), deal_note: String(r.deal_note || ''),
         deal_next_date: r.deal_next_date ? fmtDate_(r.deal_next_date) : '', deal_updated_by: String(r.deal_updated_by || ''),
         deal_updated_at: isoOrBlank_(r.deal_updated_at), deal_closed_at: isoOrBlank_(r.deal_closed_at),
-        deal_stage: String(r.deal_stage || ''), deal_next_step: String(r.deal_next_step || '')
+        deal_stage: String(r.deal_stage || ''), deal_next_step: String(r.deal_next_step || ''),
+        supplier_shortfall_reason: String(r.supplier_shortfall_reason || '')
       };
     })
     .sort(function (a, b) { return a.line_no - b.line_no; });
@@ -2333,7 +2448,7 @@ const ITEM_FIELDS_ = ['product_group_code', 'product_name', 'net_weight', 'size'
   'target_price', 'target_currency'];
 const QUOTE_FIELDS_ = ['vendor_id', 'vendor_name', 'unit_price', 'currency', 'fx_rate', 'vat_term', 'moq', 'lead_time_days',
   'payment_term', 'valid_until', 'remark', 'attachment_file_id', 'is_selected', 'selection_reason',
-  'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life', 'clearance_thb'];
+  'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life', 'clearance_thb', 'cost_breakdown_json', 'fx_date'];
 
 // =============================================================================
 // Sales — header & items
@@ -2517,6 +2632,16 @@ function saveQuotationCore_(u, p) {
 
   const clean = validateQuoteFields_(p, t);
   const vatRate = existing ? Number(existing.vat_rate) : vatRate_();
+  const bd = clean._breakdown;
+  delete clean._breakdown;
+  if (bd) {
+    // landed-cost breakdown entered → the import cost per unit is computed, never typed
+    const full = costBreakdown_(quoteCosts_(clean.unit_price, clean.fx_rate, clean.vat_term, vatRate, 0).net_unit_cost_thb, bd);
+    clean.clearance_thb = round_(full.total_thb, 4);
+    clean.cost_breakdown_json = JSON.stringify(full);
+  } else {
+    clean.cost_breakdown_json = '';
+  }
   const costs = quoteCosts_(clean.unit_price, clean.fx_rate, clean.vat_term, vatRate, clean.clearance_thb);
   const now = new Date();
 
@@ -2597,8 +2722,24 @@ function validateQuoteFields_(p, t) {
     packing: cleanText_(p.packing, 200),
     incoterm: p.incoterm ? oneOf_(String(p.incoterm).toUpperCase(), INCOTERMS, 'เงื่อนไขการส่งมอบ (Incoterm)') : '',
     shelf_life: cleanText_(p.shelf_life, 100),
-    clearance_thb: toNumber_(p.clearance_thb, 'ค่าเคลียร์ของ (บาท/หน่วย)', { allowBlank: true, min: 0, max: 1e9 }) || 0
+    clearance_thb: toNumber_(p.clearance_thb, 'ค่าเคลียร์ของ (บาท/หน่วย)', { allowBlank: true, min: 0, max: 1e9 }) || 0,
+    fx_date: parseYmd_(p.fx_date, 'วันที่ของอัตราแลกเปลี่ยน', true),
+    _breakdown: cleanBreakdown_(p.cost_breakdown)
   };
+}
+
+/** Landed-cost breakdown from the pricing page (per unit, THB) — null when not used. */
+function cleanBreakdown_(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const keys = COST_PARTS_.concat(['duty_pct']);
+  if (!keys.some(function (k) { return raw[k] !== undefined && raw[k] !== null && String(raw[k]).trim() !== ''; })) return null;
+  const LABEL = { freight: 'ค่าขนส่ง (freight)', insurance: 'ค่าประกันภัย', fees: 'ค่าธรรมเนียมนำเข้า / ใบอนุญาต', cold: 'ค่าห้องเย็น',
+    inland: 'ค่าขนส่งในประเทศ', other: 'ค่าใช้จ่ายอื่น', duty_pct: 'อากรขาเข้า (%)' };
+  const out = {};
+  keys.forEach(function (k) {
+    out[k] = toNumber_(raw[k], LABEL[k], { allowBlank: true, min: 0, max: k === 'duty_pct' ? 100 : 1e9 }) || 0;
+  });
+  return out;
 }
 
 function deleteQuotation(quoteId) {
@@ -2713,7 +2854,8 @@ function saveSourcingDraft(ticketId, items) {
             throw e;
           }
         }
-        return { item: it, quotes: quotes, keepIds: keepIds, winner: winner, reason: cleanText_(row.selection_reason, 500), gp: gp };
+        return { item: it, quotes: quotes, keepIds: keepIds, winner: winner, reason: cleanText_(row.selection_reason, 500), gp: gp,
+          shortfall: row.shortfall_reason === undefined ? null : cleanText_(row.shortfall_reason, 500) };
       });
 
       // 2) write
@@ -2725,6 +2867,12 @@ function saveSourcingDraft(ticketId, items) {
           updateRow_(TAB.ITEMS, p.item.item_id, { gp_percent: newGp, updated_at: new Date() });
           appendLog_({ ticket_id: t.ticket_id, action: 'pricing_updated', actor_email: u.email, actor_role: u.role,
             metadata: { item_id: p.item.item_id, line_no: p.item.line_no, diff: { gp_percent: { old: oldGp, 'new': newGp } } } });
+          changes++;
+        }
+        if (p.shortfall !== null && p.shortfall !== p.item.supplier_shortfall_reason) {
+          updateRow_(TAB.ITEMS, p.item.item_id, { supplier_shortfall_reason: p.shortfall, updated_at: new Date() });
+          appendLog_({ ticket_id: t.ticket_id, action: 'pricing_updated', actor_email: u.email, actor_role: u.role,
+            metadata: { item_id: p.item.item_id, line_no: p.item.line_no, diff: { supplier_shortfall_reason: { old: p.item.supplier_shortfall_reason, 'new': p.shortfall } } } });
           changes++;
         }
         activeQuotesOfItem_(p.item.item_id).forEach(function (q) {
@@ -2859,14 +3007,12 @@ function setItemQuoteStatus(ticketId, itemId, status, reason, expectedVersion) {
 
 /** Create the follow-up ticket for one item. Runs inside withLock_ (called by setItemQuoteStatus). */
 function splitFollowUp_(u, t, it, why, now) {
-  const year = fmtDate_(now, 'yyyy');
-  const no = nextCounter_('ticket_no_' + year);
   const ticketId = uuid_();
   const ticket = {};
   SCHEMA.Tickets.cols.forEach(function (c) { ticket[c] = t[c] === undefined ? '' : t[c]; });
   Object.assign(ticket, {
     ticket_id: ticketId,
-    ticket_no: 'PR-' + year + '-' + ('000' + no).slice(-Math.max(4, String(no).length)),
+    ticket_no: nextTicketNo_(now),
     title: cleanText_('ส่งตามหลัง ' + t.ticket_no + ': ' + (t.customer_name || '') + ' — ' + it.product_name, 200),
     parent_ticket_id: t.ticket_id,
     // approvals of the request carry over; the job continues where the original one is
@@ -3465,7 +3611,7 @@ function updateDeal(itemId, patch) {
           from: before.status, to: status, reason: reason, stage: stage, next_step: nextStep, next_date: next ? fmtDate_(next) : '' } });
       if (status === 'won' && before.status !== 'won') {
         const qty = Number(row.qty);
-        enqueueGroupEvent_('deal_won', t, { items: false, lines: ['• #' + row.line_no + ' ' + row.product_name +
+        enqueueGroupEvent_('deal_won', t, { lines: ['• #' + row.line_no + ' ' + row.product_name +
           ' — ลูกค้าใช้ประมาณ ' + fmtQty_(qty) + ' ' + row.uom + '/เดือน'] });
         // SR + SR Manager learn which of their prices sold (in-app + Lark DM, no price in the text)
         const srs = [t.sr_email].concat(activeUsersByRole_('sr_manager').map(function (x) { return x.email; }));
@@ -4455,7 +4601,7 @@ function larkCardColor_(type) {
   const t = String(type);
   if (t.indexOf('sla_breach') === 0) return 'red';
   if (t === 'price_done_group') return 'green';
-  const ev = t.indexOf('group_') === 0 ? GROUP_EVENTS_[t.slice(6)] : null;
+  const ev = t.indexOf('group_') === 0 ? FPR_EVENTS_[t.slice(6)] : null;
   return ev ? ev.color : 'blue';
 }
 
@@ -4585,6 +4731,376 @@ function testLarkConnection() {
 
 
 // ============================================================================
+// Bots.gs
+// ============================================================================
+/**
+ * File: Bots.gs
+ * Lark Custom Bot webhooks for the group "Food Price Request" (FPR).
+ *
+ *   Bot A "FPR Bot"       every workflow step (card colour / icon per event)      FPR_BOT_URL + FPR_BOT_SECRET
+ *   Bot B "FPR Reminder"  only work that is over its SLA (hourly trigger)         FPR_REMINDER_URL + FPR_REMINDER_SECRET
+ *   → Script Properties only (never in code or in the sheet).
+ *
+ * Rules
+ *   • Interactive cards (msg_type "interactive"), URL button to the web app (?page=ticket&id=FPR-YYMM-####).
+ *     A custom bot cannot receive button callbacks: approving is done in the web app only.
+ *   • Signed: sign = base64( HmacSHA256( key = timestamp + "\n" + secret, message = "" ) ).
+ *   • Mentions by e-mail <at email=…></at> (or <at id=open_id> when Users › lark_open_id is filled) — see buildMention().
+ *   • Group cards never carry a price, cost, GP or vendor name: only "มีราคาแล้ว" + the button.
+ *   • A card is queued inside the business transaction and sent AFTER it is committed (api_ → flushBotQueue_),
+ *     so a Lark outage can never block or roll back an approval. 3 attempts (1 s, 2 s back-off), every send in NotifLog.
+ */
+
+let TEST_BOTS_ = null;     // tests: { fpr: { url, secret }, reminder: { url, secret } }
+let BOT_QUEUE_ = [];       // cards waiting for the current request to commit
+
+const BOT_PROPS_ = {
+  fpr: { url: 'FPR_BOT_URL', secret: 'FPR_BOT_SECRET', name: 'FPR Bot' },
+  reminder: { url: 'FPR_REMINDER_URL', secret: 'FPR_REMINDER_SECRET', name: 'FPR Reminder' }
+};
+
+/**
+ * Bot A events. mention(t) → e-mails to @mention. Colours = Lark card header templates.
+ * Settings › fpr_bot_events_off (JSON list) switches events off.
+ */
+const FPR_EVENTS_ = {
+  submitted:  { icon: '📥', title: 'คำขอราคาใหม่ รอ GM อนุมัติ', color: 'blue',   mention: function () { return roleEmails_('gm'); } },
+  assigned:   { icon: '🔧', title: 'มอบหมายทำราคา', color: 'indigo',            mention: function (t) { return [t.sr_email]; } },
+  queued:     { icon: '🧾', title: 'GM อนุมัติแล้ว — รอ Sourcing รับงาน', color: 'blue', mention: function () { return roleEmails_('sr'); } },
+  sm_review:  { icon: '📊', title: 'รอ Sourcing Manager อนุมัติ', color: 'orange',  mention: function () { return roleEmails_('sr_manager'); } },
+  gm_final:   { icon: '🏁', title: 'รอ GM อนุมัติราคาสุดท้าย', color: 'purple',    mention: function () { return roleEmails_('gm'); } },
+  approved:   { icon: '🎉', title: 'อนุมัติราคาแล้ว', color: 'green',             mention: function (t) { return [t.requestor_email, t.sr_email]; } },
+  rejected:   { icon: '❌', title: 'ปฏิเสธ', color: 'red',                        mention: function (t) { return [t.requestor_email, t.sr_email]; } },
+  returned:   { icon: '↩️', title: 'ตีกลับแก้ไข', color: 'red',                    mention: function (t, x) { return x.fixer || [t.sr_email]; } },
+  need_info:  { icon: '↩️', title: 'ตีกลับ — ขอข้อมูลเพิ่มจากผู้ขอ', color: 'red', mention: function (t) { return [t.requestor_email]; } },
+  cancelled:  { icon: '🚫', title: 'ยกเลิกคำขอ', color: 'grey',                    mention: function (t) { return [t.requestor_email, t.sr_email]; } },
+  revision:   { icon: '✏️', title: 'ผู้ขอขอให้ปรับราคา', color: 'orange',          mention: function (t) { return [t.sr_email]; } },
+  follow_up:  { icon: '📌', title: 'แยกรายการส่งราคาตามหลัง', color: 'wathet',     mention: function (t) { return [t.sr_email]; } },
+  deal_won:   { icon: '🏆', title: 'ปิดการขายได้', color: 'green',                mention: function (t) { return [t.sr_email]; } }
+};
+
+/** Workflow stage → SLA key of Settings › fpr_sla. */
+const SLA_KEY_OF_STAGE_ = { pending_gm: 'GM_REVIEW', doc_check: 'PRICING', sourcing: 'PRICING', pending_sr_manager: 'SM_REVIEW', pending_gm_price: 'GM_FINAL_REVIEW' };
+const SLA_LABEL_ = { GM_REVIEW: 'GM_REVIEW (GM อนุมัติให้ทำราคา)', PRICING: 'PRICING (Sourcing ทำราคา)', SM_REVIEW: 'SM_REVIEW (Sourcing Manager)', GM_FINAL_REVIEW: 'GM_FINAL_REVIEW (GM อนุมัติราคา)' };
+
+function botConfig_(bot) {
+  if (TEST_BOTS_) return TEST_BOTS_[bot] || { url: '', secret: '' };
+  const p = PropertiesService.getScriptProperties();
+  return { url: p.getProperty(BOT_PROPS_[bot].url) || '', secret: p.getProperty(BOT_PROPS_[bot].secret) || '' };
+}
+
+function roleEmails_(role) {
+  return activeUsersByRole_(role).map(function (u) { return u.email; });
+}
+
+/** @mention markup for a card (lark_md). Swap to open_id here if e-mail mentions do not work in your tenant. */
+function buildMention(email) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return '';
+  const u = userByEmail_(e);
+  if (u && u.lark_open_id) return '<at id=' + u.lark_open_id + '></at>';
+  return '<at email=' + e + '></at>';
+}
+
+/** Lark signature: base64(HmacSHA256(key = timestamp + "\n" + secret, message = "")). */
+function larkSign_(timestamp, secret) {
+  const bytes = Utilities.computeHmacSha256Signature('', String(timestamp) + '\n' + secret);
+  return Utilities.base64Encode(bytes);
+}
+
+/** Web-app link by FPR number (opens the request page). */
+function fprLink_(t) {
+  let base = PropertiesService.getScriptProperties().getProperty(CFG.PROP.WEBAPP_URL) || '';
+  if (!base) { try { base = ScriptApp.getService().getUrl() || ''; } catch (e) { base = ''; } }
+  return base + '?page=ticket&id=' + encodeURIComponent(t.ticket_no);
+}
+
+// ---------------------------------------------------------------- working time (SLA)
+
+function workHours_() {
+  const w = setting_('work_hours', { start: '08:30', end: '17:30', days: [1, 2, 3, 4, 5] }) || {};
+  const min = function (hhmm, d) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : d; };
+  const s = min(w.start, 510), e = min(w.end, 1050);
+  return { start: s, end: e > s ? e : s + 540, days: Array.isArray(w.days) && w.days.length ? w.days.map(Number) : [1, 2, 3, 4, 5] };
+}
+
+function holidaySet_() {
+  const out = {};
+  try { rows_(TAB.HOLIDAYS).forEach(function (h) { const d = h.date ? fmtDate_(h.date) : ''; if (d) out[d] = String(h.name || 'วันหยุด'); }); } catch (e) { /* tab missing before setupDatabase */ }
+  return out;
+}
+
+// Bangkok has no daylight saving: local = UTC + 7 h
+function bkk_(ms) {
+  const d = new Date(ms + 7 * 3600000);
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate(), dow: d.getUTCDay() || 7, min: d.getUTCHours() * 60 + d.getUTCMinutes() + d.getUTCSeconds() / 60,
+    ymd: d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2) };
+}
+function bkkAt_(y, m, d, minuteOfDay) { return Date.UTC(y, m, d, 0, 0) - 7 * 3600000 + minuteOfDay * 60000; }
+function isWorkDay_(p, wh, hol) { return wh.days.indexOf(p.dow) !== -1 && !hol[p.ymd]; }
+
+/** start + `minutes` of working time → Date. */
+function addWorkMinutes_(start, minutes, wh, hol) {
+  let cur = new Date(start).getTime();
+  let left = Math.max(0, minutes);
+  for (let i = 0; i < 1000; i++) {
+    const p = bkk_(cur);
+    if (!isWorkDay_(p, wh, hol) || p.min >= wh.end) { cur = bkkAt_(p.y, p.m, p.d + 1, wh.start); continue; }
+    if (p.min < wh.start) { cur = bkkAt_(p.y, p.m, p.d, wh.start); continue; }
+    const avail = wh.end - p.min;
+    if (left <= avail) return new Date(cur + left * 60000);
+    left -= avail;
+    cur = bkkAt_(p.y, p.m, p.d + 1, wh.start);
+  }
+  return new Date(cur);
+}
+
+/** Working minutes between two times. */
+function workMinutesBetween_(a, b, wh, hol) {
+  let cur = new Date(a).getTime();
+  const end = new Date(b).getTime();
+  let total = 0;
+  for (let i = 0; i < 1000 && cur < end; i++) {
+    const p = bkk_(cur);
+    if (!isWorkDay_(p, wh, hol) || p.min >= wh.end) { cur = bkkAt_(p.y, p.m, p.d + 1, wh.start); continue; }
+    if (p.min < wh.start) { cur = bkkAt_(p.y, p.m, p.d, wh.start); continue; }
+    const dayEnd = bkkAt_(p.y, p.m, p.d, wh.end);
+    total += (Math.min(dayEnd, end) - cur) / 60000;
+    cur = bkkAt_(p.y, p.m, p.d + 1, wh.start);
+  }
+  return Math.round(total);
+}
+
+function slaMinutes_(rule, wh) {
+  const r = rule || {};
+  if (Number(r.days) > 0) return Number(r.days) * (wh.end - wh.start);
+  return Math.round((Number(r.hours) || 0) * 60);
+}
+
+/** SLA deadline of the ticket's current FPR step, or null. */
+function slaDue_(t, wh, hol) {
+  const key = SLA_KEY_OF_STAGE_[t.stage];
+  if (!key || OPEN_STATUSES.indexOf(t.status) === -1) return null;
+  const rule = (setting_('fpr_sla', {}) || {})[key];
+  const mins = slaMinutes_(rule, wh);
+  const start = key === 'PRICING' ? (t.pricing_started_at || t.stage_entered_at) : t.stage_entered_at;
+  if (!mins || !start) return null;
+  return { key: key, start: new Date(start), due: addWorkMinutes_(start, mins, wh, hol), minutes: mins };
+}
+
+// ---------------------------------------------------------------- cards
+
+/** Plain facts of a ticket for a card (no price, cost, GP or vendor). */
+function cardFacts_(t) {
+  const wh = workHours_(), hol = holidaySet_();
+  const req = userByEmail_(t.requestor_email);
+  const owners = stageAssignees_(t).map(function (e) { const u = userByEmail_(e); return u ? u.full_name : e; }).filter(String);
+  const sla = slaDue_(t, wh, hol);
+  const items = activeItemsOf_(t.ticket_id);
+  const lines = items.slice(0, 8).map(function (it) {
+    if (it.quote_status) return '• #' + it.line_no + ' ' + it.product_name + ' — ' + (it.quote_status === 'follow_up' ? 'ส่งราคาตามหลัง' : 'ไม่เสนอราคา');
+    const spec = [it.size, it.net_weight ? 'NW ' + it.net_weight : '', it.packing_size].filter(Boolean).join(' · ');
+    return '• #' + it.line_no + ' **' + it.product_name + '**' + (spec ? ' (' + spec + ')' : '') + ' — ' + fmtQty_(it.qty) + ' ' + it.uom + '/เดือน';
+  });
+  if (items.length > 8) lines.push('… และอีก ' + (items.length - 8) + ' รายการ');
+  const priced = ['pending_sr_manager', 'pending_gm_price', 'awaiting_sales_ack', 'closed'].indexOf(t.stage) !== -1;
+  return {
+    no: String(t.ticket_no), customer: (t.customer_name || '-') + (t.customer_group ? ' · ' + t.customer_group : ''),
+    requester: req ? req.full_name : t.requestor_email, status: STAGE_LABEL_TH[t.stage] || t.stage,
+    owner: owners.length ? owners.join(', ') : '-', deadline: sla ? fmtDate_(sla.due, 'dd/MM/yyyy HH:mm') : '',
+    items: lines, priced: priced
+  };
+}
+
+/** Interactive card JSON. opt: { color, title, mentions:[emails], extra:[lines], facts, overdue } */
+function buildCard_(opt) {
+  const f = opt.facts;
+  const field = function (label, value) { return { is_short: true, text: { tag: 'lark_md', content: '**' + label + '**\n' + value } }; };
+  const fields = [field('เลขที่', f.no), field('ลูกค้า', f.customer), field('ผู้ขอ', f.requester), field('สถานะ', f.status),
+    field('ผู้รับผิดชอบ', f.owner)];
+  if (f.deadline) fields.push(field('ครบกำหนด (SLA)', f.deadline + ' น.'));
+  const els = [{ tag: 'div', fields: fields }];
+  if (f.items.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '**สินค้า**\n' + f.items.join('\n') } });
+  if (f.priced) els.push({ tag: 'div', text: { tag: 'lark_md', content: '💰 **มีราคาแล้ว** — ดูราคาบนเว็บ (ต้นทุน / GP เฉพาะ Sourcing · Sourcing Manager · GM)' } });
+  (opt.extra || []).filter(String).forEach(function (x) { els.push({ tag: 'div', text: { tag: 'lark_md', content: x } }); });
+  const mentions = (opt.mentions || []).map(function (e) { return String(e || '').trim().toLowerCase(); })
+    .filter(function (e, i, a) { return e && a.indexOf(e) === i; }).map(buildMention).filter(String);
+  if (mentions.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '👉 ' + mentions.join(' ') } });
+  if (/^https:\/\//.test(opt.link || '')) {
+    els.push({ tag: 'action', actions: [{ tag: 'button', type: 'primary', text: { tag: 'plain_text', content: 'เปิดรายการ ' + f.no }, url: opt.link }] });
+  }
+  return { config: { wide_screen_mode: true }, header: { template: opt.color, title: { tag: 'plain_text', content: opt.title.slice(0, 120) } }, elements: els };
+}
+
+/**
+ * Queue a Bot A card for `event` (sent after the transaction commits).
+ * extra: { lines: [...], reason: 'shown only for sales-side decisions', fixer: [emails] }
+ */
+function queueFprCard_(event, t, extra) {
+  const ev = FPR_EVENTS_[event];
+  if (!ev) return 0;
+  const off = setting_('fpr_bot_events_off', []);
+  if (Array.isArray(off) && off.indexOf(event) !== -1) return 0;
+  const x = extra || {};
+  const facts = cardFacts_(t);
+  const lines = (x.lines || []).slice();
+  if (x.reason) lines.unshift('**เหตุผล:** ' + String(x.reason).slice(0, 300));
+  const title = ev.icon + ' ' + ev.title + ' — ' + facts.no;
+  const card = buildCard_({ color: ev.color, title: title, facts: facts, extra: lines, mentions: ev.mention(t, x), link: fprLink_(t) });
+  BOT_QUEUE_.push({ bot: 'fpr', event: event, ticket_id: t.ticket_id, ticket_no: facts.no, card: card, summary: cardText_(card) });
+  return 1;
+}
+
+/** All text of a card (NotifLog summary — what the group saw). */
+function cardText_(card) {
+  const out = [card.header.title.content];
+  card.elements.forEach(function (e) {
+    if (e.text) out.push(e.text.content);
+    (e.fields || []).forEach(function (f) { out.push(f.text.content.replace(/\*\*/g, '')); });
+  });
+  return out.join(' | ').replace(/\*\*/g, '');
+}
+
+/** Send every queued card (called by api_ after a successful request, and by jobs). Never throws. */
+function flushBotQueue_() {
+  const q = BOT_QUEUE_;
+  BOT_QUEUE_ = [];
+  const out = [];
+  q.forEach(function (m) {
+    try { out.push(sendBot_(m.bot, m.card, m)); } catch (e) { console.error('flushBotQueue_', e); }
+  });
+  return out;
+}
+
+/** POST one signed card; up to 3 attempts (1 s, 2 s back-off); logs to NotifLog. Returns { status, attempts }. */
+function sendBot_(bot, card, meta) {
+  const cfg = botConfig_(bot);
+  const m = meta || {};
+  let status = 'not_configured', code = '', response = 'ยังไม่ได้ตั้ง ' + BOT_PROPS_[bot].url + ' ใน Script Properties', attempts = 0;
+  if (cfg.url) {
+    for (attempts = 1; attempts <= 3; attempts++) {
+      try {
+        const body = { msg_type: 'interactive', card: card };
+        if (cfg.secret) {
+          body.timestamp = String(Math.floor(Date.now() / 1000));
+          body.sign = larkSign_(body.timestamp, cfg.secret);
+        }
+        const res = http_().fetch(cfg.url, { method: 'post', contentType: 'application/json; charset=utf-8', payload: JSON.stringify(body), muteHttpExceptions: true });
+        code = res.getResponseCode();
+        response = String(res.getContentText() || '').slice(0, 500);
+        const j = parseJson_(response, {});
+        if (code === 200 && (j.code === 0 || j.StatusCode === 0)) { status = 'sent'; break; }
+        status = 'failed';
+      } catch (e) {
+        status = 'failed';
+        response = String(e.message || e).slice(0, 500);
+      }
+      if (attempts < 3 && !TEST_HTTP_) Utilities.sleep(1000 * Math.pow(2, attempts - 1));
+    }
+    if (attempts > 3) attempts = 3;
+  }
+  try {
+    withLock_(function () {
+      insertRow_(TAB.NOTIF_LOG, { log_id: uuid_(), ts: new Date(), ticket_id: m.ticket_id || '', ticket_no: m.ticket_no || '', bot: BOT_PROPS_[bot].name,
+        event: m.event || '', status: status, http_code: code, attempts: attempts, response: response, summary: String(m.summary || '').slice(0, 1000) });
+    });
+  } catch (e) { console.error('NotifLog write failed', e); }
+  return { status: status, attempts: attempts, http_code: code };
+}
+
+// ---------------------------------------------------------------- Bot B: SLA reminders
+
+/**
+ * Hourly trigger (installReminderTrigger): one yellow card per request that is over its SLA,
+ * at most once every reminder_repeat_work_hours (8) working hours per request and step.
+ */
+function sendSlaReminders() {
+  requireJobContext_();
+  const wh = workHours_(), hol = holidaySet_();
+  const repeat = Math.max(1, Number(setting_('reminder_repeat_work_hours', 8)) || 8) * 60;
+  const now = new Date();
+  const sent = [];
+  withLock_(function () {
+    rows_(TAB.TICKETS).map(normTicket_).forEach(function (t) {
+      const sla = slaDue_(t, wh, hol);
+      if (!sla || now < sla.due) return;
+      const last = t.last_reminded_at ? new Date(t.last_reminded_at) : null;
+      if (last && last >= sla.start && workMinutesBetween_(last, now, wh, hol) < repeat) return;
+      const late = workMinutesBetween_(sla.due, now, wh, hol);
+      const facts = cardFacts_(t);
+      const who = stageAssignees_(t);
+      const title = '⏰ งานค้างเกิน SLA — ' + facts.no;
+      const card = buildCard_({ color: 'yellow', title: title, facts: facts, mentions: who, link: fprLink_(t),
+        extra: ['**ขั้นที่ค้าง:** ' + SLA_LABEL_[sla.key] + ' · SLA ' + Math.round(sla.minutes / 60 * 10) / 10 + ' ชม.ทำงาน',
+          '**เกินกำหนดมาแล้ว:** ' + Math.floor(late / 60) + ' ชม. ' + (late % 60) + ' นาที (นับเฉพาะเวลาทำงาน)'] });
+      updateRow_(TAB.TICKETS, t.ticket_id, { last_reminded_at: now });
+      BOT_QUEUE_.push({ bot: 'reminder', event: 'sla_' + sla.key, ticket_id: t.ticket_id, ticket_no: facts.no, card: card, summary: cardText_(card) });
+      sent.push(facts.no);
+    });
+  });
+  flushBotQueue_();
+  return { reminded: sent };
+}
+
+/**
+ * FPR one-click setup (run from the editor as the script owner):
+ * builds / upgrades the database (tabs incl. NotifLog + Holidays, Settings, Drive folder "FPR Attachments")
+ * and reports which bot Script Properties are set. Secrets are never printed.
+ */
+function setup() {
+  requireOwner_();
+  const db = setupDatabase();
+  const p = PropertiesService.getScriptProperties();
+  const lines = Object.keys(BOT_PROPS_).map(function (k) {
+    const c = BOT_PROPS_[k];
+    const url = p.getProperty(c.url) || '', sec = p.getProperty(c.secret) || '';
+    return c.name + ': ' + c.url + ' ' + (url ? (/^https:\/\/open\.(larksuite|feishu)\.(com|cn)\/open-apis\/bot\/v2\/hook\//.test(url) ? '✓' : '⚠ ไม่ใช่ลิงก์ Lark webhook') : '✗ ยังไม่ได้ตั้ง') +
+      ' · ' + c.secret + ' ' + (sec ? '✓' : '✗ ยังไม่ได้ตั้ง');
+  });
+  const msg = ['setupDatabase: OK'].concat(lines, ['ขั้นต่อไป: testBots → installTriggers → Deploy']).join('\n');
+  console.log(msg);
+  return { database: db, bots: lines };
+}
+
+/** Run once: hourly trigger for sendSlaReminders (replaces an old one). */
+function installReminderTrigger() {
+  requireOwner_();
+  ScriptApp.getProjectTriggers().forEach(function (tr) { if (tr.getHandlerFunction() === 'sendSlaReminders') ScriptApp.deleteTrigger(tr); });
+  ScriptApp.newTrigger('sendSlaReminders').timeBased().everyHours(1).create();
+  console.log('Installed: sendSlaReminders every hour');
+  return 'OK';
+}
+
+// ---------------------------------------------------------------- test
+
+/**
+ * Run from the editor: sends one sample card of every Bot A event and one Bot B reminder,
+ * all mentioning you (check the mention turns blue = your Lark account matches your e-mail).
+ */
+function testBots() {
+  requireAdminOrOwner_();
+  const me = String(Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  const facts = { no: 'FPR-TEST-0001', customer: 'ลูกค้าทดสอบ · ร้านอาหาร', requester: me, status: 'ทดสอบ', owner: me,
+    deadline: fmtDate_(new Date(Date.now() + 4 * 3600000), 'dd/MM/yyyy HH:mm'),
+    items: ['• #1 **กุ้งขาว Vannamei HLSO** (31/40 · NW 80% · 1 kg/pack) — 500 กก./เดือน', '• #2 **หมึกกล้วย IQF** (U/10) — 300 กก./เดือน'], priced: false };
+  const link = fprLink_({ ticket_no: 'FPR-TEST-0001' });
+  const out = [];
+  Object.keys(FPR_EVENTS_).forEach(function (k) {
+    const ev = FPR_EVENTS_[k];
+    const f = Object.assign({}, facts, { priced: ['sm_review', 'gm_final', 'approved'].indexOf(k) !== -1 });
+    const card = buildCard_({ color: ev.color, title: '[ทดสอบ] ' + ev.icon + ' ' + ev.title + ' — ' + f.no, facts: f, mentions: [me], link: link,
+      extra: k === 'rejected' || k === 'returned' ? ['**เหตุผล:** (ข้อความทดสอบ)'] : [] });
+    out.push(k + ': ' + sendBot_('fpr', card, { event: 'test_' + k, ticket_no: f.no, summary: 'testBots ' + k }).status);
+  });
+  const rem = buildCard_({ color: 'yellow', title: '[ทดสอบ] ⏰ งานค้างเกิน SLA — FPR-TEST-0001', facts: facts, mentions: [me], link: link,
+    extra: ['**ขั้นที่ค้าง:** ' + SLA_LABEL_.GM_REVIEW + ' · SLA 4 ชม.ทำงาน', '**เกินกำหนดมาแล้ว:** 1 ชม. 20 นาที (นับเฉพาะเวลาทำงาน)'] });
+  out.push('reminder: ' + sendBot_('reminder', rem, { event: 'test_reminder', ticket_no: 'FPR-TEST-0001', summary: 'testBots reminder' }).status);
+  console.log(out.join('\n'));
+  return out;
+}
+
+
+// ============================================================================
 // Jobs.gs
 // ============================================================================
 /**
@@ -4597,11 +5113,12 @@ function testLarkConnection() {
  *   checkSlaAlerts         every hour    SLA warning (80%) / breach notifications
  *   runSelfTest            daily 07:00   schema, config, orphan tickets, log chain → Lark group on failure
  *   weeklyBackup           Monday 06:00  copy of the database spreadsheet, keeps the newest 12
+ *   sendSlaReminders       every hour    FPR Reminder bot: requests over their SLA (Bots.gs)
  *
  * Time triggers run as the owner: there is no "current user", so actions are stamped 'system'.
  */
 
-const JOB_HANDLERS_ = ['dispatchNotifications', 'checkSlaAlerts', 'runSelfTest', 'weeklyBackup'];
+const JOB_HANDLERS_ = ['dispatchNotifications', 'checkSlaAlerts', 'runSelfTest', 'weeklyBackup', 'sendSlaReminders'];
 const BACKUP_KEEP_ = 12;
 
 function installTriggers() {
@@ -4611,6 +5128,7 @@ function installTriggers() {
   });
   ScriptApp.newTrigger('dispatchNotifications').timeBased().everyMinutes(1).create();
   ScriptApp.newTrigger('checkSlaAlerts').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger('sendSlaReminders').timeBased().everyHours(1).create();   // FPR Reminder bot (Bots.gs)
   ScriptApp.newTrigger('runSelfTest').timeBased().everyDays(1).atHour(7).inTimezone(CFG.TZ).create();
   ScriptApp.newTrigger('weeklyBackup').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(6).inTimezone(CFG.TZ).create();
   const msg = 'Installed triggers: ' + JOB_HANDLERS_.join(', ');
@@ -4889,6 +5407,10 @@ function referenceData_(me) {
     customer_groups: setting_('customer_groups', []),
     supplier_types: SUPPLIER_TYPES.map(function (k) { return { key: k, label: SUPPLIER_TYPE_LABEL[k] }; }),
     default_gp_percent: defaultGp_(),
+    min_gp_percent: minGpPercent_(),
+    min_suppliers: Math.max(1, Number(setting_('min_suppliers', 3)) || 1),
+    max_vendors_per_item: CFG.MAX_VENDORS_PER_ITEM,
+    gm_assigns_sr: toBool_(setting_('gm_assigns_sr', true)),
     deal_statuses: [''].concat(DEAL_STATUSES).map(function (k) { return { key: k, label: DEAL_STATUS_LABEL_TH[k] }; }),
     deal_lost_reasons: setting_('deal_lost_reasons', []),
     can_view_gp: !!me && GP_ROLES_.indexOf(me.role) !== -1,
@@ -4939,8 +5461,8 @@ const DEMO_DOMAIN = 'example.co.th';   // ← change to your company domain befo
 
 const DATE_COLS_ = ['created_at', 'updated_at', 'ts', 'stage_entered_at', 'submitted_at', 'manager_approved_at',
   'gm_approved_at', 'assigned_at', 'doc_checked_at', 'completed_at', 'closed_at', 'rejected_at', 'cancelled_at',
-  'checked_at', 'uploaded_at', 'deleted_at', 'read_at', 'lark_sent_at', 'deal_updated_at', 'deal_closed_at'];
-const DAY_COLS_ = ['due_date', 'valid_until', 'deal_next_date'];
+  'checked_at', 'uploaded_at', 'deleted_at', 'read_at', 'lark_sent_at', 'deal_updated_at', 'deal_closed_at', 'pricing_started_at', 'last_reminded_at'];
+const DAY_COLS_ = ['due_date', 'valid_until', 'deal_next_date', 'fx_date', 'date'];
 const NUMBER_COLS_ = ['qty', 'target_price', 'unit_price', 'fx_rate', 'vat_rate', 'moq', 'lead_time_days',
   'net_unit_cost', 'net_unit_cost_thb', 'gross_unit_price_thb', 'line_no', 'version', 'revision_count',
   'sort_order', 'size_bytes', 'log_id', 'stage_duration_sec', 'last_no', 'lark_attempts'];
@@ -4962,7 +5484,7 @@ function setupDatabase() {
   const report = setupSchema_(ss, { protect: true });
 
   if (!props.getProperty(CFG.PROP.DRIVE_ROOT_ID)) {
-    const folder = DriveApp.createFolder('MGS Food Price Request — Attachments (do not share)');
+    const folder = DriveApp.createFolder(DRIVE_ROOT_NAME);
     props.setProperty(CFG.PROP.DRIVE_ROOT_ID, folder.getId());
     report.push('Created Drive folder ' + folder.getId());
   }
@@ -5199,6 +5721,12 @@ function seedDemoTickets_() {
     });
   };
   const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  // GM approval → SR: FPR mode (GM picks the SR) or queue mode (SR claims) — works with either Settings switch
+  const toSr = function (id, sr, comment) {
+    if (toBool_(setting_('gm_assigns_sr', true))) return go(U.gm, id, 'gm_approve', comment || '', { sr_email: sr });
+    go(U.gm, id, 'gm_approve', comment || '');
+    return go(sr, id, 'claim');
+  };
   const req = function (email, key, header, items) {
     return as(email, function () {
       const grp = /โรงแรม|ภัตตาคาร/.test(header.customer_name) ? 'โรงแรม / จัดเลี้ยง' : 'ร้านอาหาร';
@@ -5210,8 +5738,7 @@ function seedDemoTickets_() {
   let t = req(U.salesFood1, 'seed-A', { customer_name: 'บจก. ซูชิ ดีไลท์', documents_needed: 'Health Certificate, COA', description: 'ลูกค้าต้องการแบรนด์นอร์เวย์', priority: 'high' }, [
     { product_group_code: 'FOOD-FISH', product_name: 'Salmon Fillet Trim D (Skin-on)', net_weight: '100%', size: '1.0–1.5 kg/pc', packing_size: 'IVP 1 pc/bag, 10 kg/ctn', qty: 300, uom: 'กก.', target_price: 450 }
   ]);
-  go(U.gm, t.ticket_id, 'gm_approve', 'อนุมัติ');
-  go(U.sr1, t.ticket_id, 'claim');
+  toSr(t.ticket_id, U.sr1, 'อนุมัติ');
   as(U.sr1, function () { checklistOf_(t.ticket_id).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
   go(U.sr1, t.ticket_id, 'doc_complete');
   as(U.sr1, function () {
@@ -5237,8 +5764,8 @@ function seedDemoTickets_() {
   t = req(U.salesFood1, 'seed-B', { customer_name: 'ร้านซูชิ ABC' }, [
     { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว Vannamei HLSO', net_weight: '80%', size: '31/40', packing_size: '1 kg/pack', qty: 500, uom: 'กก.', target_price: 0 }
   ]);
-  go(U.gm, t.ticket_id, 'gm_approve');
-  go(U.srManager, t.ticket_id, 'assign', '', { sr_email: U.sr1 });
+  if (toBool_(setting_('gm_assigns_sr', true))) go(U.gm, t.ticket_id, 'gm_approve', '', { sr_email: U.sr1 });
+  else { go(U.gm, t.ticket_id, 'gm_approve'); go(U.srManager, t.ticket_id, 'assign', '', { sr_email: U.sr1 }); }
   go(U.sr1, t.ticket_id, 'request_info', 'ขอ % glazing และรูปแบบ packing ของกุ้ง', { missing_items: ['glazing', 'packing'] });
 
   // (C) Squid — waiting for GM (no Sales Manager → step skipped)
@@ -5256,8 +5783,7 @@ function seedDemoTickets_() {
     { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว Vannamei PD', net_weight: '90%', size: '41/50', packing_size: '1 kg/pack', qty: 400, uom: 'กก.', target_price: 270 },
     { product_group_code: 'FOOD-FISH', product_name: 'ปลาซาบะนอร์เวย์ Fillet', net_weight: '100%', size: '150–200 g', packing_size: '10 kg/ctn', qty: 150, uom: 'กก.', target_price: 0 }
   ]);
-  go(U.gm, t.ticket_id, 'gm_approve');
-  go(U.sr2, t.ticket_id, 'claim');
+  toSr(t.ticket_id, U.sr2);
   as(U.sr2, function () {
     checklistOf_(t.ticket_id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); });
   });
@@ -5276,8 +5802,7 @@ function seedDemoTickets_() {
   t = req(U.salesFood3, 'seed-F', { customer_name: 'ภัตตาคาร ทะเลทอง' }, [
     { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งแชบ๊วย HOSO', net_weight: '85%', size: '26/30', packing_size: '2 kg/box', qty: 200, uom: 'กก.', target_price: 380 }
   ]);
-  go(U.gm, t.ticket_id, 'gm_approve');
-  go(U.sr1, t.ticket_id, 'claim');
+  toSr(t.ticket_id, U.sr1);
   as(U.sr1, function () { checklistOf_(t.ticket_id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
   go(U.sr1, t.ticket_id, 'doc_complete');
   as(U.sr1, function () {
@@ -5289,6 +5814,7 @@ function seedDemoTickets_() {
       currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', moq: 50, lead_time_days: 3, payment_term: 'Credit 30 วัน', valid_until: inDays(7),
       origin_country: 'ไทย', packing: '2 kg/box', incoterm: 'DELIVERED' }));
     must(selectQuotation(q.quote_id, ''));
+    updateRow_(TAB.ITEMS, it.item_id, { supplier_shortfall_reason: 'กุ้งแชบ๊วยไซซ์ใหญ่ มีผู้เสนอราคาเพียง 2 ราย' });
   });
   go(U.sr1, t.ticket_id, 'submit_quote');
 
@@ -5296,14 +5822,13 @@ function seedDemoTickets_() {
   const priced = function (sales, key, header, item, quote, gp, monthsAgo, deal) {
     const x = req(sales, key, header, [Object.assign({ net_weight: '100%', packing_size: '10 kg/ctn', uom: 'กก.' }, item)]);
     if (ticketById_(x.ticket_id).stage === 'pending_manager') go(U.mgrFood, x.ticket_id, 'manager_approve');
-    go(U.gm, x.ticket_id, 'gm_approve');
-    go(U.sr2, x.ticket_id, 'claim');
+    toSr(x.ticket_id, U.sr2);
     as(U.sr2, function () { checklistOf_(x.ticket_id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
     go(U.sr2, x.ticket_id, 'doc_complete');
     as(U.sr2, function () {
       const it = activeItemsOf_(x.ticket_id)[0];
       const qid = Utilities.getUuid();
-      must(saveSourcingDraft(x.ticket_id, [{ item_id: it.item_id, gp_percent: gp, winner_quote_id: qid,
+      must(saveSourcingDraft(x.ticket_id, [{ item_id: it.item_id, gp_percent: gp, winner_quote_id: qid, shortfall_reason: 'ข้อมูลตัวอย่าง (ราคาย้อนหลัง)',
         quotes: [Object.assign({ quote_id: qid, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }, quote)] }]));
     });
     go(U.sr2, x.ticket_id, 'submit_quote');
@@ -5362,6 +5887,8 @@ function runAcceptanceTests() {
       seedUsers_();
       // Tests run WITH a Sales Manager; the "no Sales Manager → skip to GM" path is tested separately
       updateRow_(TAB.DEPARTMENTS, 'SALES-FOOD', { manager_email: demoUsers_().mgrFood });
+      // The original flow cases below run with the pre-FPR switches; runFprCases_ turns the FPR switches on
+      setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1' });
     });
     runCases_(results);
     runPhase2Cases_(results);
@@ -5375,6 +5902,7 @@ function runAcceptanceTests() {
     runPhotoDealCases_(results);
     runFollowUpV2Cases_(results);
     runReviewerEditCases_(results);
+    runFprCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -5390,6 +5918,22 @@ function runAcceptanceTests() {
     ' — ' + (results.length - failed.length) + '/' + results.length + ' passed';
   console.log(results.join('\n') + '\n' + summary);
   return { passed: results.length - failed.length, failed: failed.length, summary: summary, results: results };
+}
+
+/** Test helper: FPR Bot / Reminder sends of one ticket (NotifLog), optionally one event. */
+function botLog_(ticketId, event) {
+  return rows_(TAB.NOTIF_LOG).filter(function (n) { return String(n.ticket_id) === String(ticketId) && (!event || n.event === event); })
+    .map(function (n) { return { event: String(n.event), status: String(n.status), attempts: Number(n.attempts), summary: String(n.summary), bot: String(n.bot) }; });
+}
+
+/** Test helper: set Settings values (inside the lock). */
+function setTestSettings_(kv) {
+  withLock_(function () {
+    Object.keys(kv).forEach(function (k) {
+      if (findOne_(TAB.SETTINGS, 'key', k)) updateRow_(TAB.SETTINGS, k, { value: kv[k] });
+      else insertRow_(TAB.SETTINGS, { key: k, value: kv[k], description: 'test', updated_at: new Date(), updated_by: 'test' });
+    });
+  });
 }
 
 /** Test helper: fill the Food form fields a test does not care about. */
@@ -5467,7 +6011,7 @@ function runCases_(results) {
       return must(createTicketT_({ client_key: 'ac1', title: 'หมึกกล้วยแช่แข็ง',
         items: [{ product_group_code: 'FOOD-CEPHALOPOD', product_name: 'หมึกกล้วย IQF', qty: 100, uom: 'กก.' }] })).ticket;
     });
-    ok(/^PR-\d{4}-\d{4,}$/.test(food1Ticket.ticket_no), 'Ticket number format PR-YYYY-NNNN: ' + food1Ticket.ticket_no);
+    ok(/^FPR-\d{4}-\d{4,}$/.test(food1Ticket.ticket_no), 'Ticket number format FPR-YYMM-NNNN: ' + food1Ticket.ticket_no);
     ok(food1Ticket.status === 'requested' && food1Ticket.stage === 'pending_manager', 'New ticket = Requested / pending_manager');
 
     const dup = as(U.salesFood1, function () {
@@ -5582,8 +6126,11 @@ function runCases_(results) {
     ok(cmp.filter(function (q) { return q.is_cheapest; }).map(function (q) { return q.vendor_name; }).join() === 'Vendor B',
       'Comparison marks Vendor B as cheapest');
 
-    expectErr(saveQ({ item_id: items[0].item_id, vendor_name: 'Vendor D', unit_price: 1, vat_term: 'ex_vat' }),
-      'MAX_VENDORS', 'AC-3 4th vendor on the same item rejected');
+    const qD = must(saveQ({ item_id: items[0].item_id, vendor_name: 'Vendor D', unit_price: 60000, vat_term: 'ex_vat' })).quote;
+    const qE = must(saveQ({ item_id: items[0].item_id, vendor_name: 'Vendor E', unit_price: 61000, vat_term: 'ex_vat' })).quote;
+    expectErr(saveQ({ item_id: items[0].item_id, vendor_name: 'Vendor F', unit_price: 1, vat_term: 'ex_vat' }),
+      'MAX_VENDORS', 'AC-3 6th vendor on the same item rejected (max ' + CFG.MAX_VENDORS_PER_ITEM + ')');
+    must(as(U.sr1, function () { must(deleteQuotation(qD.quote_id)); return deleteQuotation(qE.quote_id); }));
     const again = must(saveQ({ quote_id: qA.quote_id, item_id: items[0].item_id, vendor_name: 'Vendor A', unit_price: 50000, currency: 'THB', vat_term: 'ex_vat', valid_until: inDays(30) }));
     ok(again.changed === false && activeQuotesOfItem_(items[0].item_id).length === 3, 'Re-saving the same quote_id is idempotent (no duplicate row)');
     expectErr(saveQ({ item_id: items[1].item_id, vendor_name: 'Bad FX', unit_price: 1, currency: 'THB', fx_rate: 2, vat_term: 'ex_vat' }),
@@ -5722,6 +6269,8 @@ function fakeHttp_() {
   return {
     calls: calls,
     files: {},                // drive file id → { bytes, mime } (uploaded content, for previews)
+    hooks: [],                // payloads posted to Lark custom bot webhooks
+    hookDown: false,          // true: webhook answers HTTP 500
     parts: {},                // upload session → bytes received so far
     failOpenIds: {},          // open_id → true : Lark message call fails
     unknownEmails: {},        // email → true   : Lark has no such user
@@ -5753,6 +6302,11 @@ function fakeHttp_() {
         const self = this;
         return resp(200, { code: 0, data: { user_list: payload.emails.filter(function (e) { return !self.unknownEmails[e]; })
           .map(function (e) { return { email: e, user_id: 'ou_' + e.split('@')[0] }; }) } });
+      }
+      if (url.indexOf('/open-apis/bot/v2/hook/') !== -1) {   // Lark custom bot webhook
+        this.hooks.push(payload);
+        if (this.hookDown) return resp(500, { code: 9499, msg: 'service unavailable' });
+        return resp(200, { code: 0, msg: 'success', data: {} });
       }
       if (url.indexOf('/im/v1/messages') !== -1) {
         if (this.failOpenIds[payload.receive_id]) return resp(200, { code: 230001, msg: 'bot not in chat' });
@@ -6046,8 +6600,8 @@ function runPhase3Cases_(results) {
     const bad = expectErr(draft([{ item_id: items[0].item_id, quotes: [a, q({ vendor_name: 'X', unit_price: 'abc' })] }]), 'VALIDATION', 'Bad price rejected');
     ok(bad.error.indexOf('รายการที่ 1 vendor ที่ 2') === 0 && activeQuotesOfItem_(items[0].item_id).length === 2 &&
       activeQuotesOfItem_(items[0].item_id).some(function (x) { return x.quote_id === b.quote_id; }), 'Error names the exact column and nothing was written');
-    expectErr(draft([{ item_id: items[0].item_id, quotes: [a, b, q({ vendor_name: 'C', unit_price: 1 }), q({ vendor_name: 'D', unit_price: 1 })] }]),
-      'MAX_VENDORS', 'AC-3 4 vendors in a draft rejected');
+    expectErr(draft([{ item_id: items[0].item_id, quotes: [a, b].concat(['C', 'D', 'E', 'F'].map(function (n) { return q({ vendor_name: n, unit_price: 1 }); })) }]),
+      'MAX_VENDORS', 'AC-3 6 vendors in a draft rejected');
     expectErr(draft([{ item_id: items[0].item_id, quotes: [a, q({ vendor_name: 'E', unit_price: 1, incoterm: 'FREE' })] }]), 'VALIDATION', 'Unknown Incoterm rejected');
     expectErr(draft([{ item_id: items[0].item_id, quotes: [a, b], winner_quote_id: Utilities.getUuid() }]), 'VALIDATION', 'Winner must be one of the vendors');
 
@@ -6298,9 +6852,9 @@ function runSellPriceCases_(results) {
     ok(ready.length === 1 && String(ready[0].body).indexOf('337.62') !== -1 &&
       !/Andaman|270\.09|GP \d|\d%|ต้นทุน|เคลียร์/.test(String(ready[0].body)),
       'Requesting Sales gets the selling price of their own request in the DM — no cost / GP');
-    const grp = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === PRICE_GROUP_KEY_ && n.type === 'group_price_done'; });
-    ok(grp.length === 1 && String(grp[0].body).indexOf('กุ้งขาว') !== -1 &&
-      !/337\.62|ราคาขาย \*|Andaman|270\.09|GP \d|\d%|ต้นทุน|เคลียร์/.test(String(grp[0].body)),
+    const grp = botLog_(id, 'approved');
+    ok(grp.length === 1 && grp[0].summary.indexOf('กุ้งขาว') !== -1 && /มีราคาแล้ว/.test(grp[0].summary) &&
+      !/337\.62|Andaman|270\.09|GP \d|เคลียร์|บาท\//.test(grp[0].summary),
       'GM approval queues ONE Lark group message: status only — no price (other Sales are in the group)');
     // another Sales must not reach this request's price by any path
     expectErr(as(U.salesFood1, function () { return getTicket(id); }), 'NOT_FOUND', 'Other Sales cannot open the request (NOT_FOUND)');
@@ -6319,17 +6873,18 @@ function runSellPriceCases_(results) {
     const gp = pollData_(userByEmail_(U.gm));
     ok(typeof gp.gm_sales === 'number' && typeof gp.gm_buy === 'number' && pollData_(userByEmail_(U.salesFood1)).gm_buy === undefined,
       'Poll gives GM the two approval counts');
-    TEST_LARK_ = { app_id: 'a', app_secret: 'b', host: 'https://lark.test', group_chat_id: '', price_group_chat_id: 'oc_price' };
+    // the same card through the real webhook path: signed, interactive, no price in the JSON
     const fh = fakeHttp_();
     TEST_HTTP_ = fh;
-    for (let n = 0; n < 30; n++) {   // dispatcher sends LARK_BATCH_ per run; drain the whole test queue
-      if (!withIdentity_(U.admin, function () { return dispatchNotifications(); }).claimed) break;
-    }
-    const sentTo = fh.calls.filter(function (c) { return c.url.indexOf('/im/v1/messages') !== -1; })
-      .map(function (c) { return c.url + ' ' + c.payload.receive_id; });
-    TEST_LARK_ = null; TEST_HTTP_ = null;
-    ok(sentTo.some(function (x) { return /receive_id_type=chat_id oc_price$/.test(x); }) &&
-      String(findOne_(TAB.NOTIFICATIONS, 'notif_id', grp[0].notif_id).lark_status) === 'sent', 'Group message delivered to the price group chat');
+    TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/test-fpr', secret: 's3cret' }, reminder: { url: '', secret: '' } };
+    withLock_(function () { queueFprCard_('approved', ticketById_(id), {}); });
+    const res = flushBotQueue_();
+    const hp = fh.hooks[0] || {};
+    TEST_BOTS_ = null; TEST_HTTP_ = null;
+    ok(res[0].status === 'sent' && hp.msg_type === 'interactive' && hp.sign === larkSign_(hp.timestamp, 's3cret') && /^\d{10}$/.test(hp.timestamp),
+      'Webhook card is signed (timestamp + HmacSHA256) and interactive');
+    ok(!/337\.62|270\.09|Andaman/.test(JSON.stringify(hp.card)) && JSON.stringify(hp.card).indexOf(ticketById_(id).ticket_no) !== -1,
+      'Webhook card JSON has the FPR number and no price / cost / vendor');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: SELL_PRICE — ' + e.message + '\n' + e.stack);
   }
@@ -6396,7 +6951,7 @@ function runFollowUpCases_(results) {
     const fu = ticketById_(r.follow_up.ticket_id);
     const fuItems = activeItemsOf_(fu.ticket_id);
     ok(fu && fu.parent_ticket_id === id && fu.stage === 'sourcing' && fu.sr_email === U.sr1 && fu.requestor_email === U.salesFood3 &&
-      fu.customer_name === 'ร้าน ส่งตามหลัง' && !!fu.gm_approved_at && /^PR-\d{4}-\d{4,}$/.test(fu.ticket_no),
+      fu.customer_name === 'ร้าน ส่งตามหลัง' && !!fu.gm_approved_at && /^FPR-\d{4}-\d{4,}$/.test(fu.ticket_no),
       'Send later creates ' + fu.ticket_no + ': same customer / Sales / SR, approvals carried, in sourcing');
     ok(fuItems.length === 1 && fuItems[0].product_name === 'หมึกกล้วย' && fuItems[0].quote_status === '', 'Follow-up ticket holds just that item');
     ok(activeQuotesOfItem_(fuItems[0].item_id).length === 1 && activeQuotesOfItem_(squid.item_id).length === 0, 'Vendor price moved with the item');
@@ -6426,8 +6981,8 @@ function runFollowUpCases_(results) {
     ok(byName('ปลาแซลมอน').sales_pricing && byName('ปลาแซลมอน').sales_pricing.sell_price_thb > 500, 'Quoted item still has its selling price');
     const dm = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return String(n.user_email) === U.salesFood3 && n.type === 'quote_ready'; })[0];
     ok(/ไม่เสนอราคา/.test(dm.body) && dm.body.indexOf(fu.ticket_no) !== -1, 'Sales DM lists not-offered and sent-later items');
-    const grp = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === PRICE_GROUP_KEY_ && n.type === 'group_price_done'; })[0];
-    ok(/ไม่เสนอราคา/.test(grp.body) && grp.body.indexOf(fu.ticket_no) !== -1 && !/\d+\.\d\d/.test(grp.body), 'Group message shows the item statuses, still no prices');
+    const grp = botLog_(id, 'approved')[0];
+    ok(/ไม่เสนอราคา/.test(grp.summary) && /ส่งราคาตามหลัง/.test(grp.summary) && !/\d+\.\d\d/.test(grp.summary), 'Group card shows the item statuses, still no prices');
 
     // 4) the follow-up is pending work everywhere
     ok(as(U.salesFood3, function () { return must(getDashboard('all')); }).follow_ups.some(function (r) { return r.ticket_id === fu.ticket_id && r.parent_ticket_no === t.ticket_no; }),
@@ -6657,11 +7212,11 @@ function runPhotoDealCases_(results) {
       return uploadChunk(b.data.upload_id, 0, Utilities.base64Encode(PNG));
     });
   };
-  const groupMsgs = function (id, type) {
-    return findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return String(n.user_email).charAt(0) === '#' && (!type || n.type === 'group_' + type); });
-  };
+  const groupMsgs = function (id, type) { return botLog_(id, type); };
   const http = fakeHttp_();
   TEST_HTTP_ = http;
+  TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' },
+    reminder: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/rem', secret: 'sec-b' } };
   TEST_DRIVE_ = fakeDrive_();
   try {
     // ---------- request → approvals → SR (group events on the way) ----------
@@ -6671,14 +7226,15 @@ function runPhotoDealCases_(results) {
         { product_name: 'กุ้งขาว HLSO', net_weight: '80%', size: '31/40', packing_size: '1 kg/pack', qty: 300, uom: 'กก.', target_price: 0 }] })).ticket;
     });
     const id = t.ticket_id;
-    const nr = groupMsgs(id, 'new_request');
-    ok(nr.length === 1 && nr[0].user_email === PRICE_GROUP_KEY_ && /ปลาหมึกกล้วย/.test(nr[0].body) && /800 กก\./.test(nr[0].body),
-      'Group: new request posted to the Sales group (customer, product, volume per month)');
+    ok(groupMsgs(id).length === 0, 'Bot: nothing posted while the request waits for the Sales Manager (old flow switch on)');
     must(go(U.mgrFood, id, 'manager_approve'));
+    const nr = groupMsgs(id, 'submitted');
+    ok(nr.length === 1 && nr[0].status === 'sent' && /ปลาหมึกกล้วย/.test(nr[0].summary) && /800 กก\./.test(nr[0].summary) && /<at email=gm@/.test(nr[0].summary),
+      'Bot: 📥 request waiting for GM posted (customer, product, volume / month) and @GM');
     must(go(U.gm, id, 'gm_approve'));
-    ok(groupMsgs(id, 'sales_approved').length === 1, 'Group: GM sales-side approval posted');
+    ok(groupMsgs(id, 'queued').length === 1, 'Bot: GM approval posted (queue mode)');
     must(go(U.sr2, id, 'claim'));
-    ok(groupMsgs(id, 'sr_claimed').length === 1 && /SR:/.test(groupMsgs(id, 'sr_claimed')[0].body), 'Group: SR accepted the job');
+    ok(groupMsgs(id, 'assigned').length === 1 && /<at email=sr2@/.test(groupMsgs(id, 'assigned')[0].summary), 'Bot: 🔧 assigned card @mentions the Sourcing person');
     as(U.sr2, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
     must(go(U.sr2, id, 'doc_complete'));
     const items = activeItemsOf_(id);
@@ -6738,43 +7294,46 @@ function runPhotoDealCases_(results) {
 
     // ---------- price review: management group gets counts, never names or prices ----------
     must(go(U.sr2, id, 'submit_quote'));
-    const pr = groupMsgs(id, 'price_review');
-    ok(pr.length === 1 && pr[0].user_email === MGMT_GROUP_KEY_ && /รูปสินค้า 10 รูป/.test(pr[0].body) && /Supplier ที่เสนอ: 2 ราย/.test(pr[0].body),
-      'Group: management group told the price waits for SR Manager (2 offers, 10 photos)');
+    const pr = groupMsgs(id, 'sm_review');
+    ok(pr.length === 1 && /รูปสินค้า 10 รูป/.test(pr[0].summary) && /Supplier ที่เสนอ: 2 ราย/.test(pr[0].summary) && /มีราคาแล้ว/.test(pr[0].summary) && /<at email=sr\.manager@/.test(pr[0].summary),
+      'Bot: 📊 waiting for Sourcing Manager (2 offers, 10 photos, “มีราคาแล้ว”) @SR Manager');
     must(go(U.srManager, id, 'srm_approve'));
-    ok(groupMsgs(id, 'gm_buy').length === 1 && groupMsgs(id, 'gm_buy')[0].user_email === MGMT_GROUP_KEY_, 'Group: management group told the price waits for GM purchasing approval');
+    ok(groupMsgs(id, 'gm_final').length === 1 && /<at email=gm@/.test(groupMsgs(id, 'gm_final')[0].summary), 'Bot: 🏁 waiting for GM final approval @GM');
     must(go(U.gm, id, 'gm_price_approve'));
-    ok(groupMsgs(id, 'price_done').length === 1 && groupMsgs(id, 'price_done')[0].user_email === PRICE_GROUP_KEY_, 'Group: price done posted to the Sales group');
+    ok(groupMsgs(id, 'approved').length === 1 && /<at email=sales\.food3@/.test(groupMsgs(id, 'approved')[0].summary) && /<at email=sr2@/.test(groupMsgs(id, 'approved')[0].summary),
+      'Bot: 🎉 approved @requester + Sourcing');
     const leaks = groupMsgs(id).filter(function (n) {
-      return /Siam Squid|Gulf Ceph|Andaman Shrimp|120|125|210|ราคาขาย \*\*|GP|ต้นทุน|กำไร/.test(String(n.title) + String(n.body));
+      return /Siam Squid|Gulf Ceph|Andaman Shrimp|\b120\b|\b125\b|\b210\b|บาท\/|GP \d|กำไร/.test(n.summary);
     });
     ok(groupMsgs(id).length >= 6 && !leaks.length, 'Group: no group message carries a vendor name, price, cost or GP (' + groupMsgs(id).length + ' messages checked)');
 
     // switching an event off
-    withLock_(function () { updateRow_(TAB.SETTINGS, 'lark_group_events', { value: JSON.stringify(['price_done']) }); });
+    setTestSettings_({ fpr_bot_events_off: JSON.stringify(['submitted']) });
     const t2 = as(U.salesFood3, function () {
       return must(createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'ร้านปิดแจ้งเตือน', due_date: inDays(3), items: [
         { product_name: 'ปลาซาบะ', net_weight: '100%', size: 'M', packing_size: '10 kg', qty: 50, uom: 'กก.', target_price: 0 }] })).ticket;
     });
-    ok(groupMsgs(t2.ticket_id).length === 0, 'Group: events switched off in Settings › lark_group_events are not sent');
-    withLock_(function () { updateRow_(TAB.SETTINGS, 'lark_group_events', { value: JSON.stringify(Object.keys(GROUP_EVENTS_)) }); });
+    must(go(U.mgrFood, t2.ticket_id, 'manager_approve'));
+    ok(groupMsgs(t2.ticket_id).length === 0, 'Bot: events listed in Settings › fpr_bot_events_off are not sent');
+    setTestSettings_({ fpr_bot_events_off: '[]' });
 
-    // delivery: each pseudo-recipient goes to its own chat; no management chat → not sent
-    TEST_LARK_ = { app_id: 'a', app_secret: 'b', host: 'https://lark.test', group_chat_id: '', price_group_chat_id: 'oc_sales', mgmt_group_chat_id: 'oc_mgmt' };
-    const fh = fakeHttp_();
-    TEST_HTTP_ = fh;
-    for (let n = 0; n < 40; n++) { if (!withIdentity_(U.admin, function () { return dispatchNotifications(); }).claimed) break; }
-    const chats = fh.calls.filter(function (c) { return c.url.indexOf('receive_id_type=chat_id') !== -1; }).map(function (c) { return c.payload.receive_id; });
-    ok(String(findOne_(TAB.NOTIFICATIONS, 'notif_id', pr[0].notif_id).lark_status) === 'sent' && chats.indexOf('oc_mgmt') !== -1 && chats.indexOf('oc_sales') !== -1,
-      'Group: management events go to LARK_MGMT_GROUP_CHAT_ID, Sales events to the price group');
-    const card = larkCard_({ type: 'group_price_review', title: 'x', body: 'y', link: '' });
-    ok(card.header.template === 'purple' && larkCard_({ type: 'group_deal_won', title: 'x', body: 'y' }).header.template === 'green', 'Group: card colour per event');
-    TEST_LARK_ = { app_id: 'a', app_secret: 'b', host: 'https://lark.test', group_chat_id: '', price_group_chat_id: 'oc_sales', mgmt_group_chat_id: '' };
-    withLock_(function () { enqueueGroupEvent_('gm_buy', ticketById_(id)); });
-    for (let n = 0; n < 5; n++) { if (!withIdentity_(U.admin, function () { return dispatchNotifications(); }).claimed) break; }
-    ok(groupMsgs(id, 'gm_buy').some(function (n) { return String(n.lark_status) === 'no_group'; }), 'Group: management group not configured → message marked no_group (not sent to Sales)');
-    TEST_LARK_ = null;
-    TEST_HTTP_ = http;
+    // delivery through the webhook: every card signed; colours per event
+    ok(groupMsgs(id).every(function (n) { return n.status === 'sent' && n.bot === 'FPR Bot'; }), 'Bot: every card of the request delivered by FPR Bot (NotifLog = sent)');
+    ok(http.hooks.length >= 6 && http.hooks.every(function (h) { return h.msg_type === 'interactive' && h.sign === larkSign_(h.timestamp, 'sec-a'); }),
+      'Bot: every webhook call is an interactive card signed with the secret');
+    const colour = function (part) { const h = http.hooks.filter(function (x) { return x.card.header.title.content.indexOf(part) !== -1; })[0]; return h && h.card.header.template; };
+    ok(colour('คำขอราคาใหม่') === 'blue' && colour('มอบหมายทำราคา') === 'indigo' && colour('รอ Sourcing Manager') === 'orange' &&
+      colour('รอ GM อนุมัติราคาสุดท้าย') === 'purple' && colour('อนุมัติราคาแล้ว') === 'green', 'Bot: header colour per event (blue / indigo / orange / purple / green)');
+    ok(http.hooks.every(function (h) { return h.card.elements.some(function (e) { return e.tag === 'action'; }) === /^https:/.test(fprLink_({ ticket_no: 'x' })); }),
+      'Bot: URL button only when the web app has an https link');
+    // webhook down → the approval still goes through; 3 attempts logged as failed
+    http.hookDown = true;
+    const before = http.hooks.length;
+    const ga = go(U.gm, t2.ticket_id, 'gm_approve');
+    http.hookDown = false;
+    const fail = groupMsgs(t2.ticket_id, 'queued')[0];
+    ok(ga.ok && ticketById_(t2.ticket_id).stage === 'pending_assign' && fail && fail.status === 'failed' && fail.attempts === 3 && http.hooks.length - before === 3,
+      'Bot: webhook down → approval saved anyway, 3 attempts, NotifLog = failed');
 
     // ---------- deal follow-up ----------
     const deals = as(U.salesFood3, function () { return must(listDeals()); });
@@ -6797,7 +7356,7 @@ function runPhotoDealCases_(results) {
     const w = as(U.salesFood3, function () { return must(updateDeal(squid.item_id, { status: 'won', note: 'เริ่มสั่งเดือนหน้า' })); }).deal;
     ok(w.deal_status === 'won' && w.deal_closed_at && !w.is_open && !w.deal_next_date, 'Deals: won → closed date recorded');
     const won = groupMsgs(id, 'deal_won');
-    ok(won.length === 1 && /ปลาหมึกกล้วย/.test(won[0].body) && /800 กก\./.test(won[0].body) && !/\d+\.\d\d|บาท/.test(won[0].body),
+    ok(won.length === 1 && /ปลาหมึกกล้วย/.test(won[0].summary) && /800 กก\./.test(won[0].summary) && !/\d+\.\d\d|บาท\//.test(won[0].summary),
       'Deals: won is announced in the Sales group (product + volume, no price)');
     ok(findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).some(function (n) { return n.user_email === U.sr2 && n.type === 'deal_won'; }), 'Deals: the SR learns the price sold');
     as(U.salesFood3, function () { must(updateDeal(squid.item_id, { status: 'won', note: 'ยืนยันอีกครั้ง' })); });
@@ -6974,5 +7533,261 @@ function runReviewerEditCases_(results) {
     ok(m.some(function (x) { return x.key === 'deals'; }) && m.length <= 5, 'Follow-up: SR menu has “ติดตามงานขาย” (≤ 5 items)');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: SOURCING_VIEW — ' + e.message + '\n' + e.stack);
+  }
+}
+
+// ===================================================================== FPR workflow (FPR switches on)
+function runFprCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  const wrap = function (name, fn) {
+    try { fn(); } catch (e) { results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: ' + name + ' — ' + e.message + '\n' + e.stack); }
+  };
+  const newReq = function (who, name) {
+    return as(who || U.salesFood1, function () {
+      return must(createTicket({ customer_group: 'ร้านอาหาร', customer_name: name || 'ลูกค้า FPR', due_date: inDays(3), items: [
+        { product_name: 'กุ้งขาว Vannamei HLSO', net_weight: '80%', size: '31/40', packing_size: '1 kg/pack', qty: 500, uom: 'กก.', target_price: 0 },
+        { product_name: 'หมึกกล้วย IQF', net_weight: '90%', size: 'U/10', packing_size: '1 kg/bag', qty: 300, uom: 'กก.', target_price: 0 }] })).ticket;
+    });
+  };
+  const toPricing = function (id) {
+    must(go(U.gm, id, 'gm_approve', '', { sr_email: U.sr1 }));
+    as(U.sr1, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+    must(go(U.sr1, id, 'doc_complete'));
+  };
+  const q = function (name, price, extra) {
+    return Object.assign({ quote_id: Utilities.getUuid(), vendor_name: name, unit_price: price, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }, extra || {});
+  };
+  const price3 = function (id) {
+    const rows = activeItemsOf_(id).map(function (it, i) {
+      const qs = [q('Supplier A' + i, 100 + i), q('Supplier B' + i, 110 + i), q('Supplier C' + i, 120 + i)];
+      return { item_id: it.item_id, quotes: qs, winner_quote_id: qs[0].quote_id };
+    });
+    must(as(U.sr1, function () { return saveSourcingDraft(id, rows); }));
+  };
+
+  const http = fakeHttp_();
+  TEST_HTTP_ = http;
+  TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' },
+    reminder: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/rem', secret: 'sec-b' } };
+  setTestSettings_({ sales_manager_step: 'false', gm_assigns_sr: 'true', min_suppliers: '3' });
+  try {
+    // ---------- happy path ----------
+    wrap('FPR_HAPPY', function () {
+      const t = newReq();
+      const id = t.ticket_id;
+      ok(/^FPR-\d{4}-\d{4,}$/.test(t.ticket_no) && t.stage === 'pending_gm', 'FPR: SUBMITTED goes straight to GM_REVIEW (no Sales Manager step) — ' + t.ticket_no);
+      ok(botLog_(id, 'submitted').length === 1 && /<at email=gm@/.test(botLog_(id, 'submitted')[0].summary), 'FPR: “ใบขอราคาใหม่” card @GM on submit');
+      ok(as(U.salesFood1, function () { return must(getTicket(t.ticket_no)); }).ticket.ticket_id === id, 'FPR: request opens by FPR number (?page=ticket&id=FPR-…)');
+      const gv = as(U.gm, function () { return must(getTicket(id)); });
+      ok(gv.sla && gv.sla.key === 'GM_REVIEW' && gv.sla.hours === 4 && gv.sla.overdue === false, 'FPR: request page shows the GM_REVIEW SLA deadline (4 working h)');
+      ok(gv.permissions.actions.join() === 'gm_approve,gm_return,gm_reject', 'FPR: GM sees approve / return to requester / reject');
+      expectErr(go(U.gm, id, 'gm_approve'), 'INVALID_ASSIGNEE', 'FPR: GM must pick the Sourcing person when approving');
+      expectErr(go(U.gm, id, 'gm_approve', '', { sr_email: U.salesFood2 }), 'INVALID_ASSIGNEE', 'FPR: the assignee must be an active SR');
+      expectErr(go(U.sr1, id, 'gm_approve', '', { sr_email: U.sr1 }), 'NOT_FOUND', 'FPR: SR cannot even see / approve a request at GM_REVIEW');
+      expectErr(go(U.srManager, id, 'gm_approve', '', { sr_email: U.sr1 }), 'NOT_FOUND', 'FPR: Sourcing Manager cannot approve GM_REVIEW');
+      // double click: two approvals with the same version → the second is refused
+      const v = ticketById_(id).version;
+      must(as(U.gm, function () { return transitionTicket(id, 'gm_approve', '', { expected_version: v, sr_email: U.sr1 }); }));
+      expectErr(as(U.gm, function () { return transitionTicket(id, 'gm_approve', '', { expected_version: v, sr_email: U.sr2 }); }), 'VERSION_CONFLICT', 'FPR: double click on approve is refused (one transition only)');
+      const a = ticketById_(id);
+      ok(a.stage === 'doc_check' && a.sr_email === U.sr1 && a.pricing_started_at, 'FPR: GM approval → ASSIGNED to the chosen SR, pricing clock started');
+      ok(botLog_(id, 'assigned').length === 1 && /<at email=sr1@/.test(botLog_(id, 'assigned')[0].summary), 'FPR: “มอบหมายงาน” card @the chosen SR');
+      ok(botLog_(id, 'gm_approve').length === 0 && botLog_(id).length === 2, 'FPR: one card per step (no duplicate cards)');
+      expectErr(go(U.salesFood1, id, 'cancel', 'ไม่ใช้แล้ว'), 'INVALID_STATE', 'FPR: requester cannot cancel after GM approval');
+      as(U.sr1, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+      must(go(U.sr1, id, 'doc_complete'));
+
+      // fewer than 3 suppliers → refused unless a reason is given
+      const items = activeItemsOf_(id);
+      const two = [q('Supplier A', 100), q('Supplier B', 105)];
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: items[0].item_id, quotes: two, winner_quote_id: two[0].quote_id }]); }));
+      const three = [q('Supplier X', 200), q('Supplier Y', 210), q('Supplier Z', 220)];
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: items[1].item_id, quotes: three, winner_quote_id: three[0].quote_id }]); }));
+      const few = expectErr(go(U.sr1, id, 'submit_quote'), 'FEW_SUPPLIERS', 'FPR: submit with only 2 suppliers is refused');
+      ok(/ลำดับที่ 1/.test(few.error) && !/2/.test(few.error.replace(/\d+ ราย/, '')), 'FPR: the error names the item that is short (line 1 only)');
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: items[0].item_id, quotes: two, winner_quote_id: two[0].quote_id, shortfall_reason: 'สินค้าขาดตลาด มีผู้ขายเพียง 2 ราย' }]); }));
+      ok(findOne_(TAB.ITEMS, 'item_id', items[0].item_id).supplier_shortfall_reason === 'สินค้าขาดตลาด มีผู้ขายเพียง 2 ราย', 'FPR: shortfall reason saved on the item');
+      must(go(U.sr1, id, 'submit_quote'));
+      ok(ticketById_(id).stage === 'pending_sr_manager', 'FPR: with a reason the price goes to SM_REVIEW');
+      ok(botLog_(id, 'sm_review').length === 1 && /<at email=sr\.manager@/.test(botLog_(id, 'sm_review')[0].summary), 'FPR: SM_REVIEW card @Sourcing Manager');
+      expectErr(go(U.gm, id, 'gm_price_approve'), 'INVALID_STATE', 'FPR: GM cannot skip the Sourcing Manager step');
+      must(go(U.srManager, id, 'srm_approve'));
+      ok(botLog_(id, 'gm_final').length === 1 && /<at email=gm@/.test(botLog_(id, 'gm_final')[0].summary), 'FPR: GM_FINAL_REVIEW card @GM');
+      must(go(U.gm, id, 'gm_price_approve'));
+      const fin = ticketById_(id);
+      ok(fin.status === 'priced' || fin.stage === 'price_ready' || OPEN_STATUSES.indexOf(fin.status) === -1 || botLog_(id, 'approved').length === 1, 'FPR: APPROVED');
+      const ap = botLog_(id, 'approved');
+      ok(ap.length === 1 && /<at email=sales\.food1@/.test(ap[0].summary) && /มีราคาแล้ว/.test(ap[0].summary), 'FPR: approved card @requester with “มีราคาแล้ว”');
+      const all = botLog_(id).map(function (n) { return n.summary; }).join('\n');
+      ok(!/Supplier [ABXYZ]/.test(all) && !/\b(100|105|200|210|220)(\.\d+)? ?บาท/.test(all) && !/GP ?\d/.test(all), 'FPR: no card shows supplier, cost or GP');
+      ok(botLog_(id).every(function (n) { return n.bot === 'FPR Bot' && n.status === 'sent'; }), 'FPR: every workflow card went through FPR Bot');
+      ok(http.hooks.every(function (h) { return h.timestamp && h.sign && h.msg_type === 'interactive'; }), 'FPR: every webhook call is signed (timestamp + sign) and interactive');
+      const lastHook = http.hooks[http.hooks.length - 1];
+      ok(JSON.stringify(lastHook).indexOf('?page=ticket&id=' + t.ticket_no) !== -1, 'FPR: card button opens ?page=ticket&id=FPR-…');
+    });
+
+    // ---------- every return ----------
+    wrap('FPR_RETURNS', function () {
+      const id = newReq(U.salesFood2, 'ลูกค้าตีกลับ').ticket_id;
+      expectErr(go(U.gm, id, 'gm_return'), 'COMMENT_REQUIRED', 'FPR: GM return needs a reason');
+      must(go(U.gm, id, 'gm_return', 'กรุณาระบุขนาดให้ชัดเจน'));
+      ok(ticketById_(id).stage === 'returned', 'FPR: GM_REVIEW → returned to the requester');
+      const r1 = botLog_(id, 'returned');
+      ok(r1.length === 1 && /<at email=sales\.food2@/.test(r1[0].summary) && /ระบุขนาด/.test(r1[0].summary), 'FPR: return card @requester with the reason');
+      must(go(U.salesFood2, id, 'resubmit'));
+      ok(ticketById_(id).stage === 'pending_gm' && botLog_(id, 'submitted').length === 2, 'FPR: resubmit goes back to GM_REVIEW (card again)');
+      toPricing(id);
+      price3(id);
+      must(go(U.sr1, id, 'submit_quote'));
+      must(go(U.srManager, id, 'srm_return', 'ราคาสูงไป หาเพิ่ม'));
+      const r2 = botLog_(id, 'returned');
+      ok(ticketById_(id).stage === 'sourcing' && r2.length === 2 && /<at email=sr1@/.test(r2[1].summary) && !/ราคาสูง/.test(r2[1].summary),
+        'FPR: SM return → back to PRICING, card @SR, price reason not in the group');
+      must(go(U.sr1, id, 'submit_quote'));
+      must(go(U.srManager, id, 'srm_approve'));
+      must(go(U.gm, id, 'gm_price_return', 'ต่อรองใหม่'));
+      ok(ticketById_(id).stage === 'sourcing' && botLog_(id, 'returned').length === 3, 'FPR: GM final return → back to PRICING');
+    });
+
+    // ---------- reject / cancel ----------
+    wrap('FPR_REJECT', function () {
+      const a = newReq(U.salesFood1, 'ลูกค้าไม่อนุมัติ').ticket_id;
+      expectErr(go(U.gm, a, 'gm_reject'), 'COMMENT_REQUIRED', 'FPR: GM reject needs a reason');
+      must(go(U.gm, a, 'gm_reject', 'ไม่ใช่สินค้าหลักของบริษัท'));
+      ok(ticketById_(a).stage === 'rejected' && /ไม่ใช่สินค้าหลัก/.test(botLog_(a, 'rejected')[0].summary), 'FPR: GM_REVIEW reject → REJECTED, reason on the card');
+
+      const b = newReq(U.salesFood1, 'ลูกค้า SM ปฏิเสธ').ticket_id;
+      toPricing(b); price3(b);
+      must(go(U.sr1, b, 'submit_quote'));
+      expectErr(go(U.srManager, b, 'srm_reject'), 'COMMENT_REQUIRED', 'FPR: Sourcing Manager reject needs a reason');
+      expectErr(go(U.sr1, b, 'srm_reject', 'x'), 'FORBIDDEN', 'FPR: SR cannot reject at SM_REVIEW');
+      must(go(U.srManager, b, 'srm_reject', 'ต้นทุนสูงเกินตลาด 30%'));
+      ok(ticketById_(b).stage === 'rejected' && botLog_(b, 'rejected').length === 1 && !/ต้นทุนสูง/.test(botLog_(b, 'rejected')[0].summary),
+        'FPR: SM reject → REJECTED (cost reason kept off the group card)');
+
+      const c = newReq(U.salesFood1, 'ลูกค้า GM ปฏิเสธราคา').ticket_id;
+      toPricing(c); price3(c);
+      must(go(U.sr1, c, 'submit_quote'));
+      must(go(U.srManager, c, 'srm_approve'));
+      expectErr(go(U.gm, c, 'gm_price_reject'), 'COMMENT_REQUIRED', 'FPR: GM final reject needs a reason');
+      must(go(U.gm, c, 'gm_price_reject', 'GP ต่ำเกินไป'));
+      ok(ticketById_(c).stage === 'rejected', 'FPR: GM_FINAL_REVIEW reject → REJECTED');
+
+      const d = newReq(U.salesFood1, 'ลูกค้ายกเลิกเอง').ticket_id;
+      must(go(U.salesFood1, d, 'cancel', 'ลูกค้าเปลี่ยนใจ'));
+      ok(ticketById_(d).stage === 'cancelled' && botLog_(d, 'cancelled').length === 1, 'FPR: requester cancels before GM approval → CANCELLED card');
+
+      const e = newReq(U.salesFood1, 'ลูกค้า Admin ยกเลิก').ticket_id;
+      toPricing(e);
+      expectErr(go(U.gm, e, 'admin_cancel', 'x'), 'FORBIDDEN', 'FPR: only Admin can cancel a request in progress');
+      expectErr(go(U.admin, e, 'admin_cancel'), 'COMMENT_REQUIRED', 'FPR: Admin cancel needs a reason');
+      must(go(U.admin, e, 'admin_cancel', 'ใบซ้ำกับ FPR อื่น'));
+      ok(ticketById_(e).stage === 'cancelled' && /ใบซ้ำ/.test(botLog_(e, 'cancelled')[0].summary), 'FPR: Admin cancels at any step with a reason');
+      expectErr(go(U.admin, e, 'admin_cancel', 'อีกครั้ง'), 'INVALID_STATE', 'FPR: a closed request cannot be cancelled again');
+    });
+
+    // ---------- unauthorized ----------
+    wrap('FPR_AUTH', function () {
+      const id = newReq(U.salesFood1, 'ลูกค้าสิทธิ์').ticket_id;
+      expectErr(as('outsider@' + DEMO_DOMAIN, function () { return getTicket(id); }), 'NOT_REGISTERED', 'FPR: unregistered user cannot open a request');
+      expectErr(go(U.salesFood2, id, 'cancel', 'x'), 'NOT_FOUND', 'FPR: another Sales cannot cancel the request');
+      expectErr(go(U.admin, id, 'gm_approve', '', { sr_email: U.sr1 }), 'FORBIDDEN', 'FPR: Admin cannot approve on behalf of GM');
+      expectErr(as(U.salesFood2, function () { return getTicket(id); }), 'NOT_FOUND', 'FPR: another Sales cannot open the request');
+      toPricing(id); price3(id);
+      expectErr(as(U.sr2, function () { return saveSourcingDraft(id, []); }), 'FORBIDDEN', 'FPR: another SR cannot price it');
+      const sales = as(U.salesFood1, function () { return must(getTicket(id)); });
+      ok(sales.items.every(function (it) { return !(it.quotations || []).length && !it.pricing && !('gp_percent' in it); }), 'FPR: requester never receives quotations / cost / GP');
+    });
+
+    // ---------- landed cost + GP floor ----------
+    wrap('FPR_COST', function () {
+      const bd = costBreakdown_(1000, { freight: 50, insurance: 10, duty_pct: 5, fees: 3, cold: 2, inland: 4, other: 1 });
+      ok(bd.duty_thb === 53 && bd.total_thb === 123, 'FPR: duty = 5% × CIF (1000 + 50 + 10) = 53; extra cost per unit = 123');
+      const id = newReq(U.salesFood3, 'ลูกค้าต้นทุนนำเข้า').ticket_id;
+      toPricing(id);
+      const it = activeItemsOf_(id)[0];
+      const usd = q('Norway Seafood AS', 3, { currency: 'USD', fx_rate: 35, fx_date: inDays(0), cost_breakdown: { freight: 5, insurance: 0.5, duty_pct: 10, fees: 1, cold: 2, inland: 1.5, other: 0 } });
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [usd], winner_quote_id: usd.quote_id, gp_percent: 8 }]); }));
+      const sq = activeQuotesOfItem_(it.item_id)[0];
+      // net 3 USD × 35 = 105 THB; CIF = 105 + 5 + 0.5 = 110.5; duty 11.05; extras = 5 + 0.5 + 11.05 + 1 + 2 + 1.5 = 21.05
+      ok(Math.abs(Number(sq.clearance_thb) - 21.05) < 0.001 && Math.abs(Number(sq.landed_unit_cost_thb) - 126.05) < 0.001, 'FPR: landed cost = 105 + 21.05 = 126.05 THB / unit');
+      ok(String(sq.fx_date) !== '' && /"duty_thb":11.05/.test(sq.cost_breakdown_json), 'FPR: FX date and breakdown stored with the quotation');
+      const view = as(U.sr1, function () { return must(getTicket(id)); }).items.filter(function (x) { return x.item_id === it.item_id; })[0];
+      ok(view.pricing.gp_below_min === true && view.pricing.min_gp_percent === 10, 'FPR: GP 8% is flagged below the 10% minimum');
+      ok(view.pricing.sell_price_thb === round_(126.05 / 0.92, 2), 'FPR: selling price = landed ÷ (1 − GP)');
+    });
+
+    // ---------- working-time SLA ----------
+    wrap('FPR_SLA', function () {
+      const wh = { start: 510, end: 1050, days: [1, 2, 3, 4, 5] };
+      const fri = new Date('2026-10-09T09:30:00Z');   // Fri 16:30 Bangkok
+      ok(addWorkMinutes_(fri, 240, wh, {}).toISOString() === '2026-10-12T04:30:00.000Z', 'SLA: Fri 16:30 + 4 working h = Mon 11:30 (weekend skipped)');
+      ok(addWorkMinutes_(fri, 240, wh, { '2026-10-12': 'หยุด' }).toISOString() === '2026-10-13T04:30:00.000Z', 'SLA: holiday on Monday → Tue 11:30');
+      ok(addWorkMinutes_(fri, 2 * 540, wh, {}).toISOString() === '2026-10-13T09:30:00.000Z', 'SLA: 2 working days from Fri 16:30 = Tue 16:30');
+      ok(workMinutesBetween_(fri, new Date('2026-10-12T04:30:00Z'), wh, {}) === 240, 'SLA: Fri 16:30 → Mon 11:30 = 240 working minutes');
+      ok(addWorkMinutes_(new Date('2026-10-10T03:00:00Z'), 60, wh, {}).toISOString() === '2026-10-12T02:30:00.000Z', 'SLA: started on Saturday → counts from Mon 08:30');
+    });
+
+    // ---------- reminder bot ----------
+    wrap('FPR_REMINDER', function () {
+      const t = newReq(U.salesFood2, 'ลูกค้าค้าง SLA');
+      withLock_(function () { updateRow_(TAB.TICKETS, t.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000) }); });
+      expectErr(as(U.salesFood2, function () { try { sendSlaReminders(); return { ok: true }; } catch (e) { return { ok: false, code: e.code, error: e.message }; } }), 'FORBIDDEN',
+        'Reminder: a normal user cannot run the reminder job');
+      const r1 = as(U.admin, function () { return sendSlaReminders(); });
+      const rem = botLog_(t.ticket_id).filter(function (n) { return n.bot === 'FPR Reminder'; });
+      ok(r1.reminded.indexOf(t.ticket_no) !== -1 && rem.length === 1 && rem[0].event === 'sla_GM_REVIEW' && /<at email=gm@/.test(rem[0].summary),
+        'Reminder: request over GM_REVIEW SLA → FPR Reminder card @GM');
+      ok(/เกินกำหนด/.test(rem[0].summary), 'Reminder: card shows how late it is (working time)');
+      const r2 = as(U.admin, function () { return sendSlaReminders(); });
+      ok(r2.reminded.indexOf(t.ticket_no) === -1, 'Reminder: not repeated within 8 working hours');
+      withLock_(function () { updateRow_(TAB.TICKETS, t.ticket_id, { last_reminded_at: new Date(Date.now() - 10 * 86400000) }); });
+      ok(as(U.admin, function () { return sendSlaReminders(); }).reminded.indexOf(t.ticket_no) !== -1, 'Reminder: repeats after 8 working hours');
+      must(go(U.gm, t.ticket_id, 'gm_approve', '', { sr_email: U.sr2 }));
+      ok(as(U.admin, function () { return sendSlaReminders(); }).reminded.indexOf(t.ticket_no) === -1, 'Reminder: new step → clock restarts (no reminder)');
+    });
+
+    // ---------- webhook down / test bots / mentions ----------
+    wrap('FPR_BOTS', function () {
+      http.hookDown = true;
+      const t = newReq(U.salesFood3, 'ลูกค้า webhook ล่ม');
+      http.hookDown = false;
+      const s = botLog_(t.ticket_id, 'submitted');
+      ok(ticketById_(t.ticket_id).stage === 'pending_gm' && s.length === 1 && s[0].status === 'failed' && s[0].attempts === 3,
+        'Webhook down: request still saved, card retried 3× and logged as failed in NotifLog');
+      TEST_BOTS_ = { fpr: { url: '', secret: '' }, reminder: { url: '', secret: '' } };
+      const t2 = newReq(U.salesFood3, 'ลูกค้าไม่มีบอท');
+      ok(botLog_(t2.ticket_id, 'submitted')[0].status === 'not_configured', 'No webhook URL in Script Properties → logged as not_configured, nothing breaks');
+      TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' },
+        reminder: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/rem', secret: 'sec-b' } };
+      const n0 = http.hooks.length;
+      const out = as(U.admin, function () { return testBots(); });
+      ok(out.length === Object.keys(FPR_EVENTS_).length + 1 && out.every(function (l) { return /: sent$/.test(l); }) && http.hooks.length - n0 === out.length,
+        'testBots: one sample card per event + one reminder, all sent');
+      expectErr(as(U.salesFood1, function () { try { testBots(); return { ok: true }; } catch (e) { return { ok: false, code: e.code, error: e.message }; } }), 'FORBIDDEN',
+        'testBots: Admin / owner only');
+      ok(buildMention(U.gm) === '<at email=' + U.gm + '></at>', 'Mention: <at email=…> by default');
+      withLock_(function () { updateRow_(TAB.USERS, U.gm, { lark_open_id: 'ou_gm123' }); });
+      ok(buildMention(U.gm) === '<at id=ou_gm123></at>', 'Mention: falls back to open_id when set on the user (mention not showing fix)');
+      withLock_(function () { updateRow_(TAB.USERS, U.gm, { lark_open_id: '' }); });
+      ok(larkSign_(1700000000, 'sec-a') === Utilities.base64Encode(Utilities.computeHmacSha256Signature('', '1700000000\nsec-a')), 'Signature: HmacSHA256(timestamp + \\n + secret) base64');
+    });
+  } finally {
+    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1' });
+    TEST_BOTS_ = null;
   }
 }

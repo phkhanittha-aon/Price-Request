@@ -17,6 +17,7 @@ Workflow: **Sales → Manager → GM → SR (Sourcing) → Sales** พร้อ�
 | 5 | ปรับ UX: รายการใบแบบแถบสถานะ (ไม่ค้าง), ฐานข้อมูล Supplier + ค้นหาเติมอัตโนมัติ, ค่าเริ่มต้น (USD = 35 ฯลฯ), หน้าแรกตามบทบาท | ✅ [docs/phase5-ux.md](docs/phase5-ux.md) |
 | 6 | รูปสินค้า Supplier (≤ 10 รูป/เจ้า) ให้ผู้บริหารดูตอนอนุมัติ, แจ้งเตือนกลุ่ม Lark อัตโนมัติ (กลุ่ม Sales / ผู้บริหาร), ติดตามการขาย New Item, สรุป GP & อัตราปิดการขาย | ✅ [docs/phase6-photos-deals-gp.md](docs/phase6-photos-deals-gp.md) |
 | 7 | ธีมเขียวพื้นสว่าง (Inter / Sarabun / Sora / JetBrains Mono), ติดตามการขายแบบ Sales app (สถานะกับลูกค้า · ขั้นตอนถัดไป · ต้องอัปเดตทุก 7 วัน · ทีมขาย), หน้ารวมผู้บริหาร Food + Mech เป็นเว็บแยก (`portal/`) | ✅ [docs/phase7-theme-followup-portal.md](docs/phase7-theme-followup-portal.md) |
+| 8 | **Food Price Request (FPR)**: GM อนุมัติ + เลือก Sourcing, supplier ≥ 3 ราย, ต้นทุนนำเข้า (อากร × CIF), GP ขั้นต่ำ 10%, SM / GM ปฏิเสธได้, Admin ยกเลิก, Lark Custom Bot 2 ตัว (FPR Bot ทุกขั้น + FPR Reminder เกิน SLA เวลาทำงาน) ลายเซ็น HmacSHA256 | ✅ [docs/phase8-fpr-lark-bots.md](docs/phase8-fpr-lark-bots.md) |
 
 ## โครงสร้าง
 
@@ -36,9 +37,10 @@ gas/                      # วางทุกไฟล์ลงโปรเจ�
   Api.gs                  # รายการใบ, inbox, notifications, dashboard
   Files.gs                # อัปโหลดไฟล์แนบแบบ chunk + เปิดไฟล์ตามสิทธิ์
   Lark.gs                 # Lark Bot API (DM รายคน) + retry
+  Bots.gs                 # FPR Bot / FPR Reminder (Lark Custom Bot webhook, ลายเซ็น, retry, NotifLog, SLA เวลาทำงาน, setup, testBots)
   Jobs.gs                 # triggers: ส่งแจ้งเตือน, SLA, self-test, backup
   Setup.gs                # setupDatabase, seedMasterData, seedDemoData
-  Tests.gs                # runAcceptanceTests (ใช้ชีตชั่วคราว, 188 ข้อ)
+  Tests.gs                # runAcceptanceTests (ใช้ชีตชั่วคราว, 472 ข้อ)
   Index.html, App.html    # โครงหน้าเว็บ + แกน JS (router, api, dialog, upload)
   Page*.html              # Dashboard, รายการ, รายละเอียด, ฟอร์ม, ใบเสนอราคา (Pricing)
 dev/gas-local-runner.js   # รันโค้ด gas/ + tests บน Node ด้วย mock (ไม่ได้ deploy)
@@ -52,7 +54,7 @@ docs/                     # เอกสารแต่ละ phase
 
 ดูขั้นตอนเต็มใน [docs/phase1-database.md §7](docs/phase1-database.md)
 1. script.google.com → New project → วางไฟล์ทั้งหมดใน `gas/`
-2. Run `setupDatabase` → Run `runAcceptanceTests` (ต้องได้ 188/188) → Run `seedDemoData` (UAT)
+2. Run `setupDatabase` → Run `runAcceptanceTests` (ต้องได้ 472/472) → Run `seedDemoData` (UAT)
 3. Deploy เป็น Web app (Execute as Me, Anyone within domain) → Run `installTriggers` — ดู [docs/phase2-webapp.md §4](docs/phase2-webapp.md)
 
 นักพัฒนา: `node dev/gas-local-runner.js tests` · `node dev/preview-server.js` แล้วเปิด http://localhost:8787/?as=mgr.food@example.co.th

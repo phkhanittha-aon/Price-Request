@@ -275,6 +275,12 @@ function seedDemoTickets_() {
     });
   };
   const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  // GM approval → SR: FPR mode (GM picks the SR) or queue mode (SR claims) — works with either Settings switch
+  const toSr = function (id, sr, comment) {
+    if (toBool_(setting_('gm_assigns_sr', true))) return go(U.gm, id, 'gm_approve', comment || '', { sr_email: sr });
+    go(U.gm, id, 'gm_approve', comment || '');
+    return go(sr, id, 'claim');
+  };
   const req = function (email, key, header, items) {
     return as(email, function () {
       const grp = /โรงแรม|ภัตตาคาร/.test(header.customer_name) ? 'โรงแรม / จัดเลี้ยง' : 'ร้านอาหาร';
@@ -286,8 +292,7 @@ function seedDemoTickets_() {
   let t = req(U.salesFood1, 'seed-A', { customer_name: 'บจก. ซูชิ ดีไลท์', documents_needed: 'Health Certificate, COA', description: 'ลูกค้าต้องการแบรนด์นอร์เวย์', priority: 'high' }, [
     { product_group_code: 'FOOD-FISH', product_name: 'Salmon Fillet Trim D (Skin-on)', net_weight: '100%', size: '1.0–1.5 kg/pc', packing_size: 'IVP 1 pc/bag, 10 kg/ctn', qty: 300, uom: 'กก.', target_price: 450 }
   ]);
-  go(U.gm, t.ticket_id, 'gm_approve', 'อนุมัติ');
-  go(U.sr1, t.ticket_id, 'claim');
+  toSr(t.ticket_id, U.sr1, 'อนุมัติ');
   as(U.sr1, function () { checklistOf_(t.ticket_id).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
   go(U.sr1, t.ticket_id, 'doc_complete');
   as(U.sr1, function () {
@@ -313,8 +318,8 @@ function seedDemoTickets_() {
   t = req(U.salesFood1, 'seed-B', { customer_name: 'ร้านซูชิ ABC' }, [
     { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว Vannamei HLSO', net_weight: '80%', size: '31/40', packing_size: '1 kg/pack', qty: 500, uom: 'กก.', target_price: 0 }
   ]);
-  go(U.gm, t.ticket_id, 'gm_approve');
-  go(U.srManager, t.ticket_id, 'assign', '', { sr_email: U.sr1 });
+  if (toBool_(setting_('gm_assigns_sr', true))) go(U.gm, t.ticket_id, 'gm_approve', '', { sr_email: U.sr1 });
+  else { go(U.gm, t.ticket_id, 'gm_approve'); go(U.srManager, t.ticket_id, 'assign', '', { sr_email: U.sr1 }); }
   go(U.sr1, t.ticket_id, 'request_info', 'ขอ % glazing และรูปแบบ packing ของกุ้ง', { missing_items: ['glazing', 'packing'] });
 
   // (C) Squid — waiting for GM (no Sales Manager → step skipped)
@@ -332,8 +337,7 @@ function seedDemoTickets_() {
     { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว Vannamei PD', net_weight: '90%', size: '41/50', packing_size: '1 kg/pack', qty: 400, uom: 'กก.', target_price: 270 },
     { product_group_code: 'FOOD-FISH', product_name: 'ปลาซาบะนอร์เวย์ Fillet', net_weight: '100%', size: '150–200 g', packing_size: '10 kg/ctn', qty: 150, uom: 'กก.', target_price: 0 }
   ]);
-  go(U.gm, t.ticket_id, 'gm_approve');
-  go(U.sr2, t.ticket_id, 'claim');
+  toSr(t.ticket_id, U.sr2);
   as(U.sr2, function () {
     checklistOf_(t.ticket_id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); });
   });
@@ -352,8 +356,7 @@ function seedDemoTickets_() {
   t = req(U.salesFood3, 'seed-F', { customer_name: 'ภัตตาคาร ทะเลทอง' }, [
     { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งแชบ๊วย HOSO', net_weight: '85%', size: '26/30', packing_size: '2 kg/box', qty: 200, uom: 'กก.', target_price: 380 }
   ]);
-  go(U.gm, t.ticket_id, 'gm_approve');
-  go(U.sr1, t.ticket_id, 'claim');
+  toSr(t.ticket_id, U.sr1);
   as(U.sr1, function () { checklistOf_(t.ticket_id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
   go(U.sr1, t.ticket_id, 'doc_complete');
   as(U.sr1, function () {
@@ -365,6 +368,7 @@ function seedDemoTickets_() {
       currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', moq: 50, lead_time_days: 3, payment_term: 'Credit 30 วัน', valid_until: inDays(7),
       origin_country: 'ไทย', packing: '2 kg/box', incoterm: 'DELIVERED' }));
     must(selectQuotation(q.quote_id, ''));
+    updateRow_(TAB.ITEMS, it.item_id, { supplier_shortfall_reason: 'กุ้งแชบ๊วยไซซ์ใหญ่ มีผู้เสนอราคาเพียง 2 ราย' });
   });
   go(U.sr1, t.ticket_id, 'submit_quote');
 
@@ -372,14 +376,13 @@ function seedDemoTickets_() {
   const priced = function (sales, key, header, item, quote, gp, monthsAgo, deal) {
     const x = req(sales, key, header, [Object.assign({ net_weight: '100%', packing_size: '10 kg/ctn', uom: 'กก.' }, item)]);
     if (ticketById_(x.ticket_id).stage === 'pending_manager') go(U.mgrFood, x.ticket_id, 'manager_approve');
-    go(U.gm, x.ticket_id, 'gm_approve');
-    go(U.sr2, x.ticket_id, 'claim');
+    toSr(x.ticket_id, U.sr2);
     as(U.sr2, function () { checklistOf_(x.ticket_id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
     go(U.sr2, x.ticket_id, 'doc_complete');
     as(U.sr2, function () {
       const it = activeItemsOf_(x.ticket_id)[0];
       const qid = Utilities.getUuid();
-      must(saveSourcingDraft(x.ticket_id, [{ item_id: it.item_id, gp_percent: gp, winner_quote_id: qid,
+      must(saveSourcingDraft(x.ticket_id, [{ item_id: it.item_id, gp_percent: gp, winner_quote_id: qid, shortfall_reason: 'ข้อมูลตัวอย่าง (ราคาย้อนหลัง)',
         quotes: [Object.assign({ quote_id: qid, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }, quote)] }]));
     });
     go(U.sr2, x.ticket_id, 'submit_quote');

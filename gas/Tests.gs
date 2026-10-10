@@ -1725,6 +1725,9 @@ function runFprCases_(results) {
       ok(/^FPR-\d{4}-\d{4,}$/.test(t.ticket_no) && t.stage === 'pending_gm', 'FPR: SUBMITTED goes straight to GM_REVIEW (no Sales Manager step) — ' + t.ticket_no);
       ok(botLog_(id, 'submitted').length === 1 && /<at email=gm@/.test(botLog_(id, 'submitted')[0].summary), 'FPR: “ใบขอราคาใหม่” card @GM on submit');
       ok(as(U.salesFood1, function () { return must(getTicket(t.ticket_no)); }).ticket.ticket_id === id, 'FPR: request opens by FPR number (?page=ticket&id=FPR-…)');
+      const gv = as(U.gm, function () { return must(getTicket(id)); });
+      ok(gv.sla && gv.sla.key === 'GM_REVIEW' && gv.sla.hours === 4 && gv.sla.overdue === false, 'FPR: request page shows the GM_REVIEW SLA deadline (4 working h)');
+      ok(gv.permissions.actions.join() === 'gm_approve,gm_return,gm_reject', 'FPR: GM sees approve / return to requester / reject');
       expectErr(go(U.gm, id, 'gm_approve'), 'INVALID_ASSIGNEE', 'FPR: GM must pick the Sourcing person when approving');
       expectErr(go(U.gm, id, 'gm_approve', '', { sr_email: U.salesFood2 }), 'INVALID_ASSIGNEE', 'FPR: the assignee must be an active SR');
       expectErr(go(U.sr1, id, 'gm_approve', '', { sr_email: U.sr1 }), 'NOT_FOUND', 'FPR: SR cannot even see / approve a request at GM_REVIEW');

@@ -671,10 +671,21 @@ function ticketDetail_(u, t) {
         actions: allowedActions_(u, t)
       },
       me: { email: u.email, full_name: u.full_name, role: u.role },
+      sla: fprSlaInfo_(t),
       vat_rate: vatRate_(),
       app_version: APP_VERSION
     };
   }
+}
+
+/** SLA deadline of the current FPR step for the web page (working time, Bangkok), or null. */
+function fprSlaInfo_(t) {
+  try {
+    const s = slaDue_(t, workHours_(), holidaySet_());
+    if (!s) return null;
+    return { key: s.key, label: SLA_LABEL_[s.key], due: s.due.toISOString(), due_text: fmtDate_(s.due, 'dd/MM/yyyy HH:mm'),
+      hours: Math.round(s.minutes / 6) / 10, overdue: new Date() > s.due };
+  } catch (e) { return null; }
 }
 
 /** Actions to show as buttons (UI hint only — doTransition_ re-checks everything). */

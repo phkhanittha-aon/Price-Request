@@ -1,6 +1,6 @@
 <!--
   File: PagePricing.html
-  SR pricing page (?page=pricing&id=...): document checklist → vendor comparison (max 3 per item)
+  SR pricing page (?page=pricing&id=...): document checklist → vendor comparison (max 5 per item, min 3 or a reason)
   → pick ONE winner per item → save draft / submit to Sales.
   Food items show food quotation fields (brand, origin, packing, Incoterm, shelf life);
   Others items show brand + packing.
@@ -8,7 +8,9 @@
 -->
 <script>
 Pages.pricing = (function () {
-  const MAX_VENDORS = 3;
+  const BD_KEYS = ['freight', 'insurance', 'duty_pct', 'fees', 'cold', 'inland', 'other'];
+  function maxVendors() { return Number(state.ref.max_vendors_per_item) || 5; }
+  function minSuppliers() { return Number(state.ref.min_suppliers) || 1; }
   let ctx = null;   // { d: ticket detail, model, dirty, view, roots }
 
   /* ---------- model ---------- */
@@ -31,13 +33,15 @@ Pages.pricing = (function () {
           winner: win ? win.quote_id : '',
           reason: win ? win.selection_reason : '',
           gp: it.gp_percent == null ? '' : it.gp_percent,
+          shortfall: it.supplier_shortfall_reason || '',
           quotes: it.quotations.slice().sort(function (a, b) { return a.created_at < b.created_at ? -1 : 1; }).map(function (q) {
             return {
               quote_id: q.quote_id, vendor_id: q.vendor_id, vendor_name: q.vendor_name, unit_price: q.unit_price, currency: q.currency,
               fx_rate: q.fx_rate, vat_term: q.vat_term, vat_rate: q.vat_rate, moq: q.moq == null ? '' : q.moq,
               lead_time_days: q.lead_time_days == null ? '' : q.lead_time_days, payment_term: q.payment_term, valid_until: q.valid_until,
               remark: q.remark, attachment_file_id: q.attachment_file_id, brand: q.brand, origin_country: q.origin_country,
-              packing: q.packing, incoterm: q.incoterm, shelf_life: q.shelf_life, clearance_thb: q.clearance_thb ? q.clearance_thb : ''
+              packing: q.packing, incoterm: q.incoterm, shelf_life: q.shelf_life, clearance_thb: q.clearance_thb ? q.clearance_thb : '',
+              fx_date: q.fx_date || '', bd: bdFrom(q.cost_breakdown)
             };
           })
         };
@@ -47,7 +51,19 @@ Pages.pricing = (function () {
   function blankQuote() {
     return { quote_id: uuid(), vendor_id: '', vendor_name: '', unit_price: '', currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', vat_rate: null,
       moq: '', lead_time_days: '', payment_term: '', valid_until: '', remark: '', attachment_file_id: '', brand: '', origin_country: '',
-      packing: '', incoterm: '', shelf_life: '', clearance_thb: '' };
+      packing: '', incoterm: '', shelf_life: '', clearance_thb: '', fx_date: '', bd: bdFrom(null) };
+  }
+  function bdFrom(b) {
+    const o = {};
+    BD_KEYS.forEach(function (k) { o[k] = b && Number(b[k]) ? b[k] : ''; });
+    return o;
+  }
+  function hasBd(q) { return !!q.bd && BD_KEYS.some(function (k) { return String(q.bd[k] == null ? '' : q.bd[k]).trim() !== ''; }); }
+  /** Same formula as Pricing.gs costBreakdown_(): duty = duty% × CIF (net THB + freight + insurance). */
+  function bdCalc(netThb, bd) {
+    const v = function (k) { const n = num(bd[k]); return isNaN(n) ? 0 : n; };
+    const duty = (netThb + v('freight') + v('insurance')) * v('duty_pct') / 100;
+    return { duty: duty, total: v('freight') + v('insurance') + duty + v('fees') + v('cold') + v('inland') + v('other') };
   }
   function num(v) {
     if (v === '' || v == null) return NaN;
@@ -59,10 +75,13 @@ Pages.pricing = (function () {
     const p = num(q.unit_price);
     const fx = q.currency === 'THB' ? 1 : num(q.fx_rate);
     const vat = q.vat_rate != null ? Number(q.vat_rate) : state.ref.vat_rate;
-    const cl = String(q.clearance_thb == null ? '' : q.clearance_thb).trim() === '' ? 0 : num(q.clearance_thb);
-    if (isNaN(p) || isNaN(fx) || fx <= 0 || p < 0 || isNaN(cl) || cl < 0) return null;
+    let cl = String(q.clearance_thb == null ? '' : q.clearance_thb).trim() === '' ? 0 : num(q.clearance_thb);
+    if (isNaN(p) || isNaN(fx) || fx <= 0 || p < 0) return null;
     const net = q.vat_term === 'include_vat' ? p / (1 + vat) : p;
-    return { net_thb: net * fx, clearance: cl, landed_thb: net * fx + cl };
+    let duty = null;
+    if (hasBd(q)) { const b = bdCalc(net * fx, q.bd); cl = Math.round(b.total * 10000) / 10000; duty = b.duty; }
+    if (isNaN(cl) || cl < 0) return null;
+    return { net_thb: net * fx, clearance: cl, landed_thb: net * fx + cl, duty: duty };
   }
   function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
   /** GP % of the item: blank = default from Settings. NaN when invalid. */
@@ -295,7 +314,10 @@ Pages.pricing = (function () {
       f('สกุลเงิน', sel('currency', cur, q.currency, ro)) + '</div>' +
       '<div class="row tight">' + f('อัตราแลกเปลี่ยน → THB', inp('fx_rate', q.currency === 'THB' ? 1 : q.fx_rate, 'number', ' inputmode="decimal" min="0" step="any"', ro || q.currency === 'THB'), q.currency !== 'THB') +
       f('VAT', sel('vat_term', state.ref.vat_terms, q.vat_term, ro), true) + '</div>' +
-      f('ค่าเคลียร์ของ (บาท/' + esc(it.uom) + ')', inp('clearance_thb', q.clearance_thb, 'number', ' inputmode="decimal" min="0" step="any" placeholder="0"', ro)) +
+      '<div class="fxd"' + (q.currency === 'THB' ? ' hidden' : '') + '>' + f('วันที่อัตราแลกเปลี่ยน', inp('fx_date', q.fx_date, 'date', '', ro)) + '</div>' +
+      f('ค่าเคลียร์ของรวม (บาท/' + esc(it.uom) + ')', inp('clearance_thb', q.clearance_thb, 'number', ' inputmode="decimal" min="0" step="any" placeholder="0"', ro || hasBd(q)) +
+        '<small class="hint" data-clr-hint>' + (hasBd(q) ? 'คำนวณจากรายละเอียดต้นทุนนำเข้าด้านล่าง' : '') + '</small>') +
+      bdBox(it, q, ro) +
       '<div class="calc"></div>' +
       '<div class="row tight">' + f('MOQ', inp('moq', q.moq, 'number', ' min="0" step="any"', ro)) + f('Lead time (วัน)', inp('lead_time_days', q.lead_time_days, 'number', ' min="0" step="1"', ro)) + '</div>' +
       f('เงื่อนไขชำระเงิน', inp('payment_term', q.payment_term, 'text', ' list="pay-list" maxlength="200"', ro)) +
@@ -309,6 +331,18 @@ Pages.pricing = (function () {
       f('ไฟล์ใบเสนอราคา', sel('attachment_file_id', files, q.attachment_file_id, ro)) +
       f('หมายเหตุ', '<textarea data-f="remark" maxlength="2000"' + (ro ? ' disabled' : '') + '>' + esc(q.remark) + '</textarea>') +
       '</div>';
+  }
+
+  /** Landed-cost breakdown per unit (THB / unit, e.g. per kg): filling it replaces the single clearance figure. */
+  function bdBox(it, q, ro) {
+    const L = { freight: 'ค่าขนส่ง (Freight)', insurance: 'ค่าประกันภัย', duty_pct: 'อากรขาเข้า (%)', fees: 'ค่าธรรมเนียม / ใบอนุญาต',
+      cold: 'ค่าห้องเย็น', inland: 'ค่าขนส่งในประเทศ', other: 'ค่าใช้จ่ายอื่น' };
+    return '<details class="bd-box"' + (hasBd(q) ? ' open' : '') + '><summary>🧮 รายละเอียดต้นทุนนำเข้า (บาท/' + esc(it.uom) + ')</summary>' +
+      '<div class="small muted">อากร = % × CIF (ราคาสินค้า + ค่าขนส่ง + ประกัน) · กรอกช่องใดช่องหนึ่ง ระบบจะคำนวณค่าเคลียร์ของรวมให้</div>' +
+      '<div class="bd-grid">' + BD_KEYS.map(function (k) {
+        return '<label class="field"><span>' + L[k] + '</span><input type="number" data-bd="' + k + '" value="' + esc(q.bd ? q.bd[k] : '') + '" inputmode="decimal" min="0"' +
+          (k === 'duty_pct' ? ' max="100"' : '') + ' step="any" placeholder="0"' + (ro ? ' disabled' : '') + '></label>';
+      }).join('') + '</div><div class="small" data-bd-out></div></details>';
   }
 
   /** Product photos of this supplier offer (≤ max per supplier) — SR Manager / GM review them before approving. */
@@ -340,8 +374,8 @@ Pages.pricing = (function () {
       '<tr><td>ต้นทุนสินค้า <span class="small muted" data-c="vendor"></span></td><td class="num" data-c="cost">–</td><td class="u">' + u + '</td></tr>' +
       '<tr><td>+ ค่าเคลียร์ของ</td><td class="num" data-c="clr">–</td><td class="u">' + u + '</td></tr>' +
       '<tr class="sub"><td>= ต้นทุนถึงคลัง</td><td class="num" data-c="landed">–</td><td class="u">' + u + '</td></tr>' +
-      '<tr><td>+ กำไร GP <input type="number" class="gp" data-gp min="0" max="99.99" step="0.5" inputmode="decimal" value="' + esc(mi.gp) +
-        '" placeholder="' + esc(state.ref.default_gp_percent) + '"' + (editable ? '' : ' disabled') + ' aria-label="GP %"> % ของราคาขาย</td>' +
+      '<tr data-gprow><td>+ กำไร GP <input type="number" class="gp" data-gp min="0" max="99.99" step="0.5" inputmode="decimal" value="' + esc(mi.gp) +
+        '" placeholder="' + esc(state.ref.default_gp_percent) + '"' + (editable ? '' : ' disabled') + ' aria-label="GP %"> % ของราคาขาย <span class="gp-warn" data-c="gpwarn"></span></td>' +
         '<td class="num" data-c="profit">–</td><td class="u">' + u + '</td></tr>' +
       '<tr class="total"><td>= ราคาขาย</td><td class="num" data-c="sell">–</td><td class="u">' + u + '</td></tr>' +
       '<tr class="ref"><td>ราคาที่ลูกค้าคาดหวัง</td><td class="num" data-c="target">–</td><td class="u" data-c="diff"></td></tr>' +
@@ -370,9 +404,9 @@ Pages.pricing = (function () {
     const isFood = rootOf(it.product_group_code) === 'FOOD';
     let cols = mi.quotes.map(function (q, qi) { return vendorCol(it, mi, q, qi, editable, isFood); }).join('');
     // fixed 3-slot grid (max 3 vendors): the next empty slot is the "add vendor" box, so columns always line up
-    if (editable && mi.quotes.length < MAX_VENDORS) {
+    if (editable && mi.quotes.length < maxVendors()) {
       cols += '<button type="button" class="vcol add-slot" data-addq><span class="plus">＋</span><b>เพิ่ม Vendor</b>' +
-        '<small>' + mi.quotes.length + ' / ' + MAX_VENDORS + ' เจ้า</small></button>';
+        '<small>' + mi.quotes.length + ' / ' + maxVendors() + ' เจ้า</small></button>';
     }
     if (!mi.quotes.length && !editable) cols = '<div class="empty small">ยังไม่มีราคา vendor</div>';
     return '<details class="card item" data-item="' + idx + '"' + (idx < 2 ? ' open' : '') + '>' +
@@ -387,6 +421,8 @@ Pages.pricing = (function () {
       '<div class="vgrid">' + cols + '</div>' +
       '<div class="reason" hidden><label class="field"><span>เหตุผลที่ไม่เลือกเจ้าที่ถูกที่สุด <span class="req">*</span></span>' +
       '<textarea data-reason maxlength="500" placeholder="เช่น คุณภาพดีกว่า, ลูกค้ากำหนดแบรนด์, Lead time สั้นกว่า"' + (editable ? '' : ' disabled') + '>' + esc(mi.reason) + '</textarea></label></div>' +
+      '<div class="shortfall" hidden><label class="field"><span>มี Supplier ไม่ถึง ' + minSuppliers() + ' ราย — เหตุผล <span class="req">*</span></span>' +
+      '<textarea data-shortfall maxlength="500" placeholder="เช่น สินค้าเฉพาะ มีผู้ขายในตลาดเพียง 2 ราย"' + (editable ? '' : ' disabled') + '>' + esc(mi.shortfall) + '</textarea></label></div>' +
       sellTable(it, mi, editable) + '</details>';
   }
 
@@ -432,6 +468,16 @@ Pages.pricing = (function () {
         '<span>+ ค่าเคลียร์ของ</span><span>฿' + fmtMoney(r.c.clearance) + '</span>' +
         '<span><b>= ต้นทุนถึงคลัง/' + esc(it.uom) + '</b></span><b>฿' + fmtMoney(r.c.landed_thb) + '</b></div>' :
         '<div class="small muted">กรอกราคา อัตราแลกเปลี่ยน และค่าเคลียร์ของ (ถ้ามี) เพื่อคำนวณ</div>';
+      const bdOn = hasBd(r.q);
+      const clrEl = $('[data-f="clearance_thb"]', col);
+      if (clrEl && bdOn) clrEl.value = r.c ? Math.round(r.c.clearance * 100) / 100 : '';
+      if (clrEl) clrEl.disabled = bdOn || !ctx.d.permissions.can_edit_quotes;
+      const clrHint = $('[data-clr-hint]', col);
+      if (clrHint) clrHint.textContent = bdOn ? 'คำนวณจากรายละเอียดต้นทุนนำเข้าด้านล่าง' : '';
+      const bdOut = $('[data-bd-out]', col);
+      if (bdOut) bdOut.innerHTML = bdOn && r.c ? 'อากร ฿' + fmtMoney(r.c.duty) + ' · <b>รวมค่าเคลียร์ของ ฿' + fmtMoney(r.c.clearance) + '/' + esc(it.uom) + '</b>' : '';
+      const fxd = $('.fxd', col);
+      if (fxd) fxd.hidden = r.q.currency === 'THB';
       $('.vtags', col).innerHTML = (r.cheapest ? '<span class="badge tag-cheap">★ ถูกที่สุด</span>' : '') +
         (mi.winner === r.q.quote_id ? ' <span class="badge tag-win">✔ ผู้ชนะ</span>' : '');
       col.classList.toggle('is-win', mi.winner === r.q.quote_id);
@@ -444,12 +490,15 @@ Pages.pricing = (function () {
     const reason = $('.reason', card);
     reason.hidden = !calc.needReason;
     const add = $('[data-addq]', card);
-    if (add) $('small', add).textContent = mi.quotes.length + ' / ' + MAX_VENDORS + ' เจ้า';
+    if (add) $('small', add).textContent = mi.quotes.length + ' / ' + maxVendors() + ' เจ้า';
     const filled = mi.quotes.filter(function (q) { return !isBlank(q); }).length;
+    const short = filled > 0 && filled < minSuppliers();
+    $('.shortfall', card).hidden = !short;
     let status;
     if (!filled) status = '<span class="sla breach">⛔ ยังไม่มีราคา</span>';
     else if (!calc.win) status = '<span class="sla warning">⚠ ' + filled + ' เจ้า · ยังไม่เลือก</span>';
     else if (calc.needReason && !String(mi.reason || '').trim()) status = '<span class="sla warning">⚠ ต้องใส่เหตุผล</span>';
+    else if (short && !String(mi.shortfall || '').trim()) status = '<span class="sla warning">⚠ ' + filled + '/' + minSuppliers() + ' Supplier · ต้องใส่เหตุผล</span>';
     else status = '<span class="sla ok">✓ ' + esc(calc.win.q.vendor_name || 'เลือกแล้ว') + '</span>';
     $('.istatus', card).innerHTML = status;
     const box = $('.sell', card);
@@ -472,6 +521,10 @@ Pages.pricing = (function () {
     put('diff', diff || ('บาท/' + esc(it.uom)));
     const gpIn = $('[data-gp]', box);
     if (gpIn) gpIn.classList.toggle('invalid', sp ? isNaN(sp.gp) : isNaN(gpOf(mi)));
+    const gpNow = gpOf(mi), minGp = Number(state.ref.min_gp_percent) || 0;
+    const low = !isNaN(gpNow) && gpNow < minGp;
+    $('[data-gprow]', box).classList.toggle('gp-low', low);
+    put('gpwarn', low ? '⚠ ต่ำกว่าขั้นต่ำ ' + minGp + '%' : '');
   }
 
   /** One row per item: per-unit cost breakdown and selling price (no totals). */
@@ -605,19 +658,33 @@ Pages.pricing = (function () {
       }
       if (el.hasAttribute('data-reason')) { mi.reason = el.value; markDirty(); refreshItem(idx); return; }
       if (el.hasAttribute('data-gp')) { mi.gp = el.value; markDirty(); refreshItem(idx); return; }
+      if (el.hasAttribute('data-shortfall')) { mi.shortfall = el.value; markDirty(); refreshItem(idx); return; }
       const col = el.closest('.vcol');
+      if (col && el.hasAttribute('data-bd')) {
+        const bq = mi.quotes[Number(col.getAttribute('data-q'))];
+        bq.bd = bq.bd || bdFrom(null);
+        bq.bd[el.getAttribute('data-bd')] = el.value;
+        markDirty();
+        refreshItem(idx);
+        return;
+      }
       if (!col || !el.getAttribute('data-f')) return;
       const q = mi.quotes[Number(col.getAttribute('data-q'))];
       const f = el.getAttribute('data-f');
       q[f] = el.value;
       (q._edited = q._edited || {})[f] = true;
       if (q._auto && q._auto[f]) { delete q._auto[f]; el.classList.remove('auto'); }
-      if (f === 'currency' && el.value !== 'THB' && (!String(q.fx_rate || '').trim() || (q._auto && q._auto.fx_rate) || q._fxDefault)) {
+      if (f === 'currency' && el.value !== 'THB' && (!String(q.fx_rate || '').trim() || Number(q.fx_rate) === 1 || (q._auto && q._auto.fx_rate) || q._fxDefault)) {
         const fx = (state.ref.fx_defaults || {})[el.value];
         q.fx_rate = fx == null ? '' : fx;
         q._fxDefault = fx != null;
         const fxEl = $('[data-f="fx_rate"]', col);
         if (fxEl) { fxEl.value = q.fx_rate; fxEl.disabled = false; fxEl.classList.toggle('auto', fx != null); }
+      }
+      if (f === 'currency' && el.value !== 'THB' && !q.fx_date) {
+        q.fx_date = todayYmd(0);
+        const fdEl = $('[data-f="fx_date"]', col);
+        if (fdEl) fdEl.value = q.fx_date;
       }
       if (f === 'fx_rate') q._fxDefault = false;
       if (f === 'currency' && q.currency === 'THB') q.fx_rate = 1;
@@ -689,7 +756,7 @@ Pages.pricing = (function () {
     });
     const add = $('[data-addq]', card);
     if (add) add.onclick = function () {
-      if (mi.quotes.length >= MAX_VENDORS) return;
+      if (mi.quotes.length >= maxVendors()) return;
       mi.quotes.push(blankQuote());
       markDirty();
       rerenderItem(idx, true);
@@ -791,12 +858,14 @@ Pages.pricing = (function () {
         winner_quote_id: mi.winner || '',
         selection_reason: mi.reason || '',
         gp_percent: String(mi.gp == null ? '' : mi.gp).trim(),
+        shortfall_reason: String(mi.shortfall || '').trim(),
         quotes: mi.quotes.filter(function (q) { return !isBlank(q); }).map(function (q) {
           const o = {};
           ['quote_id', 'vendor_id', 'vendor_name', 'unit_price', 'currency', 'fx_rate', 'vat_term', 'moq', 'lead_time_days', 'payment_term',
-            'valid_until', 'remark', 'attachment_file_id', 'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life', 'clearance_thb']
+            'valid_until', 'remark', 'attachment_file_id', 'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life', 'clearance_thb', 'fx_date']
             .forEach(function (k) { o[k] = q[k] == null ? '' : q[k]; });
-          if (o.currency === 'THB') o.fx_rate = 1;
+          if (o.currency === 'THB') { o.fx_rate = 1; o.fx_date = ''; }
+          o.cost_breakdown = hasBd(q) ? q.bd : null;
           return o;
         })
       };
@@ -855,6 +924,9 @@ Pages.pricing = (function () {
       });
       if (filled.length && !calc.win) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ยังไม่ได้เลือกผู้ชนะ' });
       if (calc.needReason && !String(mi.reason || '').trim()) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ต้องใส่เหตุผลที่ไม่เลือกเจ้าที่ถูกที่สุด' });
+      if (filled.length && filled.length < minSuppliers() && !String(mi.shortfall || '').trim()) {
+        out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ต้องมี Supplier อย่างน้อย ' + minSuppliers() + ' ราย หรือใส่เหตุผลที่มีไม่ถึง' });
+      }
       if (isNaN(gpOf(mi))) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': GP % ต้องอยู่ระหว่าง 0 – 99.99' });
       if (calc.win && calc.win.q.valid_until && calc.win.q.valid_until < today) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ราคาผู้ชนะหมดอายุแล้ว' });
     });

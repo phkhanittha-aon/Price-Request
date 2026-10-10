@@ -10,7 +10,8 @@ Pages.ticket = (function () {
     manager_approve: { label: 'อนุมัติ (Sales Manager)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันอนุมัติใบ {no} ส่งต่อให้ GM?' },
     manager_return: { label: 'ส่งกลับให้แก้ไข', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ Sales แก้ไข' },
     manager_reject: { label: 'ไม่อนุมัติ', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ไม่อนุมัติ', confirm: 'ไม่อนุมัติใบ {no}? ใบจะถูกปิดและแก้ไขต่อไม่ได้' },
-    gm_approve: { label: '✅ อนุมัติฝั่งขาย', cls: 'primary', comment: 'optional', confirm: 'อนุมัติฝั่งขาย: อนุมัติคำขอราคาใบ {no} ส่งต่อให้ SR หาราคา?' },
+    gm_approve: { label: '✅ อนุมัติฝั่งขาย', cls: 'primary', comment: 'optional', confirm: 'อนุมัติฝั่งขาย: อนุมัติคำขอราคาใบ {no} ส่งต่อให้ SR หาราคา?', select: 'sr_gm' },
+    gm_return: { label: '↩ ตีกลับให้ผู้ขอแก้ไข', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ผู้ขอแก้ไข', confirm: 'ส่งใบ {no} กลับให้ผู้ขอแก้ไข แล้วส่งกลับมาให้ GM อีกครั้ง' },
     gm_reject: { label: 'ไม่อนุมัติฝั่งขาย', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ไม่อนุมัติ', confirm: 'ไม่อนุมัติคำขอราคาใบ {no}? ใบจะถูกปิด' },
     claim: { label: '✅ รับงาน', cls: 'primary', comment: 'none', confirm: 'รับงานใบ {no}? ระบบจะบันทึกคุณเป็น SR ผู้รับผิดชอบ' },
     queue_return: { label: '↩ ตีกลับ — ข้อมูลไม่ครบ', cls: 'danger', comment: 'required', commentLabel: 'ข้อมูลที่ขาด / สิ่งที่ต้องการให้ Sales เพิ่ม', fields: true,
@@ -18,13 +19,16 @@ Pages.ticket = (function () {
     assign: { label: 'มอบหมาย SR', cls: '', comment: 'optional', select: 'sr' },
     srm_approve: { label: 'อนุมัติราคา (SR Manager)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันราคาใบ {no} ส่งต่อให้ GM อนุมัติฝั่งซื้อ?' },
     srm_return: { label: 'ส่งกลับให้ SR แก้ราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ SR แก้ไข' },
+    srm_reject: { label: 'ปฏิเสธ (ปิดใบ)', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ปฏิเสธ', confirm: 'ปฏิเสธใบ {no}? ใบจะถูกปิดและแก้ไขต่อไม่ได้' },
     gm_price_approve: { label: '✅ อนุมัติฝั่งซื้อ', cls: 'primary', comment: 'optional', confirm: 'อนุมัติฝั่งซื้อ: อนุมัติราคาซื้อและราคาขายใบ {no} แล้วส่งราคาขายถึง Sales?' },
     gm_price_return: { label: 'ส่งกลับให้ SR แก้ราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ SR แก้ไข' },
+    gm_price_reject: { label: 'ปฏิเสธราคา (ปิดใบ)', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ปฏิเสธ', confirm: 'ปฏิเสธราคาใบ {no}? ใบจะถูกปิดและแก้ไขต่อไม่ได้' },
+    admin_cancel: { label: '⛔ ยกเลิก (Admin)', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ยกเลิก', confirm: 'Admin ยกเลิกใบ {no}? ยกเลิกแล้วเปิดใหม่ไม่ได้' },
     request_info: { label: 'ขอข้อมูลเพิ่มจาก Sales', cls: '', comment: 'required', commentLabel: 'ข้อมูล/เอกสารที่ต้องการ', checklist: true },
     respond_info: { label: 'ส่งข้อมูลเพิ่มให้ SR', cls: 'primary', comment: 'required', commentLabel: 'คำตอบ / รายละเอียดที่ส่งเพิ่ม (แนบไฟล์ด้านล่างก่อนกดส่ง)' },
     accept: { label: 'รับทราบและตกลงราคา (ปิดงาน)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันรับทราบราคาและปิดใบ {no}?' },
     request_revision: { label: 'ขอให้ SR ปรับราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ปรับ' },
-    resubmit: { label: 'ส่งให้ Manager อีกครั้ง', cls: 'primary', comment: 'optional', confirm: 'ส่งใบ {no} ให้ Manager พิจารณาอีกครั้ง?' },
+    resubmit: { label: 'ส่งให้พิจารณาอีกครั้ง', cls: 'primary', comment: 'optional', confirm: 'ส่งใบ {no} ให้ผู้อนุมัติพิจารณาอีกครั้ง?' },
     cancel: { label: 'ยกเลิกใบขอราคา', cls: 'danger', comment: 'optional', commentLabel: 'เหตุผลที่ยกเลิก', confirm: 'ยกเลิกใบ {no}? ยกเลิกแล้วเปิดใหม่ไม่ได้' }
   };
   const CATEGORY_LABEL = { request: 'เอกสารประกอบคำขอ', info_response: 'ข้อมูลเพิ่มเติม', quotation: 'ใบเสนอราคา vendor', other: 'อื่นๆ' };
@@ -41,6 +45,8 @@ Pages.ticket = (function () {
       '<dt>วันที่ต้องการให้ตอบกลับราคา</dt><dd>' + esc(fmtDate(t.due_date)) + (t.priority !== 'normal' ? ' · ' + prioText(t.priority) : '') + '</dd>' +
       '<dt>เอกสารที่ต้องการประกอบ</dt><dd>' + esc(t.documents_needed || 'ไม่ต้องการเอกสารประกอบ') + '</dd>' +
       '<dt>SR ผู้รับงาน</dt><dd>' + esc(t.sr_name || '–') + '</dd>' +
+      (d.sla ? '<dt>ครบกำหนด (SLA)</dt><dd>' + esc(d.sla.due_text) + ' น. <span class="sla ' + (d.sla.overdue ? 'breach">⏰ เกินกำหนด' : 'ok">ภายในกำหนด') + '</span>' +
+        ' <span class="small muted">' + esc(d.sla.label) + ' · ' + fmtNum(d.sla.hours) + ' ชม.ทำงาน</span></dd>' : '') +
       '<dt>สร้างเมื่อ</dt><dd>' + esc(fmtDateTime(t.created_at)) + '</dd>' +
       (t.revision_count ? '<dt>ขอแก้ราคา</dt><dd>' + t.revision_count + ' ครั้ง</dd>' : '') +
       (t.rejection_reason ? '<dt>เหตุผล</dt><dd>' + esc(t.rejection_reason) + '</dd>' : '') +
@@ -149,12 +155,14 @@ Pages.ticket = (function () {
               '<td class="num" data-label="ราคา/หน่วย">' + fmtNum(q.unit_price) + ' ' + esc(q.currency) + (q.currency !== 'THB' ? '<div class="small muted">@' + fmtNum(q.fx_rate) + '</div>' : '') + '</td>' +
               '<td data-label="VAT">' + esc(vatLabel(q.vat_term)) + '</td>' +
               '<td class="num" data-label="ต้นทุนสินค้า/หน่วย">' + fmtMoney(q.net_unit_cost_thb) + '</td>' +
-              '<td class="num" data-label="ค่าเคลียร์ของ/หน่วย">' + fmtMoney(q.clearance_thb || 0) + '</td>' +
+              '<td class="num" data-label="ค่าเคลียร์ของ/หน่วย">' + fmtMoney(q.clearance_thb || 0) + bdHtml(q) + '</td>' +
               '<td class="num" data-label="ต้นทุนถึงคลัง/หน่วย"><b>' + fmtMoney(q.landed_unit_cost_thb) + '</b></td>' +
               '<td data-label="เงื่อนไข" class="small">' + [q.brand, q.origin_country ? 'Origin ' + q.origin_country : '', incoLabel(q.incoterm), q.packing,
                 q.shelf_life ? 'อายุ ' + q.shelf_life : '', q.moq != null ? 'MOQ ' + fmtNum(q.moq) : '', q.lead_time_days != null ? 'Lead ' + q.lead_time_days + ' วัน' : '',
                 q.payment_term, q.valid_until ? 'ยืนราคาถึง ' + fmtDate(q.valid_until) : ''].filter(Boolean).map(esc).join(' · ') + '</td></tr>';
-          }).join('') + '</tbody></table></div>' + photoReviewHtml(d, it) + sellHtml(it);
+          }).join('') + '</tbody></table></div>' +
+          (it.supplier_shortfall_reason ? '<div class="notice warn small">มี Supplier ไม่ถึงขั้นต่ำ — เหตุผล: ' + esc(it.supplier_shortfall_reason) + '</div>' : '') +
+          photoReviewHtml(d, it) + sellHtml(it);
       } else if (!showQ && it.sales_pricing) {
         html += salesSellHtml(it);
       } else if (!showQ && ['on_process'].indexOf(d.ticket.status) !== -1) {
@@ -162,6 +170,16 @@ Pages.ticket = (function () {
       }
       return html + '</div>';
     }).join('') + '</div>';
+  }
+
+  /** Landed-cost breakdown of one quotation (freight · insurance · duty · fees · cold storage · inland · other). */
+  function bdHtml(q) {
+    const b = q.cost_breakdown;
+    if (!b) return '';
+    const parts = [['ขนส่ง', b.freight], ['ประกัน', b.insurance], ['อากร ' + fmtNum(b.duty_pct) + '%', b.duty_thb], ['ธรรมเนียม', b.fees],
+      ['ห้องเย็น', b.cold], ['ขนส่งในประเทศ', b.inland], ['อื่นๆ', b.other]].filter(function (x) { return Number(x[1]) > 0; });
+    return '<div class="small muted">' + parts.map(function (x) { return esc(x[0]) + ' ' + fmtMoney(x[1]); }).join(' · ') +
+      (q.fx_date ? '<br>FX ณ ' + esc(fmtDate(q.fx_date)) : '') + '</div>';
   }
 
   /** Selling price per unit (server-computed in it.pricing): product cost + clearance = landed; + GP = selling price. */
@@ -175,7 +193,8 @@ Pages.ticket = (function () {
       '<tr><td>ต้นทุนสินค้า</td><td class="num">' + fmtMoney(p.product_cost_thb) + '</td><td class="u">' + u + '</td></tr>' +
       '<tr><td>+ ค่าเคลียร์ของ</td><td class="num">' + fmtMoney(p.clearance_thb) + '</td><td class="u">' + u + '</td></tr>' +
       '<tr class="sub"><td>= ต้นทุนถึงคลัง</td><td class="num">' + fmtMoney(p.landed_cost_thb) + '</td><td class="u">' + u + '</td></tr>' +
-      '<tr><td>+ กำไร GP ' + fmtNum(p.gp_percent) + '%' + (p.gp_is_default ? ' <span class="small muted">(ค่าเริ่มต้น)</span>' : '') + '</td><td class="num">' + fmtMoney(p.profit_thb) + '</td><td class="u">' + u + '</td></tr>' +
+      '<tr' + (p.gp_below_min ? ' class="gp-low"' : '') + '><td>+ กำไร GP ' + fmtNum(p.gp_percent) + '%' + (p.gp_is_default ? ' <span class="small muted">(ค่าเริ่มต้น)</span>' : '') +
+        (p.gp_below_min ? ' <span class="sla breach">⚠ ต่ำกว่าขั้นต่ำ ' + fmtNum(p.min_gp_percent) + '%</span>' : '') + '</td><td class="num">' + fmtMoney(p.profit_thb) + '</td><td class="u">' + u + '</td></tr>' +
       '<tr class="total"><td>= ราคาขาย</td><td class="num">' + fmtMoney(p.sell_price_thb) + '</td><td class="u">' + u + '</td></tr>' +
       '<tr class="ref"><td>ราคาที่ลูกค้าคาดหวัง</td><td class="num">' + (p.target_price ? fmtMoney(p.target_price) : 'ไม่มี') + '</td><td class="u">' + diff + '</td></tr>' +
       '</tbody></table></div>';
@@ -323,8 +342,9 @@ Pages.ticket = (function () {
     const t = d.ticket;
     const ui = ACTION_UI[action];
     let html = '';
-    if (ui.select === 'sr') {
-      html = '<label class="field"><span>มอบหมายให้ SR <span class="req">*</span></span><select id="dlg-sr"><option value="">— เลือก SR —</option>' +
+    const pickSr = ui.select === 'sr' || (ui.select === 'sr_gm' && state.ref.gm_assigns_sr);
+    if (pickSr) {
+      html = '<label class="field"><span>' + (ui.select === 'sr_gm' ? 'Sourcing ผู้ทำราคา' : 'มอบหมายให้ SR') + ' <span class="req">*</span></span><select id="dlg-sr"><option value="">— เลือก SR —</option>' +
         state.ref.sr_users.filter(function (u) { return u.email !== t.sr_email; })
           .map(function (u) { return '<option value="' + esc(u.email) + '">' + esc(u.full_name) + '</option>'; }).join('') + '</select></label>';
     }
@@ -345,11 +365,11 @@ Pages.ticket = (function () {
     dialog({
       title: ui.label, message: (ui.confirm || '').replace('{no}', t.ticket_no), html: html,
       comment: ui.comment, commentLabel: ui.commentLabel, danger: ui.cls === 'danger', confirmText: ui.label,
-      validate: function (root) { if (ui.select === 'sr' && !$('#dlg-sr', root).value) return 'กรุณาเลือก SR'; return null; }
+      validate: function (root) { if (pickSr && !$('#dlg-sr', root).value) return 'กรุณาเลือก SR'; return null; }
     }).then(function (res) {
       if (!res) return;
       const payload = { expected_version: t.version };
-      if (ui.select === 'sr') payload.sr_email = $('#dlg-sr', res.root).value;
+      if (pickSr) payload.sr_email = $('#dlg-sr', res.root).value;
       if (ui.checklist || ui.fields) payload.missing_items = $all('.dlg-miss', res.root).filter(function (x) { return x.checked; }).map(function (x) { return x.value; });
       toast('กำลังบันทึก...');
       api('transitionTicket', t.ticket_id, action, res.comment, payload).then(function (r) {

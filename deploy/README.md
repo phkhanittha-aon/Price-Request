@@ -14,13 +14,17 @@
 2. ลบโค้ดเดิมใน `Code.gs` → วางไฟล์ `Code.gs` · กด **+ › HTML** ตั้งชื่อ `Index` → วาง `Index.html` · เปิด manifest แล้ววาง `appsscript.json` · **Save**
 3. เลือกฟังก์ชัน **`setupDatabase`** → **Run** → อนุญาตสิทธิ์ (ระบบสร้าง Google Sheets ฐานข้อมูล + โฟลเดอร์ไฟล์แนบใน Drive ให้อัตโนมัติ)
 4. แท็บ **Users** ในไฟล์ Sheets ที่สร้าง: ใส่อีเมล + role (sales / manager / gm / sr / sr_manager / admin) + แผนก · แท็บ **Departments**: ใส่ manager_email
-5. (ไม่บังคับ) Run **`runAcceptanceTests`** → ต้องได้ ✅ 394/394 (ทดสอบในไฟล์ชั่วคราว ไม่แตะข้อมูลจริง)
-6. Project Settings → **Script properties** (Lark — ไม่บังคับ): `LARK_APP_ID`, `LARK_APP_SECRET`, `LARK_PRICE_GROUP_CHAT_ID`, `LARK_MGMT_GROUP_CHAT_ID` → Run `testLarkConnection` แล้ว `installTriggers`
-7. **Deploy → New deployment → Web app** · Execute as: **Me** · Who has access: **Anyone within บริษัท** → ได้ลิงก์ `/exec`
+5. (ไม่บังคับ) Run **`runAcceptanceTests`** → ต้องได้ ✅ 472/472 (ทดสอบในไฟล์ชั่วคราว ไม่แตะข้อมูลจริง)
+6. **Lark FPR Bot + FPR Reminder** (Custom Bot 2 ตัวในกลุ่มเดียว เปิด signature verification) → Project Settings → **Script properties**:
+   `FPR_BOT_URL`, `FPR_BOT_SECRET`, `FPR_REMINDER_URL`, `FPR_REMINDER_SECRET` → Run **`setup`** (ตรวจว่าครบ ✓) → Run **`testBots`** → Run **`installTriggers`**
+   (DM รายคนผ่าน Lark App — ไม่บังคับ: `LARK_APP_ID`, `LARK_APP_SECRET` → `testLarkConnection`)
+7. **Deploy → New deployment → Web app** · Execute as: **Me** · Who has access: **Anyone within mglobalsourcing.net** → ได้ลิงก์ `/exec` → ตั้ง Script property `WEBAPP_URL` = ลิงก์นี้ (ปุ่มในการ์ด Lark)
+
+คู่มือเต็ม + Test checklist: `docs/phase8-fpr-lark-bots.md`
 
 ### อัปเดตเวอร์ชัน (มีไฟล์อยู่แล้ว)
 1. วางทับ `Code.gs` และ `Index.html` ทั้งไฟล์ → Save
-2. Run **`setupDatabase`** (เพิ่มคอลัมน์ / Settings ใหม่ ไม่ลบข้อมูลเดิม)
+2. Run **`setup`** (= setupDatabase: เพิ่มแท็บ NotifLog / Holidays, คอลัมน์ และ Settings ใหม่ ไม่ลบข้อมูลเดิม + ตรวจ Script properties ของบอท)
 3. **Deploy → Manage deployments → ✏️ → Version: New version → Deploy** (ลิงก์ /exec เดิม) — กด Save อย่างเดียว เว็บจริงจะยังไม่เปลี่ยน
 
 ## 2. หน้ารวมผู้บริหาร — `deploy/portal/` (โปรเจกต์แยก 3 ไฟล์)

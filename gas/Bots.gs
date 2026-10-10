@@ -307,6 +307,26 @@ function sendSlaReminders() {
   return { reminded: sent };
 }
 
+/**
+ * FPR one-click setup (run from the editor as the script owner):
+ * builds / upgrades the database (tabs incl. NotifLog + Holidays, Settings, Drive folder "FPR Attachments")
+ * and reports which bot Script Properties are set. Secrets are never printed.
+ */
+function setup() {
+  requireOwner_();
+  const db = setupDatabase();
+  const p = PropertiesService.getScriptProperties();
+  const lines = Object.keys(BOT_PROPS_).map(function (k) {
+    const c = BOT_PROPS_[k];
+    const url = p.getProperty(c.url) || '', sec = p.getProperty(c.secret) || '';
+    return c.name + ': ' + c.url + ' ' + (url ? (/^https:\/\/open\.(larksuite|feishu)\.(com|cn)\/open-apis\/bot\/v2\/hook\//.test(url) ? '✓' : '⚠ ไม่ใช่ลิงก์ Lark webhook') : '✗ ยังไม่ได้ตั้ง') +
+      ' · ' + c.secret + ' ' + (sec ? '✓' : '✗ ยังไม่ได้ตั้ง');
+  });
+  const msg = ['setupDatabase: OK'].concat(lines, ['ขั้นต่อไป: testBots → installTriggers → Deploy']).join('\n');
+  console.log(msg);
+  return { database: db, bots: lines };
+}
+
 /** Run once: hourly trigger for sendSlaReminders (replaces an old one). */
 function installReminderTrigger() {
   requireOwner_();
