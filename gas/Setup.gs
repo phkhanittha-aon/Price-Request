@@ -15,8 +15,8 @@ const DEMO_DOMAIN = 'example.co.th';   // ← change to your company domain befo
 
 const DATE_COLS_ = ['created_at', 'updated_at', 'ts', 'stage_entered_at', 'submitted_at', 'manager_approved_at',
   'gm_approved_at', 'assigned_at', 'doc_checked_at', 'completed_at', 'closed_at', 'rejected_at', 'cancelled_at',
-  'checked_at', 'uploaded_at', 'deleted_at', 'read_at', 'lark_sent_at', 'deal_updated_at', 'deal_closed_at'];
-const DAY_COLS_ = ['due_date', 'valid_until', 'deal_next_date'];
+  'checked_at', 'uploaded_at', 'deleted_at', 'read_at', 'lark_sent_at', 'deal_updated_at', 'deal_closed_at', 'pricing_started_at', 'last_reminded_at'];
+const DAY_COLS_ = ['due_date', 'valid_until', 'deal_next_date', 'fx_date', 'date'];
 const NUMBER_COLS_ = ['qty', 'target_price', 'unit_price', 'fx_rate', 'vat_rate', 'moq', 'lead_time_days',
   'net_unit_cost', 'net_unit_cost_thb', 'gross_unit_price_thb', 'line_no', 'version', 'revision_count',
   'sort_order', 'size_bytes', 'log_id', 'stage_duration_sec', 'last_no', 'lark_attempts'];
@@ -38,7 +38,7 @@ function setupDatabase() {
   const report = setupSchema_(ss, { protect: true });
 
   if (!props.getProperty(CFG.PROP.DRIVE_ROOT_ID)) {
-    const folder = DriveApp.createFolder('MGS Food Price Request — Attachments (do not share)');
+    const folder = DriveApp.createFolder(DRIVE_ROOT_NAME);
     props.setProperty(CFG.PROP.DRIVE_ROOT_ID, folder.getId());
     report.push('Created Drive folder ' + folder.getId());
   }

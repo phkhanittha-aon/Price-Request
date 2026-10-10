@@ -21,7 +21,7 @@ const crypto = require('crypto');
 
 const OWNER = 'owner@example.co.th';
 const FILE_ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify', 'Workflow', 'Editing', 'Suppliers', 'Deals',
-  'Api', 'Files', 'Lark', 'Jobs', 'Code', 'Setup', 'Tests'];
+  'Api', 'Files', 'Lark', 'Bots', 'Jobs', 'Code', 'Setup', 'Tests'];
 
 // ------------------------------------------------------------------ Sheets mock
 class MockRange {
@@ -161,6 +161,9 @@ const Utilities = {
   newBlob: (v) => ({ getBytes: () => Array.from(toBuf(v)).map((b) => (b > 127 ? b - 256 : b)) }),
   DigestAlgorithm: { SHA_256: 'sha256' },
   Charset: { UTF_8: 'utf8' },
+  computeHmacSha256Signature(value, key) {
+    return Array.from(crypto.createHmac('sha256', String(key)).update(String(value), 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b));
+  },
   computeDigest(alg, text) {
     return Array.from(crypto.createHash(alg).update(String(text), 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b));
   },

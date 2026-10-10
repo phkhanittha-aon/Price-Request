@@ -175,6 +175,7 @@ var Utilities = {
   DigestAlgorithm: { SHA_256: 'sha256' },
   Charset: { UTF_8: 'utf8' },
   computeDigest: function (_alg, text) { return sha256Bytes_(String(text)); },
+  computeHmacSha256Signature: function () { return []; },   // prototype: bots are never configured
   base64Encode: function (v) { return btoa(bytesToBinary_(v)); },
   base64Decode: function (s) {
     const bin = atob(String(s));

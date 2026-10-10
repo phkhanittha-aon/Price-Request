@@ -175,7 +175,7 @@ function updateDeal(itemId, patch) {
           from: before.status, to: status, reason: reason, stage: stage, next_step: nextStep, next_date: next ? fmtDate_(next) : '' } });
       if (status === 'won' && before.status !== 'won') {
         const qty = Number(row.qty);
-        enqueueGroupEvent_('deal_won', t, { items: false, lines: ['• #' + row.line_no + ' ' + row.product_name +
+        enqueueGroupEvent_('deal_won', t, { lines: ['• #' + row.line_no + ' ' + row.product_name +
           ' — ลูกค้าใช้ประมาณ ' + fmtQty_(qty) + ' ' + row.uom + '/เดือน'] });
         // SR + SR Manager learn which of their prices sold (in-app + Lark DM, no price in the text)
         const srs = [t.sr_email].concat(activeUsersByRole_('sr_manager').map(function (x) { return x.email; }));

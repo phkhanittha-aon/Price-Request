@@ -31,8 +31,12 @@ function appError_(code, message, details) {
  */
 function api_(fnName, fn) {
   try {
-    return { ok: true, data: fn() };
+    const data = fn();
+    // Lark cards queued during the request are sent only now, after everything is committed (Bots.gs)
+    if (BOT_QUEUE_.length) { try { flushBotQueue_(); } catch (e) { console.error('flushBotQueue_', e); } }
+    return { ok: true, data: data };
   } catch (err) {
+    BOT_QUEUE_ = [];   // nothing was approved → nothing is announced
     if (err && err.isApp) {
       return { ok: false, code: err.code, error: err.message, details: err.details || null };
     }

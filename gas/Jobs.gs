@@ -8,11 +8,12 @@
  *   checkSlaAlerts         every hour    SLA warning (80%) / breach notifications
  *   runSelfTest            daily 07:00   schema, config, orphan tickets, log chain → Lark group on failure
  *   weeklyBackup           Monday 06:00  copy of the database spreadsheet, keeps the newest 12
+ *   sendSlaReminders       every hour    FPR Reminder bot: requests over their SLA (Bots.gs)
  *
  * Time triggers run as the owner: there is no "current user", so actions are stamped 'system'.
  */
 
-const JOB_HANDLERS_ = ['dispatchNotifications', 'checkSlaAlerts', 'runSelfTest', 'weeklyBackup'];
+const JOB_HANDLERS_ = ['dispatchNotifications', 'checkSlaAlerts', 'runSelfTest', 'weeklyBackup', 'sendSlaReminders'];
 const BACKUP_KEEP_ = 12;
 
 function installTriggers() {
@@ -22,6 +23,7 @@ function installTriggers() {
   });
   ScriptApp.newTrigger('dispatchNotifications').timeBased().everyMinutes(1).create();
   ScriptApp.newTrigger('checkSlaAlerts').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger('sendSlaReminders').timeBased().everyHours(1).create();   // FPR Reminder bot (Bots.gs)
   ScriptApp.newTrigger('runSelfTest').timeBased().everyDays(1).atHour(7).inTimezone(CFG.TZ).create();
   ScriptApp.newTrigger('weeklyBackup').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(6).inTimezone(CFG.TZ).create();
   const msg = 'Installed triggers: ' + JOB_HANDLERS_.join(', ');

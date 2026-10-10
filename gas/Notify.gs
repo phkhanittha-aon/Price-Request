@@ -95,53 +95,39 @@ const PRICE_GROUP_KEY_ = '#price_group';
 const MGMT_GROUP_KEY_ = '#mgmt_group';
 
 /**
- * Automatic Lark group messages. Each event goes to ONE group:
- *   sales = LARK_PRICE_GROUP_CHAT_ID (blank → LARK_GROUP_CHAT_ID) — the group with every Sales
- *   mgmt  = LARK_MGMT_GROUP_CHAT_ID  (blank → not sent)            — SR, SR Manager, GM
- * Which events are sent: Settings › lark_group_events (JSON list of keys; default = all).
- * RULE: a group message NEVER carries a price, cost, vendor name, GP or a free-text comment
- * (comments may talk about cost). It says what happened, to which request, and links to the app,
- * where each person sees only what their role allows.
+ * Group messages now go to ONE Lark group ("Food Price Request") through the custom bot "FPR Bot" — see Bots.gs.
+ * RULE (unchanged): a group card NEVER carries a price, cost, vendor name or GP; free-text comments only for
+ * sales-side decisions (request rejected / returned / cancelled), never for price reviews.
  */
-const GROUP_EVENTS_ = {
-  new_request:    { group: 'sales', icon: '🆕', color: 'blue',      label: 'คำขอราคาใหม่' },
-  sales_approved: { group: 'sales', icon: '🛒', color: 'turquoise', label: 'GM อนุมัติฝั่งขายแล้ว — เข้าคิว SR' },
-  sr_claimed:     { group: 'sales', icon: '🙋', color: 'turquoise', label: 'SR รับงานแล้ว' },
-  queue_return:   { group: 'sales', icon: '↩️', color: 'orange',    label: 'SR ตีกลับ — ข้อมูลไม่ครบ' },
-  need_info:      { group: 'sales', icon: '❓', color: 'orange',    label: 'SR ขอข้อมูลเพิ่ม' },
-  rejected:       { group: 'sales', icon: '⛔', color: 'red',       label: 'ไม่อนุมัติคำขอราคา' },
-  price_done:     { group: 'sales', icon: '✅', color: 'green',     label: 'ทำราคาเสร็จแล้ว' },
-  follow_up:      { group: 'sales', icon: '📌', color: 'orange',    label: 'แยกรายการส่งราคาตามหลัง' },
-  deal_won:       { group: 'sales', icon: '🎉', color: 'green',     label: 'ปิดการขายได้' },
-  price_review:   { group: 'mgmt',  icon: '🧾', color: 'purple',    label: 'ราคารอ SR Manager ตรวจ' },
-  gm_buy:         { group: 'mgmt',  icon: '📦', color: 'purple',    label: 'ราคารอ GM อนุมัติฝั่งซื้อ' },
-  price_returned: { group: 'mgmt',  icon: '🔁', color: 'orange',    label: 'ตีกลับให้ SR แก้ราคา' },
-  revision:       { group: 'mgmt',  icon: '✏️', color: 'orange',    label: 'Sales ขอให้ปรับราคา' }
-};
-const GROUP_KEY_OF_ = { sales: PRICE_GROUP_KEY_, mgmt: MGMT_GROUP_KEY_ };
 
-/** transition → group event (null = no group message). */
-function groupEventOfTransition_(action, saved) {
-  if (saved.stage === 'rejected' && (action === 'manager_reject' || action === 'gm_reject')) return 'rejected';
-  return {
-    gm_approve: 'sales_approved', claim: 'sr_claimed', queue_return: 'queue_return', request_info: 'need_info',
-    submit_quote: 'price_review', srm_approve: 'gm_buy', srm_return: 'price_returned', gm_price_return: 'price_returned',
-    gm_price_approve: 'price_done', request_revision: 'revision'
-  }[action] || null;
-}
-
-function groupEventsEnabled_() {
-  const v = setting_('lark_group_events', null);
-  return Array.isArray(v) ? v : Object.keys(GROUP_EVENTS_);
-}
-
-/** Item lines for a group message: product + spec only (no price, no vendor). */
-function groupItemLines_(t) {
-  return activeItemsOf_(t.ticket_id).map(function (it) {
-    if (it.quote_status) return '• ' + itemStatusLine_(it).replace(/\*\*/g, '');
-    const spec = [it.size, it.packing_size].filter(Boolean).join(' · ');
-    return '• #' + it.line_no + ' ' + it.product_name + (spec ? ' (' + spec + ')' : '') + ' — ' + fmtQty_(it.qty) + ' ' + it.uom + '/เดือน';
-  });
+/** transition → { event, extra } for the FPR Bot (null = no card). */
+function groupEventOfTransition_(action, saved, note, meta) {
+  const sales = [saved.requestor_email];
+  const sr = [saved.sr_email];
+  switch (action) {
+    case 'resubmit':
+    case 'manager_approve': return saved.stage === 'pending_gm' ? { event: 'submitted', extra: {} } : null;
+    case 'gm_approve': return { event: saved.stage === 'doc_check' ? 'assigned' : 'queued', extra: {} };
+    case 'claim':
+    case 'assign': return { event: 'assigned', extra: {} };
+    case 'queue_return':
+    case 'request_info': return { event: 'need_info', extra: { lines: meta && meta.missing_items && meta.missing_items.length ? ['**ข้อมูลที่ต้องเพิ่ม:** ' + meta.missing_items.join(', ')] : [] } };
+    case 'submit_quote': return { event: 'sm_review', extra: { lines: reviewFacts_(saved) } };
+    case 'srm_approve': return { event: 'gm_final', extra: { lines: reviewFacts_(saved) } };
+    case 'gm_price_approve': return { event: 'approved', extra: { lines: ['ราคาขายส่งถึงผู้ขอในระบบแล้ว · ผู้ขอกด “รับทราบราคา” หรือ “ขอปรับราคา” ได้ในหน้ารายการ'] } };
+    case 'srm_return':
+    case 'gm_price_return': return { event: 'returned', extra: { fixer: sr, lines: ['ตีกลับให้ Sourcing แก้ราคา — ดูเหตุผลในระบบ'] } };
+    case 'gm_return':
+    case 'manager_return': return { event: 'returned', extra: { fixer: sales, reason: note, lines: ['ตีกลับให้ผู้ขอแก้ไขคำขอ แล้วส่งใหม่'] } };
+    case 'manager_reject':
+    case 'gm_reject': return { event: 'rejected', extra: { reason: note } };
+    case 'srm_reject':
+    case 'gm_price_reject': return { event: 'rejected', extra: { lines: ['ปฏิเสธในขั้นอนุมัติราคา — ดูเหตุผลในระบบ'] } };
+    case 'cancel':
+    case 'admin_cancel': return { event: 'cancelled', extra: { reason: note } };
+    case 'request_revision': return { event: 'revision', extra: { lines: ['ผู้ขอขอให้ปรับราคา — ดูรายละเอียดในระบบ'] } };
+    default: return null;
+  }
 }
 
 function fmtQty_(n) {
@@ -149,34 +135,9 @@ function fmtQty_(n) {
   return isFinite(v) ? String(Math.round(v * 100) / 100).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '-';
 }
 
-/**
- * Queue one group message for `event` (skipped when the event is switched off in Settings).
- * extra: { lines: [...] } — structured, price-free facts only.
- */
+/** Queue one FPR Bot card (sent after the request commits). Kept for callers: deal_won, follow_up, submitted … */
 function enqueueGroupEvent_(event, t, extra) {
-  const ev = GROUP_EVENTS_[event];
-  if (!ev || groupEventsEnabled_().indexOf(event) === -1) return 0;
-  const x = extra || {};
-  const req = userByEmail_(t.requestor_email);
-  const sr = t.sr_email ? userByEmail_(t.sr_email) : null;
-  const actor = safeEmail_() ? userByEmail_(safeEmail_()) : null;
-  const head = [
-    'ลูกค้า: **' + (t.customer_name || '-') + '**' + (t.customer_group ? ' · ' + t.customer_group : '') +
-      (t.destination_country && t.destination_country !== 'ไทย' ? ' · ปลายทาง ' + t.destination_country : ''),
-    'Sales: ' + (req ? req.full_name : t.requestor_email) + (sr ? ' · SR: ' + sr.full_name : '') +
-      (actor && event !== 'new_request' ? ' · โดย ' + actor.full_name : '')
-  ];
-  if (event === 'new_request' && t.due_date) head.push('ต้องการราคาภายใน ' + fmtDate_(t.due_date, 'dd/MM/yyyy') + (t.priority === 'urgent' || t.priority === 'high' ? ' · ⚡ ด่วน' : ''));
-  const body = head.join('\n') + '\n\n' + (x.items === false ? '' : groupItemLines_(t).join('\n')) +
-    ((x.lines || []).length ? '\n\n' + x.lines.join('\n') : '') +
-    (event === 'price_done' ? '\n\nราคาขายส่งถึง Sales ผู้ขอทาง Lark ส่วนตัวแล้ว · ดูรายละเอียดในระบบ' : '');
-  insertRows_(TAB.NOTIFICATIONS, [{
-    notif_id: uuid_(), user_email: GROUP_KEY_OF_[ev.group], ticket_id: t.ticket_id, type: 'group_' + event,
-    title: ev.icon + ' [' + t.ticket_no + '] ' + ev.label + ' — ' + (t.customer_name || t.title),
-    body: body.slice(0, 1500), link: ticketLink_(t, 'ticket'), is_read: false, read_at: '', created_at: new Date(),
-    lark_status: 'pending', lark_attempts: 0, lark_error: '', lark_sent_at: ''
-  }]);
-  return 1;
+  return queueFprCard_(event, t, extra || {});
 }
 
 /** Facts for the management group when a price goes to review: how many offers / photos (never vendor names or prices). */
@@ -206,9 +167,9 @@ function sellPriceLines_(t) {
   });
 }
 
-/** "Price finished" group message — status only, NO prices (kept as a named helper for callers / tests). */
+/** "Price approved" group card — status only, NO prices. */
 function enqueuePriceDoneGroup_(t) {
-  return enqueueGroupEvent_('price_done', t);
+  return queueFprCard_('approved', t, {});
 }
 
 /** 1234.5 → "1,234.50" (Lark message text). */

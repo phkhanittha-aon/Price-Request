@@ -17,7 +17,7 @@ const out = process.argv[2];
 if (!out) { console.error('usage: node dev/build-prototype.js <output.html>'); process.exit(2); }
 const gasDir = path.join(__dirname, '..', 'gas');
 const FILE_ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify', 'Workflow', 'Editing', 'Suppliers', 'Deals',
-  'Api', 'Files', 'Lark', 'Jobs', 'Code', 'Setup', 'Tests'];
+  'Api', 'Files', 'Lark', 'Bots', 'Jobs', 'Code', 'Setup', 'Tests'];
 
 const read = (f) => fs.readFileSync(path.join(gasDir, f), 'utf8');
 // Tests.gs: only the fake Drive / HTTP helpers are needed (uploads in the prototype); the test cases are left out.

@@ -20,6 +20,8 @@ function runAcceptanceTests() {
       seedUsers_();
       // Tests run WITH a Sales Manager; the "no Sales Manager → skip to GM" path is tested separately
       updateRow_(TAB.DEPARTMENTS, 'SALES-FOOD', { manager_email: demoUsers_().mgrFood });
+      // The original flow cases below run with the pre-FPR switches; runFprCases_ turns the FPR switches on
+      setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1' });
     });
     runCases_(results);
     runPhase2Cases_(results);
@@ -48,6 +50,22 @@ function runAcceptanceTests() {
     ' — ' + (results.length - failed.length) + '/' + results.length + ' passed';
   console.log(results.join('\n') + '\n' + summary);
   return { passed: results.length - failed.length, failed: failed.length, summary: summary, results: results };
+}
+
+/** Test helper: FPR Bot / Reminder sends of one ticket (NotifLog), optionally one event. */
+function botLog_(ticketId, event) {
+  return rows_(TAB.NOTIF_LOG).filter(function (n) { return String(n.ticket_id) === String(ticketId) && (!event || n.event === event); })
+    .map(function (n) { return { event: String(n.event), status: String(n.status), attempts: Number(n.attempts), summary: String(n.summary), bot: String(n.bot) }; });
+}
+
+/** Test helper: set Settings values (inside the lock). */
+function setTestSettings_(kv) {
+  withLock_(function () {
+    Object.keys(kv).forEach(function (k) {
+      if (findOne_(TAB.SETTINGS, 'key', k)) updateRow_(TAB.SETTINGS, k, { value: kv[k] });
+      else insertRow_(TAB.SETTINGS, { key: k, value: kv[k], description: 'test', updated_at: new Date(), updated_by: 'test' });
+    });
+  });
 }
 
 /** Test helper: fill the Food form fields a test does not care about. */
@@ -125,7 +143,7 @@ function runCases_(results) {
       return must(createTicketT_({ client_key: 'ac1', title: 'หมึกกล้วยแช่แข็ง',
         items: [{ product_group_code: 'FOOD-CEPHALOPOD', product_name: 'หมึกกล้วย IQF', qty: 100, uom: 'กก.' }] })).ticket;
     });
-    ok(/^PR-\d{4}-\d{4,}$/.test(food1Ticket.ticket_no), 'Ticket number format PR-YYYY-NNNN: ' + food1Ticket.ticket_no);
+    ok(/^FPR-\d{4}-\d{4,}$/.test(food1Ticket.ticket_no), 'Ticket number format FPR-YYMM-NNNN: ' + food1Ticket.ticket_no);
     ok(food1Ticket.status === 'requested' && food1Ticket.stage === 'pending_manager', 'New ticket = Requested / pending_manager');
 
     const dup = as(U.salesFood1, function () {
@@ -240,8 +258,11 @@ function runCases_(results) {
     ok(cmp.filter(function (q) { return q.is_cheapest; }).map(function (q) { return q.vendor_name; }).join() === 'Vendor B',
       'Comparison marks Vendor B as cheapest');
 
-    expectErr(saveQ({ item_id: items[0].item_id, vendor_name: 'Vendor D', unit_price: 1, vat_term: 'ex_vat' }),
-      'MAX_VENDORS', 'AC-3 4th vendor on the same item rejected');
+    const qD = must(saveQ({ item_id: items[0].item_id, vendor_name: 'Vendor D', unit_price: 60000, vat_term: 'ex_vat' })).quote;
+    const qE = must(saveQ({ item_id: items[0].item_id, vendor_name: 'Vendor E', unit_price: 61000, vat_term: 'ex_vat' })).quote;
+    expectErr(saveQ({ item_id: items[0].item_id, vendor_name: 'Vendor F', unit_price: 1, vat_term: 'ex_vat' }),
+      'MAX_VENDORS', 'AC-3 6th vendor on the same item rejected (max ' + CFG.MAX_VENDORS_PER_ITEM + ')');
+    must(as(U.sr1, function () { must(deleteQuotation(qD.quote_id)); return deleteQuotation(qE.quote_id); }));
     const again = must(saveQ({ quote_id: qA.quote_id, item_id: items[0].item_id, vendor_name: 'Vendor A', unit_price: 50000, currency: 'THB', vat_term: 'ex_vat', valid_until: inDays(30) }));
     ok(again.changed === false && activeQuotesOfItem_(items[0].item_id).length === 3, 'Re-saving the same quote_id is idempotent (no duplicate row)');
     expectErr(saveQ({ item_id: items[1].item_id, vendor_name: 'Bad FX', unit_price: 1, currency: 'THB', fx_rate: 2, vat_term: 'ex_vat' }),
@@ -380,6 +401,8 @@ function fakeHttp_() {
   return {
     calls: calls,
     files: {},                // drive file id → { bytes, mime } (uploaded content, for previews)
+    hooks: [],                // payloads posted to Lark custom bot webhooks
+    hookDown: false,          // true: webhook answers HTTP 500
     parts: {},                // upload session → bytes received so far
     failOpenIds: {},          // open_id → true : Lark message call fails
     unknownEmails: {},        // email → true   : Lark has no such user
@@ -411,6 +434,11 @@ function fakeHttp_() {
         const self = this;
         return resp(200, { code: 0, data: { user_list: payload.emails.filter(function (e) { return !self.unknownEmails[e]; })
           .map(function (e) { return { email: e, user_id: 'ou_' + e.split('@')[0] }; }) } });
+      }
+      if (url.indexOf('/open-apis/bot/v2/hook/') !== -1) {   // Lark custom bot webhook
+        this.hooks.push(payload);
+        if (this.hookDown) return resp(500, { code: 9499, msg: 'service unavailable' });
+        return resp(200, { code: 0, msg: 'success', data: {} });
       }
       if (url.indexOf('/im/v1/messages') !== -1) {
         if (this.failOpenIds[payload.receive_id]) return resp(200, { code: 230001, msg: 'bot not in chat' });
@@ -704,8 +732,8 @@ function runPhase3Cases_(results) {
     const bad = expectErr(draft([{ item_id: items[0].item_id, quotes: [a, q({ vendor_name: 'X', unit_price: 'abc' })] }]), 'VALIDATION', 'Bad price rejected');
     ok(bad.error.indexOf('รายการที่ 1 vendor ที่ 2') === 0 && activeQuotesOfItem_(items[0].item_id).length === 2 &&
       activeQuotesOfItem_(items[0].item_id).some(function (x) { return x.quote_id === b.quote_id; }), 'Error names the exact column and nothing was written');
-    expectErr(draft([{ item_id: items[0].item_id, quotes: [a, b, q({ vendor_name: 'C', unit_price: 1 }), q({ vendor_name: 'D', unit_price: 1 })] }]),
-      'MAX_VENDORS', 'AC-3 4 vendors in a draft rejected');
+    expectErr(draft([{ item_id: items[0].item_id, quotes: [a, b].concat(['C', 'D', 'E', 'F'].map(function (n) { return q({ vendor_name: n, unit_price: 1 }); })) }]),
+      'MAX_VENDORS', 'AC-3 6 vendors in a draft rejected');
     expectErr(draft([{ item_id: items[0].item_id, quotes: [a, q({ vendor_name: 'E', unit_price: 1, incoterm: 'FREE' })] }]), 'VALIDATION', 'Unknown Incoterm rejected');
     expectErr(draft([{ item_id: items[0].item_id, quotes: [a, b], winner_quote_id: Utilities.getUuid() }]), 'VALIDATION', 'Winner must be one of the vendors');
 
@@ -956,9 +984,9 @@ function runSellPriceCases_(results) {
     ok(ready.length === 1 && String(ready[0].body).indexOf('337.62') !== -1 &&
       !/Andaman|270\.09|GP \d|\d%|ต้นทุน|เคลียร์/.test(String(ready[0].body)),
       'Requesting Sales gets the selling price of their own request in the DM — no cost / GP');
-    const grp = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === PRICE_GROUP_KEY_ && n.type === 'group_price_done'; });
-    ok(grp.length === 1 && String(grp[0].body).indexOf('กุ้งขาว') !== -1 &&
-      !/337\.62|ราคาขาย \*|Andaman|270\.09|GP \d|\d%|ต้นทุน|เคลียร์/.test(String(grp[0].body)),
+    const grp = botLog_(id, 'approved');
+    ok(grp.length === 1 && grp[0].summary.indexOf('กุ้งขาว') !== -1 && /มีราคาแล้ว/.test(grp[0].summary) &&
+      !/337\.62|Andaman|270\.09|GP \d|เคลียร์|บาท\//.test(grp[0].summary),
       'GM approval queues ONE Lark group message: status only — no price (other Sales are in the group)');
     // another Sales must not reach this request's price by any path
     expectErr(as(U.salesFood1, function () { return getTicket(id); }), 'NOT_FOUND', 'Other Sales cannot open the request (NOT_FOUND)');
@@ -977,17 +1005,18 @@ function runSellPriceCases_(results) {
     const gp = pollData_(userByEmail_(U.gm));
     ok(typeof gp.gm_sales === 'number' && typeof gp.gm_buy === 'number' && pollData_(userByEmail_(U.salesFood1)).gm_buy === undefined,
       'Poll gives GM the two approval counts');
-    TEST_LARK_ = { app_id: 'a', app_secret: 'b', host: 'https://lark.test', group_chat_id: '', price_group_chat_id: 'oc_price' };
+    // the same card through the real webhook path: signed, interactive, no price in the JSON
     const fh = fakeHttp_();
     TEST_HTTP_ = fh;
-    for (let n = 0; n < 30; n++) {   // dispatcher sends LARK_BATCH_ per run; drain the whole test queue
-      if (!withIdentity_(U.admin, function () { return dispatchNotifications(); }).claimed) break;
-    }
-    const sentTo = fh.calls.filter(function (c) { return c.url.indexOf('/im/v1/messages') !== -1; })
-      .map(function (c) { return c.url + ' ' + c.payload.receive_id; });
-    TEST_LARK_ = null; TEST_HTTP_ = null;
-    ok(sentTo.some(function (x) { return /receive_id_type=chat_id oc_price$/.test(x); }) &&
-      String(findOne_(TAB.NOTIFICATIONS, 'notif_id', grp[0].notif_id).lark_status) === 'sent', 'Group message delivered to the price group chat');
+    TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/test-fpr', secret: 's3cret' }, reminder: { url: '', secret: '' } };
+    withLock_(function () { queueFprCard_('approved', ticketById_(id), {}); });
+    const res = flushBotQueue_();
+    const hp = fh.hooks[0] || {};
+    TEST_BOTS_ = null; TEST_HTTP_ = null;
+    ok(res[0].status === 'sent' && hp.msg_type === 'interactive' && hp.sign === larkSign_(hp.timestamp, 's3cret') && /^\d{10}$/.test(hp.timestamp),
+      'Webhook card is signed (timestamp + HmacSHA256) and interactive');
+    ok(!/337\.62|270\.09|Andaman/.test(JSON.stringify(hp.card)) && JSON.stringify(hp.card).indexOf(ticketById_(id).ticket_no) !== -1,
+      'Webhook card JSON has the FPR number and no price / cost / vendor');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: SELL_PRICE — ' + e.message + '\n' + e.stack);
   }
@@ -1054,7 +1083,7 @@ function runFollowUpCases_(results) {
     const fu = ticketById_(r.follow_up.ticket_id);
     const fuItems = activeItemsOf_(fu.ticket_id);
     ok(fu && fu.parent_ticket_id === id && fu.stage === 'sourcing' && fu.sr_email === U.sr1 && fu.requestor_email === U.salesFood3 &&
-      fu.customer_name === 'ร้าน ส่งตามหลัง' && !!fu.gm_approved_at && /^PR-\d{4}-\d{4,}$/.test(fu.ticket_no),
+      fu.customer_name === 'ร้าน ส่งตามหลัง' && !!fu.gm_approved_at && /^FPR-\d{4}-\d{4,}$/.test(fu.ticket_no),
       'Send later creates ' + fu.ticket_no + ': same customer / Sales / SR, approvals carried, in sourcing');
     ok(fuItems.length === 1 && fuItems[0].product_name === 'หมึกกล้วย' && fuItems[0].quote_status === '', 'Follow-up ticket holds just that item');
     ok(activeQuotesOfItem_(fuItems[0].item_id).length === 1 && activeQuotesOfItem_(squid.item_id).length === 0, 'Vendor price moved with the item');
@@ -1084,8 +1113,8 @@ function runFollowUpCases_(results) {
     ok(byName('ปลาแซลมอน').sales_pricing && byName('ปลาแซลมอน').sales_pricing.sell_price_thb > 500, 'Quoted item still has its selling price');
     const dm = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return String(n.user_email) === U.salesFood3 && n.type === 'quote_ready'; })[0];
     ok(/ไม่เสนอราคา/.test(dm.body) && dm.body.indexOf(fu.ticket_no) !== -1, 'Sales DM lists not-offered and sent-later items');
-    const grp = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === PRICE_GROUP_KEY_ && n.type === 'group_price_done'; })[0];
-    ok(/ไม่เสนอราคา/.test(grp.body) && grp.body.indexOf(fu.ticket_no) !== -1 && !/\d+\.\d\d/.test(grp.body), 'Group message shows the item statuses, still no prices');
+    const grp = botLog_(id, 'approved')[0];
+    ok(/ไม่เสนอราคา/.test(grp.summary) && /ส่งราคาตามหลัง/.test(grp.summary) && !/\d+\.\d\d/.test(grp.summary), 'Group card shows the item statuses, still no prices');
 
     // 4) the follow-up is pending work everywhere
     ok(as(U.salesFood3, function () { return must(getDashboard('all')); }).follow_ups.some(function (r) { return r.ticket_id === fu.ticket_id && r.parent_ticket_no === t.ticket_no; }),
@@ -1315,11 +1344,11 @@ function runPhotoDealCases_(results) {
       return uploadChunk(b.data.upload_id, 0, Utilities.base64Encode(PNG));
     });
   };
-  const groupMsgs = function (id, type) {
-    return findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return String(n.user_email).charAt(0) === '#' && (!type || n.type === 'group_' + type); });
-  };
+  const groupMsgs = function (id, type) { return botLog_(id, type); };
   const http = fakeHttp_();
   TEST_HTTP_ = http;
+  TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' },
+    reminder: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/rem', secret: 'sec-b' } };
   TEST_DRIVE_ = fakeDrive_();
   try {
     // ---------- request → approvals → SR (group events on the way) ----------
@@ -1329,14 +1358,15 @@ function runPhotoDealCases_(results) {
         { product_name: 'กุ้งขาว HLSO', net_weight: '80%', size: '31/40', packing_size: '1 kg/pack', qty: 300, uom: 'กก.', target_price: 0 }] })).ticket;
     });
     const id = t.ticket_id;
-    const nr = groupMsgs(id, 'new_request');
-    ok(nr.length === 1 && nr[0].user_email === PRICE_GROUP_KEY_ && /ปลาหมึกกล้วย/.test(nr[0].body) && /800 กก\./.test(nr[0].body),
-      'Group: new request posted to the Sales group (customer, product, volume per month)');
+    ok(groupMsgs(id).length === 0, 'Bot: nothing posted while the request waits for the Sales Manager (old flow switch on)');
     must(go(U.mgrFood, id, 'manager_approve'));
+    const nr = groupMsgs(id, 'submitted');
+    ok(nr.length === 1 && nr[0].status === 'sent' && /ปลาหมึกกล้วย/.test(nr[0].summary) && /800 กก\./.test(nr[0].summary) && /<at email=gm@/.test(nr[0].summary),
+      'Bot: 📥 request waiting for GM posted (customer, product, volume / month) and @GM');
     must(go(U.gm, id, 'gm_approve'));
-    ok(groupMsgs(id, 'sales_approved').length === 1, 'Group: GM sales-side approval posted');
+    ok(groupMsgs(id, 'queued').length === 1, 'Bot: GM approval posted (queue mode)');
     must(go(U.sr2, id, 'claim'));
-    ok(groupMsgs(id, 'sr_claimed').length === 1 && /SR:/.test(groupMsgs(id, 'sr_claimed')[0].body), 'Group: SR accepted the job');
+    ok(groupMsgs(id, 'assigned').length === 1 && /<at email=sr2@/.test(groupMsgs(id, 'assigned')[0].summary), 'Bot: 🔧 assigned card @mentions the Sourcing person');
     as(U.sr2, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
     must(go(U.sr2, id, 'doc_complete'));
     const items = activeItemsOf_(id);
@@ -1396,43 +1426,46 @@ function runPhotoDealCases_(results) {
 
     // ---------- price review: management group gets counts, never names or prices ----------
     must(go(U.sr2, id, 'submit_quote'));
-    const pr = groupMsgs(id, 'price_review');
-    ok(pr.length === 1 && pr[0].user_email === MGMT_GROUP_KEY_ && /รูปสินค้า 10 รูป/.test(pr[0].body) && /Supplier ที่เสนอ: 2 ราย/.test(pr[0].body),
-      'Group: management group told the price waits for SR Manager (2 offers, 10 photos)');
+    const pr = groupMsgs(id, 'sm_review');
+    ok(pr.length === 1 && /รูปสินค้า 10 รูป/.test(pr[0].summary) && /Supplier ที่เสนอ: 2 ราย/.test(pr[0].summary) && /มีราคาแล้ว/.test(pr[0].summary) && /<at email=sr\.manager@/.test(pr[0].summary),
+      'Bot: 📊 waiting for Sourcing Manager (2 offers, 10 photos, “มีราคาแล้ว”) @SR Manager');
     must(go(U.srManager, id, 'srm_approve'));
-    ok(groupMsgs(id, 'gm_buy').length === 1 && groupMsgs(id, 'gm_buy')[0].user_email === MGMT_GROUP_KEY_, 'Group: management group told the price waits for GM purchasing approval');
+    ok(groupMsgs(id, 'gm_final').length === 1 && /<at email=gm@/.test(groupMsgs(id, 'gm_final')[0].summary), 'Bot: 🏁 waiting for GM final approval @GM');
     must(go(U.gm, id, 'gm_price_approve'));
-    ok(groupMsgs(id, 'price_done').length === 1 && groupMsgs(id, 'price_done')[0].user_email === PRICE_GROUP_KEY_, 'Group: price done posted to the Sales group');
+    ok(groupMsgs(id, 'approved').length === 1 && /<at email=sales\.food3@/.test(groupMsgs(id, 'approved')[0].summary) && /<at email=sr2@/.test(groupMsgs(id, 'approved')[0].summary),
+      'Bot: 🎉 approved @requester + Sourcing');
     const leaks = groupMsgs(id).filter(function (n) {
-      return /Siam Squid|Gulf Ceph|Andaman Shrimp|120|125|210|ราคาขาย \*\*|GP|ต้นทุน|กำไร/.test(String(n.title) + String(n.body));
+      return /Siam Squid|Gulf Ceph|Andaman Shrimp|\b120\b|\b125\b|\b210\b|บาท\/|GP \d|กำไร/.test(n.summary);
     });
     ok(groupMsgs(id).length >= 6 && !leaks.length, 'Group: no group message carries a vendor name, price, cost or GP (' + groupMsgs(id).length + ' messages checked)');
 
     // switching an event off
-    withLock_(function () { updateRow_(TAB.SETTINGS, 'lark_group_events', { value: JSON.stringify(['price_done']) }); });
+    setTestSettings_({ fpr_bot_events_off: JSON.stringify(['submitted']) });
     const t2 = as(U.salesFood3, function () {
       return must(createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'ร้านปิดแจ้งเตือน', due_date: inDays(3), items: [
         { product_name: 'ปลาซาบะ', net_weight: '100%', size: 'M', packing_size: '10 kg', qty: 50, uom: 'กก.', target_price: 0 }] })).ticket;
     });
-    ok(groupMsgs(t2.ticket_id).length === 0, 'Group: events switched off in Settings › lark_group_events are not sent');
-    withLock_(function () { updateRow_(TAB.SETTINGS, 'lark_group_events', { value: JSON.stringify(Object.keys(GROUP_EVENTS_)) }); });
+    must(go(U.mgrFood, t2.ticket_id, 'manager_approve'));
+    ok(groupMsgs(t2.ticket_id).length === 0, 'Bot: events listed in Settings › fpr_bot_events_off are not sent');
+    setTestSettings_({ fpr_bot_events_off: '[]' });
 
-    // delivery: each pseudo-recipient goes to its own chat; no management chat → not sent
-    TEST_LARK_ = { app_id: 'a', app_secret: 'b', host: 'https://lark.test', group_chat_id: '', price_group_chat_id: 'oc_sales', mgmt_group_chat_id: 'oc_mgmt' };
-    const fh = fakeHttp_();
-    TEST_HTTP_ = fh;
-    for (let n = 0; n < 40; n++) { if (!withIdentity_(U.admin, function () { return dispatchNotifications(); }).claimed) break; }
-    const chats = fh.calls.filter(function (c) { return c.url.indexOf('receive_id_type=chat_id') !== -1; }).map(function (c) { return c.payload.receive_id; });
-    ok(String(findOne_(TAB.NOTIFICATIONS, 'notif_id', pr[0].notif_id).lark_status) === 'sent' && chats.indexOf('oc_mgmt') !== -1 && chats.indexOf('oc_sales') !== -1,
-      'Group: management events go to LARK_MGMT_GROUP_CHAT_ID, Sales events to the price group');
-    const card = larkCard_({ type: 'group_price_review', title: 'x', body: 'y', link: '' });
-    ok(card.header.template === 'purple' && larkCard_({ type: 'group_deal_won', title: 'x', body: 'y' }).header.template === 'green', 'Group: card colour per event');
-    TEST_LARK_ = { app_id: 'a', app_secret: 'b', host: 'https://lark.test', group_chat_id: '', price_group_chat_id: 'oc_sales', mgmt_group_chat_id: '' };
-    withLock_(function () { enqueueGroupEvent_('gm_buy', ticketById_(id)); });
-    for (let n = 0; n < 5; n++) { if (!withIdentity_(U.admin, function () { return dispatchNotifications(); }).claimed) break; }
-    ok(groupMsgs(id, 'gm_buy').some(function (n) { return String(n.lark_status) === 'no_group'; }), 'Group: management group not configured → message marked no_group (not sent to Sales)');
-    TEST_LARK_ = null;
-    TEST_HTTP_ = http;
+    // delivery through the webhook: every card signed; colours per event
+    ok(groupMsgs(id).every(function (n) { return n.status === 'sent' && n.bot === 'FPR Bot'; }), 'Bot: every card of the request delivered by FPR Bot (NotifLog = sent)');
+    ok(http.hooks.length >= 6 && http.hooks.every(function (h) { return h.msg_type === 'interactive' && h.sign === larkSign_(h.timestamp, 'sec-a'); }),
+      'Bot: every webhook call is an interactive card signed with the secret');
+    const colour = function (part) { const h = http.hooks.filter(function (x) { return x.card.header.title.content.indexOf(part) !== -1; })[0]; return h && h.card.header.template; };
+    ok(colour('คำขอราคาใหม่') === 'blue' && colour('มอบหมายทำราคา') === 'indigo' && colour('รอ Sourcing Manager') === 'orange' &&
+      colour('รอ GM อนุมัติราคาสุดท้าย') === 'purple' && colour('อนุมัติราคาแล้ว') === 'green', 'Bot: header colour per event (blue / indigo / orange / purple / green)');
+    ok(http.hooks.every(function (h) { return h.card.elements.some(function (e) { return e.tag === 'action'; }) === /^https:/.test(fprLink_({ ticket_no: 'x' })); }),
+      'Bot: URL button only when the web app has an https link');
+    // webhook down → the approval still goes through; 3 attempts logged as failed
+    http.hookDown = true;
+    const before = http.hooks.length;
+    const ga = go(U.gm, t2.ticket_id, 'gm_approve');
+    http.hookDown = false;
+    const fail = groupMsgs(t2.ticket_id, 'queued')[0];
+    ok(ga.ok && ticketById_(t2.ticket_id).stage === 'pending_assign' && fail && fail.status === 'failed' && fail.attempts === 3 && http.hooks.length - before === 3,
+      'Bot: webhook down → approval saved anyway, 3 attempts, NotifLog = failed');
 
     // ---------- deal follow-up ----------
     const deals = as(U.salesFood3, function () { return must(listDeals()); });
@@ -1455,7 +1488,7 @@ function runPhotoDealCases_(results) {
     const w = as(U.salesFood3, function () { return must(updateDeal(squid.item_id, { status: 'won', note: 'เริ่มสั่งเดือนหน้า' })); }).deal;
     ok(w.deal_status === 'won' && w.deal_closed_at && !w.is_open && !w.deal_next_date, 'Deals: won → closed date recorded');
     const won = groupMsgs(id, 'deal_won');
-    ok(won.length === 1 && /ปลาหมึกกล้วย/.test(won[0].body) && /800 กก\./.test(won[0].body) && !/\d+\.\d\d|บาท/.test(won[0].body),
+    ok(won.length === 1 && /ปลาหมึกกล้วย/.test(won[0].summary) && /800 กก\./.test(won[0].summary) && !/\d+\.\d\d|บาท\//.test(won[0].summary),
       'Deals: won is announced in the Sales group (product + volume, no price)');
     ok(findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).some(function (n) { return n.user_email === U.sr2 && n.type === 'deal_won'; }), 'Deals: the SR learns the price sold');
     as(U.salesFood3, function () { must(updateDeal(squid.item_id, { status: 'won', note: 'ยืนยันอีกครั้ง' })); });

@@ -30,12 +30,20 @@ function withIdentity_(email, fn) {
   }
 }
 
+/** Users › role: our keys, plus the FPR names (Requester / Sourcing / SourcingManager / GM / Admin). */
+const ROLE_ALIAS_ = { requester: 'sales', sourcing: 'sr', sourcingmanager: 'sr_manager', 'sourcing manager': 'sr_manager', 'sourcing_manager': 'sr_manager',
+  'sales manager': 'manager', salesmanager: 'manager', 'sr manager': 'sr_manager' };
+function roleOf_(raw) {
+  const k = String(raw || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return ROLE_ALIAS_[k] || ROLE_ALIAS_[k.replace(/ /g, '')] || k;
+}
+
 function normUser_(r) {
   if (!r) return null;
   return {
     email: String(r.email).trim().toLowerCase(),
     full_name: String(r.full_name || r.email),
-    role: String(r.role || '').trim().toLowerCase(),
+    role: roleOf_(r.role),
     department_code: String(r.department_code || '').trim(),
     is_active: toBool_(r.is_active),
     lark_open_id: String(r.lark_open_id || '')
@@ -212,7 +220,9 @@ function ticketById_(ticketId) {
 
 /** Load a ticket the user is allowed to see; otherwise NOT_FOUND (do not reveal existence). */
 function ticketForUser_(u, ticketId) {
-  const t = ticketById_(cleanText_(ticketId));
+  const key = cleanText_(ticketId);
+  // links from Lark cards use the FPR number (?id=FPR-2610-0001); the app uses the ticket_id
+  const t = /^(FPR|PR)-/i.test(key) ? (function () { const r = findOne_(TAB.TICKETS, 'ticket_no', key.toUpperCase()); return r ? normTicket_(r) : null; })() : ticketById_(key);
   if (!t || !canSeeTicket_(u, t)) {
     throw appError_('NOT_FOUND', 'ไม่พบใบขอราคา หรือคุณไม่มีสิทธิ์เข้าถึง');
   }

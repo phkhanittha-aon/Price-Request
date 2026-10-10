@@ -114,7 +114,7 @@ function larkCardColor_(type) {
   const t = String(type);
   if (t.indexOf('sla_breach') === 0) return 'red';
   if (t === 'price_done_group') return 'green';
-  const ev = t.indexOf('group_') === 0 ? GROUP_EVENTS_[t.slice(6)] : null;
+  const ev = t.indexOf('group_') === 0 ? FPR_EVENTS_[t.slice(6)] : null;
   return ev ? ev.color : 'blue';
 }
 

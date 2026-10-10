@@ -32,12 +32,13 @@
 
 const TRANSITION_ACTIONS = ['resubmit', 'cancel', 'manager_approve', 'manager_reject', 'manager_return',
   'gm_approve', 'gm_reject', 'claim', 'queue_return', 'assign', 'request_info', 'respond_info', 'doc_complete',
-  'submit_quote', 'srm_approve', 'srm_return', 'gm_price_approve', 'gm_price_return', 'accept', 'request_revision'];
+  'submit_quote', 'srm_approve', 'srm_return', 'gm_price_approve', 'gm_price_return', 'accept', 'request_revision',
+  'gm_price_reject', 'admin_cancel', 'srm_reject', 'gm_return'];
 
 const ACTION_LABEL_TH = {
   create: 'สร้างใบขอราคา', resubmit: 'ส่งใบขอราคาอีกครั้ง', cancel: 'ยกเลิกใบขอราคา',
   manager_approve: 'Sales Manager อนุมัติ', manager_reject: 'Sales Manager ไม่อนุมัติ', manager_return: 'Sales Manager ส่งกลับแก้ไข',
-  deal_update: 'อัปเดตผลการขาย', gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
+  deal_update: 'อัปเดตผลการขาย', gm_price_reject: 'GM ปฏิเสธราคา', srm_reject: 'SR Manager ปฏิเสธ', gm_return: 'GM ตีกลับให้ผู้ขอแก้ไข', admin_cancel: 'ผู้ดูแลระบบยกเลิกใบ', gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
   request_info: 'SR ขอข้อมูลเพิ่ม', respond_info: 'Sales ส่งข้อมูลเพิ่ม', doc_complete: 'SR ตรวจเอกสารครบ',
   submit_quote: 'SR ส่งราคาให้ SR Manager ตรวจ', srm_approve: 'SR Manager อนุมัติราคา', srm_return: 'SR Manager ส่งกลับให้แก้ราคา',
   gm_price_approve: 'GM อนุมัติฝั่งซื้อ (ราคา → ส่งถึง Sales)', gm_price_return: 'GM ฝั่งซื้อ ส่งกลับให้แก้ราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
@@ -104,11 +105,9 @@ function createTicket(payload) {
       });
 
       const title = cleanText_(p.title, 200) || autoTitle_(customer, cleanItems);
-      const year = fmtDate_(now, 'yyyy');
-      const no = nextCounter_('ticket_no_' + year);
       const ticket = {
         ticket_id: ticketId,
-        ticket_no: 'PR-' + year + '-' + ('000' + no).slice(-Math.max(4, String(no).length)),
+        ticket_no: nextTicketNo_(now),
         title: title,
         description: cleanText_(p.description, CFG.MAX_TEXT),
         customer_name: customer,
@@ -149,7 +148,7 @@ function createTicket(payload) {
       const t = normTicket_(ticket);
       enqueueNotifications_(stageAssignees_(t), t, 'approval_required',
         '[' + t.ticket_no + '] ใบขอราคาใหม่รออนุมัติ', t.title + ' — ' + u.full_name, ticketLink_(t));
-      enqueueGroupEvent_('new_request', t);
+      if (t.stage === 'pending_gm') queueFprCard_('submitted', t, {});
       return { ticket: publicTicket_(t), duplicate: false };
     });
   });
@@ -250,9 +249,24 @@ function doTransition_(ticketId, action, comment, payload) {
       if (t.stage !== 'pending_gm') badState();
       patch.gm_email = u.email;
       if (action === 'gm_approve') {
-        patch.stage = 'pending_assign';
         patch.gm_approved_at = now;
-        notifyType = 'job_available';
+        if (toBool_(setting_('gm_assigns_sr', true))) {
+          // FPR: GM picks the Sourcing person who prices it → straight to ASSIGNED (document check + pricing)
+          const target = userByEmail_(payload.sr_email);
+          if (!target || !target.is_active || target.role !== 'sr') {
+            throw appError_('INVALID_ASSIGNEE', 'กรุณาเลือก Sourcing ผู้ทำราคา (ต้องเป็น SR ที่ใช้งานอยู่)');
+          }
+          patch.sr_email = target.email;
+          patch.stage = 'doc_check';
+          patch.assigned_at = now;
+          patch.pricing_started_at = now;
+          meta = { assigned_to: target.email };
+          extraRecipients = [target.email];
+          notifyType = 'job_assigned';
+        } else {
+          patch.stage = 'pending_assign';
+          notifyType = 'job_available';
+        }
       } else {
         needComment('กรุณาระบุเหตุผลที่ไม่อนุมัติ');
         patch.stage = 'rejected';
@@ -268,6 +282,7 @@ function doTransition_(ticketId, action, comment, payload) {
       patch.sr_email = u.email;
       patch.stage = 'doc_check';
       patch.assigned_at = now;
+      patch.pricing_started_at = now;
       break;
     }
     case 'queue_return': {
@@ -302,6 +317,7 @@ function doTransition_(ticketId, action, comment, payload) {
       notifyType = 'job_assigned';
       patch.sr_email = target.email;
       patch.assigned_at = now;
+      patch.pricing_started_at = now;
       if (t.stage === 'pending_assign') patch.stage = 'doc_check';
       break;
     }
@@ -374,8 +390,51 @@ function doTransition_(ticketId, action, comment, payload) {
       } else {
         needComment('กรุณาระบุสิ่งที่ต้องการให้ SR แก้ไขราคา');
         patch.stage = 'sourcing';
+        patch.pricing_started_at = now;
         notifyType = 'price_returned';
       }
+      break;
+    }
+    case 'srm_reject': {
+      // FPR: Sourcing Manager may end the request at the price review (reason required)
+      if (u.role !== 'sr_manager') forbid('เฉพาะ SR Manager เท่านั้นที่ปฏิเสธได้');
+      if (t.sr_email === u.email) throw appError_('SELF_APPROVAL', 'ไม่สามารถตัดสินราคาที่ตัวเองเป็นผู้หาได้');
+      if (t.stage !== 'pending_sr_manager') badState();
+      needComment('กรุณาระบุเหตุผลที่ปฏิเสธ');
+      patch.stage = 'rejected';
+      patch.rejected_at = now;
+      patch.rejection_reason = note;
+      extraRecipients = [t.requestor_email, t.sr_email];
+      break;
+    }
+    case 'gm_return': {
+      // FPR GM_REVIEW: send the request back to the requester to fix (resubmit → GM again)
+      if (u.role !== 'gm') forbid('เฉพาะ GM เท่านั้นที่ตีกลับคำขอได้');
+      if (t.stage !== 'pending_gm') badState();
+      needComment('กรุณาระบุสิ่งที่ต้องการให้ผู้ขอแก้ไข');
+      patch.gm_email = u.email;
+      patch.stage = 'returned';
+      break;
+    }
+    case 'gm_price_reject': {
+      // FPR: GM may end the request at the final price review (reason required)
+      if (u.role !== 'gm') forbid('เฉพาะ GM เท่านั้นที่ปฏิเสธราคาได้');
+      if (t.stage !== 'pending_gm_price') badState();
+      needComment('กรุณาระบุเหตุผลที่ปฏิเสธ');
+      patch.stage = 'rejected';
+      patch.rejected_at = now;
+      patch.rejection_reason = note;
+      extraRecipients = [t.requestor_email, t.sr_email];
+      break;
+    }
+    case 'admin_cancel': {
+      if (u.role !== 'admin') forbid('เฉพาะผู้ดูแลระบบเท่านั้น');
+      if (OPEN_STATUSES.indexOf(t.status) === -1) badState('ใบนี้ปิดไปแล้ว');
+      needComment('กรุณาระบุเหตุผลที่ยกเลิก');
+      patch.stage = 'cancelled';
+      patch.cancelled_at = now;
+      patch.rejection_reason = note;
+      extraRecipients = [t.requestor_email, t.sr_email];
       break;
     }
     case 'gm_price_approve':
@@ -427,7 +486,7 @@ function doTransition_(ticketId, action, comment, payload) {
 
   const saved = normTicket_(updateRow_(TAB.TICKETS, t.ticket_id, patch));
 
-  if (t.stage === 'pending_assign' && saved.stage === 'doc_check') {
+  if ((t.stage === 'pending_assign' || t.stage === 'pending_gm') && saved.stage === 'doc_check') {
     generateChecklist_(saved.ticket_id);
   }
 
@@ -459,15 +518,8 @@ function doTransition_(ticketId, action, comment, payload) {
   } else {
     enqueueNotifications_(recipients, saved, notifyType, nTitle, nBody + (note ? '\n' + note : ''), ticketLink_(saved, page));
   }
-  const groupEvent = groupEventOfTransition_(action, saved);
-  if (groupEvent) {
-    const lines = [];
-    if ((action === 'queue_return' || action === 'request_info') && meta && meta.missing_items && meta.missing_items.length) {
-      lines.push('ข้อมูลที่ต้องเพิ่ม: ' + meta.missing_items.join(', '));
-    }
-    if (groupEvent === 'price_review' || groupEvent === 'gm_buy') Array.prototype.push.apply(lines, reviewFacts_(saved));
-    enqueueGroupEvent_(groupEvent, saved, { lines: lines });
-  }
+  const ge = groupEventOfTransition_(action, saved, note, meta);
+  if (ge) queueFprCard_(ge.event, saved, ge.extra);
 
   return { ticket: publicTicket_(saved) };
 }
@@ -501,11 +553,14 @@ function validateQuotesForSubmit_(t) {
   const expired = [];
   const winners = [];
   const today = todayBkk_();
+  const minSup = Math.max(1, Number(setting_('min_suppliers', 3)) || 1);
+  const fewSup = [];
   let grand = 0;
   items.forEach(function (it) {
     if (it.quote_status) return;   // 'not_offered' / 'follow_up': answered without a price (follow-up = its own ticket)
     const quotes = activeQuotesOfItem_(it.item_id);
     if (!quotes.length) { noQuote.push(it.line_no); return; }
+    if (quotes.length < minSup && !it.supplier_shortfall_reason) fewSup.push(it.line_no);
     const cmp = compareQuotes_(it.qty, quotes);
     const w = cmp.filter(function (q) { return q.is_selected; });
     if (w.length > 1) {
@@ -522,6 +577,10 @@ function validateQuotesForSubmit_(t) {
       gp_percent: pr.gp_percent, sell_price_thb: pr.sell_price_thb });
   });
   if (noQuote.length) throw appError_('MISSING_QUOTATION', 'รายการที่ยังไม่มีราคา vendor: ลำดับที่ ' + noQuote.join(', '), { lines: noQuote });
+  if (fewSup.length) {
+    throw appError_('FEW_SUPPLIERS', 'ต้องมีราคา supplier อย่างน้อย ' + minSup + ' ราย หรือกรอกเหตุผลที่มีไม่ถึง: ลำดับที่ ' + fewSup.join(', '),
+      { lines: fewSup, min: minSup });
+  }
   if (noWinner.length) throw appError_('MISSING_WINNER', 'รายการที่ยังไม่ได้เลือกผู้ชนะ: ลำดับที่ ' + noWinner.join(', '), { lines: noWinner });
   if (noReason.length) {
     throw appError_('REASON_REQUIRED', 'เลือกผู้ชนะที่ไม่ใช่ราคาต่ำสุด ต้องระบุเหตุผล: ลำดับที่ ' + noReason.join(', '), { lines: noReason });
@@ -629,11 +688,12 @@ function allowedActions_(u, t) {
     const d = departmentByCode_(t.department_code);
     if (d && d.manager_email === u.email) a.push('manager_approve', 'manager_reject', 'manager_return');
   }
-  if (u.role === 'gm' && t.stage === 'pending_gm' && t.manager_email !== u.email) a.push('gm_approve', 'gm_reject');
+  if (u.role === 'gm' && t.stage === 'pending_gm' && t.manager_email !== u.email) a.push('gm_approve', 'gm_return', 'gm_reject');
   if (u.role === 'sr' && t.stage === 'pending_assign') a.push('claim');
   if ((u.role === 'sr' || u.role === 'sr_manager') && t.stage === 'pending_assign') a.push('queue_return');
-  if (u.role === 'sr_manager' && t.stage === 'pending_sr_manager' && t.sr_email !== u.email) a.push('srm_approve', 'srm_return');
-  if (u.role === 'gm' && t.stage === 'pending_gm_price') a.push('gm_price_approve', 'gm_price_return');
+  if (u.role === 'sr_manager' && t.stage === 'pending_sr_manager' && t.sr_email !== u.email) a.push('srm_approve', 'srm_return', 'srm_reject');
+  if (u.role === 'gm' && t.stage === 'pending_gm_price') a.push('gm_price_approve', 'gm_price_return', 'gm_price_reject');
+  if (u.role === 'admin' && OPEN_STATUSES.indexOf(t.status) !== -1) a.push('admin_cancel');
   if ((u.role === 'admin' || u.role === 'sr_manager') &&
       ['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1) a.push('assign');
   if (assigned && (t.stage === 'doc_check' || t.stage === 'sourcing')) a.push('request_info');
@@ -683,8 +743,20 @@ function groupName_(code) {
   return g ? String(g.name) : String(code);
 }
 
-/** First approval stage: Sales Manager, or straight to GM when the department has no Sales Manager. */
+/** FPR-YYMM-#### — running number per month (Counters › fpr_YYMM). Must run inside withLock_. */
+function nextTicketNo_(now) {
+  const ym = fmtDate_(now, 'yyyy-MM');
+  const yymm = ym.slice(2, 4) + ym.slice(5, 7);
+  const no = nextCounter_('fpr_' + yymm);
+  return 'FPR-' + yymm + '-' + ('000' + no).slice(-Math.max(4, String(no).length));
+}
+
+/**
+ * First approval stage. FPR (Settings › sales_manager_step = false): straight to GM.
+ * Old flow (true): the department's Sales Manager first, GM when the department has none.
+ */
 function firstApprovalStage_(dept) {
+  if (!toBool_(setting_('sales_manager_step', false))) return 'pending_gm';
   const mgr = dept && dept.manager_email ? userByEmail_(dept.manager_email) : null;
   return mgr && mgr.is_active && mgr.role === 'manager' ? 'pending_manager' : 'pending_gm';
 }
@@ -739,7 +811,8 @@ function activeItemsOf_(ticketId) {
         deal_status: String(r.deal_status || ''), deal_reason: String(r.deal_reason || ''), deal_note: String(r.deal_note || ''),
         deal_next_date: r.deal_next_date ? fmtDate_(r.deal_next_date) : '', deal_updated_by: String(r.deal_updated_by || ''),
         deal_updated_at: isoOrBlank_(r.deal_updated_at), deal_closed_at: isoOrBlank_(r.deal_closed_at),
-        deal_stage: String(r.deal_stage || ''), deal_next_step: String(r.deal_next_step || '')
+        deal_stage: String(r.deal_stage || ''), deal_next_step: String(r.deal_next_step || ''),
+        supplier_shortfall_reason: String(r.supplier_shortfall_reason || '')
       };
     })
     .sort(function (a, b) { return a.line_no - b.line_no; });

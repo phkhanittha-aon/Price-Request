@@ -15,7 +15,7 @@ const root = path.join(__dirname, '..');
 const gas = path.join(root, 'gas');
 const out = path.join(root, 'deploy');
 const ORDER = ['Config', 'Util', 'Db', 'Audit', 'Auth', 'Pricing', 'Notify', 'Workflow', 'Editing', 'Suppliers', 'Deals',
-  'Api', 'Files', 'Lark', 'Jobs', 'Code', 'Setup', 'Tests'];
+  'Api', 'Files', 'Lark', 'Bots', 'Jobs', 'Code', 'Setup', 'Tests'];
 const files = fs.readdirSync(gas).filter((f) => f.endsWith('.gs')).map((f) => f.slice(0, -3));
 const extra = files.filter((f) => ORDER.indexOf(f) === -1);
 if (extra.length) throw new Error('add to ORDER: ' + extra.join(', '));

@@ -29,6 +29,28 @@ function quoteCosts_(unitPrice, fxRate, vatTerm, vatRate, clearance) {
   };
 }
 
+/**
+ * Landed-cost breakdown per unit (THB) → total import cost (stored as clearance_thb):
+ *   CIF   = net unit cost THB + freight + insurance
+ *   duty  = CIF × duty %
+ *   total = freight + insurance + duty + import fees (อย. / กรมประมง) + cold storage + inland transport + other
+ * bd: { freight, insurance, duty_pct, fees, cold, inland, other } — returns a copy with duty_thb + total_thb.
+ */
+const COST_PARTS_ = ['freight', 'insurance', 'fees', 'cold', 'inland', 'other'];
+function costBreakdown_(netUnitCostThb, bd) {
+  const out = {};
+  COST_PARTS_.forEach(function (k) { out[k] = Number(bd[k]) || 0; });
+  out.duty_pct = Number(bd.duty_pct) || 0;
+  out.duty_thb = round_((netUnitCostThb + out.freight + out.insurance) * out.duty_pct / 100, 4);
+  out.total_thb = round_(out.freight + out.insurance + out.duty_thb + out.fees + out.cold + out.inland + out.other, 4);
+  return out;
+}
+
+function minGpPercent_() {
+  const v = Number(setting_('min_gp_percent', 10));
+  return isFinite(v) && v >= 0 && v < 100 ? v : 10;
+}
+
 function defaultGp_() {
   const v = Number(setting_('default_gp_percent', 15));
   return isFinite(v) && v >= 0 && v < 100 ? v : 15;
@@ -46,6 +68,8 @@ function itemPricing_(it, winner) {
     landed_cost_thb: round_(winner.landed_unit_cost_thb, 2),
     gp_percent: gp,
     gp_is_default: it.gp_percent === null || it.gp_percent === '',
+    gp_below_min: gp < minGpPercent_(),
+    min_gp_percent: minGpPercent_(),
     profit_thb: round_(sell - round_(winner.landed_unit_cost_thb, 2), 2),   // table rows add up: landed + profit = selling
     sell_price_thb: sell,
     target_price: it.target_price || 0,
@@ -100,6 +124,9 @@ function normQuote_(r) {
     incoterm: String(r.incoterm || ''),
     shelf_life: String(r.shelf_life || ''),
     clearance_thb: r.clearance_thb === '' || r.clearance_thb === undefined ? 0 : Number(r.clearance_thb),
+    cost_breakdown: r.cost_breakdown_json ? parseJson_(r.cost_breakdown_json, null) : null,
+    cost_breakdown_json: String(r.cost_breakdown_json || ''),
+    fx_date: r.fx_date ? fmtDate_(r.fx_date) : '',
     landed_unit_cost_thb: r.landed_unit_cost_thb === '' || r.landed_unit_cost_thb === undefined
       ? Number(r.net_unit_cost_thb) + (r.clearance_thb === '' || r.clearance_thb === undefined ? 0 : Number(r.clearance_thb))
       : Number(r.landed_unit_cost_thb),

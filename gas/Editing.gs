@@ -12,7 +12,7 @@ const ITEM_FIELDS_ = ['product_group_code', 'product_name', 'net_weight', 'size'
   'target_price', 'target_currency'];
 const QUOTE_FIELDS_ = ['vendor_id', 'vendor_name', 'unit_price', 'currency', 'fx_rate', 'vat_term', 'moq', 'lead_time_days',
   'payment_term', 'valid_until', 'remark', 'attachment_file_id', 'is_selected', 'selection_reason',
-  'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life', 'clearance_thb'];
+  'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life', 'clearance_thb', 'cost_breakdown_json', 'fx_date'];
 
 // =============================================================================
 // Sales — header & items
@@ -196,6 +196,16 @@ function saveQuotationCore_(u, p) {
 
   const clean = validateQuoteFields_(p, t);
   const vatRate = existing ? Number(existing.vat_rate) : vatRate_();
+  const bd = clean._breakdown;
+  delete clean._breakdown;
+  if (bd) {
+    // landed-cost breakdown entered → the import cost per unit is computed, never typed
+    const full = costBreakdown_(quoteCosts_(clean.unit_price, clean.fx_rate, clean.vat_term, vatRate, 0).net_unit_cost_thb, bd);
+    clean.clearance_thb = round_(full.total_thb, 4);
+    clean.cost_breakdown_json = JSON.stringify(full);
+  } else {
+    clean.cost_breakdown_json = '';
+  }
   const costs = quoteCosts_(clean.unit_price, clean.fx_rate, clean.vat_term, vatRate, clean.clearance_thb);
   const now = new Date();
 
@@ -276,8 +286,24 @@ function validateQuoteFields_(p, t) {
     packing: cleanText_(p.packing, 200),
     incoterm: p.incoterm ? oneOf_(String(p.incoterm).toUpperCase(), INCOTERMS, 'เงื่อนไขการส่งมอบ (Incoterm)') : '',
     shelf_life: cleanText_(p.shelf_life, 100),
-    clearance_thb: toNumber_(p.clearance_thb, 'ค่าเคลียร์ของ (บาท/หน่วย)', { allowBlank: true, min: 0, max: 1e9 }) || 0
+    clearance_thb: toNumber_(p.clearance_thb, 'ค่าเคลียร์ของ (บาท/หน่วย)', { allowBlank: true, min: 0, max: 1e9 }) || 0,
+    fx_date: parseYmd_(p.fx_date, 'วันที่ของอัตราแลกเปลี่ยน', true),
+    _breakdown: cleanBreakdown_(p.cost_breakdown)
   };
+}
+
+/** Landed-cost breakdown from the pricing page (per unit, THB) — null when not used. */
+function cleanBreakdown_(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const keys = COST_PARTS_.concat(['duty_pct']);
+  if (!keys.some(function (k) { return raw[k] !== undefined && raw[k] !== null && String(raw[k]).trim() !== ''; })) return null;
+  const LABEL = { freight: 'ค่าขนส่ง (freight)', insurance: 'ค่าประกันภัย', fees: 'ค่าธรรมเนียมนำเข้า / ใบอนุญาต', cold: 'ค่าห้องเย็น',
+    inland: 'ค่าขนส่งในประเทศ', other: 'ค่าใช้จ่ายอื่น', duty_pct: 'อากรขาเข้า (%)' };
+  const out = {};
+  keys.forEach(function (k) {
+    out[k] = toNumber_(raw[k], LABEL[k], { allowBlank: true, min: 0, max: k === 'duty_pct' ? 100 : 1e9 }) || 0;
+  });
+  return out;
 }
 
 function deleteQuotation(quoteId) {
@@ -392,7 +418,8 @@ function saveSourcingDraft(ticketId, items) {
             throw e;
           }
         }
-        return { item: it, quotes: quotes, keepIds: keepIds, winner: winner, reason: cleanText_(row.selection_reason, 500), gp: gp };
+        return { item: it, quotes: quotes, keepIds: keepIds, winner: winner, reason: cleanText_(row.selection_reason, 500), gp: gp,
+          shortfall: row.shortfall_reason === undefined ? null : cleanText_(row.shortfall_reason, 500) };
       });
 
       // 2) write
@@ -404,6 +431,12 @@ function saveSourcingDraft(ticketId, items) {
           updateRow_(TAB.ITEMS, p.item.item_id, { gp_percent: newGp, updated_at: new Date() });
           appendLog_({ ticket_id: t.ticket_id, action: 'pricing_updated', actor_email: u.email, actor_role: u.role,
             metadata: { item_id: p.item.item_id, line_no: p.item.line_no, diff: { gp_percent: { old: oldGp, 'new': newGp } } } });
+          changes++;
+        }
+        if (p.shortfall !== null && p.shortfall !== p.item.supplier_shortfall_reason) {
+          updateRow_(TAB.ITEMS, p.item.item_id, { supplier_shortfall_reason: p.shortfall, updated_at: new Date() });
+          appendLog_({ ticket_id: t.ticket_id, action: 'pricing_updated', actor_email: u.email, actor_role: u.role,
+            metadata: { item_id: p.item.item_id, line_no: p.item.line_no, diff: { supplier_shortfall_reason: { old: p.item.supplier_shortfall_reason, 'new': p.shortfall } } } });
           changes++;
         }
         activeQuotesOfItem_(p.item.item_id).forEach(function (q) {
@@ -538,14 +571,12 @@ function setItemQuoteStatus(ticketId, itemId, status, reason, expectedVersion) {
 
 /** Create the follow-up ticket for one item. Runs inside withLock_ (called by setItemQuoteStatus). */
 function splitFollowUp_(u, t, it, why, now) {
-  const year = fmtDate_(now, 'yyyy');
-  const no = nextCounter_('ticket_no_' + year);
   const ticketId = uuid_();
   const ticket = {};
   SCHEMA.Tickets.cols.forEach(function (c) { ticket[c] = t[c] === undefined ? '' : t[c]; });
   Object.assign(ticket, {
     ticket_id: ticketId,
-    ticket_no: 'PR-' + year + '-' + ('000' + no).slice(-Math.max(4, String(no).length)),
+    ticket_no: nextTicketNo_(now),
     title: cleanText_('ส่งตามหลัง ' + t.ticket_no + ': ' + (t.customer_name || '') + ' — ' + it.product_name, 200),
     parent_ticket_id: t.ticket_id,
     // approvals of the request carry over; the job continues where the original one is

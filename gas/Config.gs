@@ -7,14 +7,14 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.10-2';
+const APP_VERSION = '2026.10.10-3';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
   TZ: 'Asia/Bangkok',
   LOCK_TIMEOUT_MS: 25000,
   MAX_ITEMS_PER_TICKET: 100,
-  MAX_VENDORS_PER_ITEM: 3,
+  MAX_VENDORS_PER_ITEM: 5,
   MAX_TEXT: 2000,
   MAX_COMMENT: 2000,
   // Script Properties keys
@@ -27,6 +27,9 @@ const CFG = {
     LARK_GROUP_CHAT_ID: 'LARK_GROUP_CHAT_ID',
     LARK_PRICE_GROUP_CHAT_ID: 'LARK_PRICE_GROUP_CHAT_ID',
     LARK_MGMT_GROUP_CHAT_ID: 'LARK_MGMT_GROUP_CHAT_ID',
+    // Lark Custom Bot webhooks (group "Food Price Request") — Script Properties only, never in the sheet
+    FPR_BOT_URL: 'FPR_BOT_URL', FPR_BOT_SECRET: 'FPR_BOT_SECRET',
+    FPR_REMINDER_URL: 'FPR_REMINDER_URL', FPR_REMINDER_SECRET: 'FPR_REMINDER_SECRET',
     WEBAPP_URL: 'WEBAPP_URL'
   }
 };
@@ -48,6 +51,8 @@ const TAB = {
   LOGS: 'TicketLogs',
   NOTIFICATIONS: 'Notifications',
   SLA_ALERTS: 'SlaAlerts',
+  NOTIF_LOG: 'NotifLog',
+  HOLIDAYS: 'Holidays',
   ERRORS: 'ErrorLog'
 };
 
@@ -109,7 +114,9 @@ const SCHEMA = {
            // appended in v2026.10.08-1: a "send later" ticket split out of another one
            'parent_ticket_id',
            // appended v2026.10.08-3: where the goods go and who the customer is
-           'destination_country', 'customer_group']
+           'destination_country', 'customer_group',
+           // appended v2026.10.10-3 (FPR): start of the current pricing round (SLA) · last SLA reminder sent
+           'pricing_started_at', 'last_reminded_at']
   },
   TicketItems: {
     key: 'item_id',
@@ -124,7 +131,9 @@ const SCHEMA = {
            // Sales follow-up after the price (appended v2026.10.08-4): did the customer buy? (see Deals.gs)
            'deal_status', 'deal_reason', 'deal_note', 'deal_next_date', 'deal_updated_by', 'deal_updated_at', 'deal_closed_at',
            // follow-up v2 (appended v2026.10.09-1, same structure as the MGS Sales app): where the customer is + what Sales does next
-           'deal_stage', 'deal_next_step']
+           'deal_stage', 'deal_next_step',
+           // appended v2026.10.10-3 (FPR): why this item has fewer suppliers than Settings › min_suppliers
+           'supplier_shortfall_reason']
   },
   Quotations: {
     key: 'quote_id',
@@ -136,7 +145,9 @@ const SCHEMA = {
            // Food-specific (optional) — appended later, keep at the end
            'brand', 'origin_country', 'packing', 'incoterm', 'shelf_life',
            // Selling price (appended): clearance cost per unit and landed cost = net cost + clearance
-           'clearance_thb', 'landed_unit_cost_thb']
+           'clearance_thb', 'landed_unit_cost_thb',
+           // appended v2026.10.10-3 (FPR): landed-cost breakdown per unit (THB) behind clearance_thb · date of the FX rate
+           'cost_breakdown_json', 'fx_date']
   },
   Checklist: {
     key: 'check_id',
@@ -162,6 +173,14 @@ const SCHEMA = {
   SlaAlerts: {
     key: 'alert_key',
     cols: ['alert_key', 'ticket_id', 'stage', 'stage_entered_at', 'level', 'created_at']
+  },
+  NotifLog: {
+    key: 'log_id',
+    cols: ['log_id', 'ts', 'ticket_id', 'ticket_no', 'bot', 'event', 'status', 'http_code', 'attempts', 'response', 'summary']
+  },
+  Holidays: {
+    key: 'date',
+    cols: ['date', 'name']
   },
   ErrorLog: {
     key: 'ts',
@@ -231,6 +250,8 @@ const UNITS = ['กก.', 'ตัน', 'กล่อง', 'แพ็ค', 'ถ�
 /** Delivery terms on a vendor quotation (food imports are usually CIF / CFR; local suppliers deliver). */
 const INCOTERMS = ['EXW', 'FCA', 'FOB', 'CFR', 'CIF', 'DAP', 'DDP', 'DELIVERED'];
 const INCOTERM_LABEL = { EXW: 'EXW', FCA: 'FCA', FOB: 'FOB', CFR: 'CFR (C&F)', CIF: 'CIF', DAP: 'DAP', DDP: 'DDP', DELIVERED: 'ส่งถึงคลัง MGS' };
+/** Drive folder for attachments (created by setupDatabase): <root>/FPR-YYMM-#### */
+const DRIVE_ROOT_NAME = 'FPR Attachments';
 const ATTACHMENT_CATEGORIES = ['request', 'info_response', 'quotation', 'quote_photo', 'other'];
 /** Purchasing-side files (vendor quotation documents + supplier product photos): cost roles only, never Sales. */
 const COST_FILE_CATEGORIES_ = ['quotation', 'quote_photo'];
@@ -258,6 +279,14 @@ const DEFAULT_SETTINGS = [
     'รออนุมัติภายในของลูกค้า', 'ใกล้ปิดการขาย', 'ลูกค้าเลื่อนโครงการ']), 'สถานะกับลูกค้าตอนนี้ (dropdown ในการอัปเดตความคืบหน้า)'],
   ['deal_next_steps', JSON.stringify(['โทรติดตาม', 'นัดเข้าพบลูกค้า', 'ส่งตัวอย่างสินค้า', 'ส่งเอกสาร / ข้อมูลเพิ่มเติม', 'ขอปรับราคาจาก SR', 'รอ PO',
     'ปิดการขาย', 'ยุติการติดตาม']), 'ขั้นตอนถัดไปของ Sales (dropdown ในการอัปเดตความคืบหน้า)'],
+  ['sales_manager_step', 'false', 'true = คำขอผ่าน Sales Manager ก่อน GM · false (FPR) = ส่งตรงถึง GM'],
+  ['gm_assigns_sr', 'true', 'true (FPR) = GM เลือก Sourcing ผู้ทำราคาตอนอนุมัติ · false = เข้าคิวให้ SR กดรับงานเอง'],
+  ['min_suppliers', '3', 'จำนวน supplier ขั้นต่ำต่อรายการก่อนส่งราคา (น้อยกว่านี้ต้องกรอกเหตุผล)'],
+  ['min_gp_percent', '10', 'GP % ขั้นต่ำ — ต่ำกว่านี้แสดงเตือนสีแดงในหน้าทำราคาและหน้าอนุมัติ'],
+  ['fpr_sla', JSON.stringify({ GM_REVIEW: { hours: 4 }, PRICING: { days: 2 }, SM_REVIEW: { hours: 4 }, GM_FINAL_REVIEW: { hours: 4 } }),
+    'SLA ของ FPR นับเฉพาะเวลาทำงาน (work_hours) ไม่นับเสาร์-อาทิตย์และวันในแท็บ Holidays · hours = ชั่วโมงทำงาน, days = วันทำการ'],
+  ['work_hours', JSON.stringify({ start: '08:30', end: '17:30', days: [1, 2, 3, 4, 5] }), 'เวลาทำงานสำหรับนับ SLA (days: 1 = จันทร์ … 6 = เสาร์, 7 = อาทิตย์)'],
+  ['reminder_repeat_work_hours', '8', 'FPR Reminder แจ้งซ้ำรายการเดิมได้ไม่เกิน 1 ครั้งต่อกี่ชั่วโมงทำงาน'],
   ['max_photos_per_quote', '10', 'จำนวนรูปสินค้าสูงสุดต่อ Supplier 1 เจ้า (ต่อใบเสนอราคา 1 รายการ)'],
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
   ['fx_defaults', JSON.stringify({ USD: 35 }), 'อัตราแลกเปลี่ยนเริ่มต้น (บาทต่อ 1 หน่วย) ที่เติมให้ในหน้าใบเสนอราคา · SR แก้ได้ทุกใบ · สกุลที่ไม่มีในนี้ SR กรอกเอง'],
