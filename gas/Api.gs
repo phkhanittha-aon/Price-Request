@@ -36,7 +36,7 @@ function listTickets(query) {
 
     let list = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return canSeeTicket_(u, t); });
     if (scope === 'mine') {
-      list = list.filter(function (t) { return u.role === 'sr' ? t.sr_email === u.email : t.requestor_email === u.email; });
+      list = list.filter(function (t) { return u.role === 'sr' ? isSr_(t, u.email) : t.requestor_email === u.email; });
     } else if (scope === 'inbox') {
       list = list.filter(function (t) { return isAssignee_(u, t, ctx); });
     } else if (scope === 'queue') {
@@ -47,7 +47,7 @@ function listTickets(query) {
     if (['done', 'open', 'rejected'].indexOf(q.outcome) !== -1) list = list.filter(function (t) { return outcome_(t) === q.outcome; });
     if (q.priority) list = list.filter(function (t) { return t.priority === q.priority; });
     if (q.requestor) list = list.filter(function (t) { return t.requestor_email === String(q.requestor).toLowerCase(); });
-    if (q.sr) list = list.filter(function (t) { return t.sr_email === String(q.sr).toLowerCase(); });
+    if (q.sr) list = list.filter(function (t) { return isSr_(t, q.sr); });
     if (q.follow_up) list = list.filter(function (t) { return !!t.parent_ticket_id; });
     if (from) list = list.filter(function (t) { return new Date(t.created_at) >= from; });
     if (toEnd) list = list.filter(function (t) { return new Date(t.created_at) < toEnd; });
@@ -129,8 +129,8 @@ function isAssignee_(u, t, ctx) {
     case 'pending_gm': return u.role === 'gm' && t.manager_email !== u.email;
     case 'pending_assign': return u.role === 'sr';
     case 'doc_check':
-    case 'sourcing': return t.sr_email === u.email;
-    case 'pending_sr_manager': return u.role === 'sr_manager' && t.sr_email !== u.email;
+    case 'sourcing': return isSr_(t, u.email);
+    case 'pending_sr_manager': return u.role === 'sr_manager' && !isSr_(t, u.email);
     case 'pending_gm_price': return u.role === 'gm';
     default: return false;
   }
@@ -176,7 +176,8 @@ function summaryRow_(t, ctx, now) {
     requestor_email: t.requestor_email,
     requestor_name: ctx.names[t.requestor_email] || t.requestor_email,
     sr_email: t.sr_email,
-    sr_name: t.sr_email ? (ctx.names[t.sr_email] || t.sr_email) : '',
+    sr_emails: t.srs.slice(),
+    sr_name: t.srs.map(function (e) { return ctx.names[e] || e; }).join(', '),
     department_code: String(t.department_code),
     due_date: t.due_date ? fmtDate_(t.due_date) : '',
     revision_count: t.revision_count,
@@ -326,7 +327,7 @@ function getDashboard(range) {
     let tickets = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return t.stage !== 'deleted' && canSeeTicket_(u, t); });
     let scope = 'ทุกคน';
     if (u.role === 'sales') { tickets = tickets.filter(function (t) { return t.requestor_email === u.email; }); scope = 'ใบขอราคาของคุณ'; }
-    if (u.role === 'sr') { tickets = tickets.filter(function (t) { return t.sr_email === u.email; }); scope = 'งานที่คุณรับผิดชอบ'; }
+    if (u.role === 'sr') { tickets = tickets.filter(function (t) { return isSr_(t, u.email); }); scope = 'งานที่คุณรับผิดชอบ'; }
     if (from) tickets = tickets.filter(function (t) { return new Date(t.created_at) >= from; });
     if (toEnd) tickets = tickets.filter(function (t) { return new Date(t.created_at) < toEnd; });
 
@@ -343,12 +344,11 @@ function getDashboard(range) {
       sales[k] = sales[k] || { email: k, name: ctx.names[k] || k, total: 0, done: 0, open: 0, rejected: 0 };
       sales[k].total++;
       sales[k][o]++;
-      if (t.sr_email) {
-        const s = t.sr_email;
+      t.srs.forEach(function (s) {
         srs[s] = srs[s] || { email: s, name: ctx.names[s] || s, total: 0, done: 0, open: 0, rejected: 0 };
         srs[s].total++;
         srs[s][o]++;
-      }
+      });
     });
     const pct = function (n) { return kpi.total ? Math.round(n / kpi.total * 100) : 0; };
     const sortPeople = function (obj) {
@@ -396,7 +396,7 @@ function myOpenFollowUps_(u) {
   return rows_(TAB.TICKETS).map(normTicket_).filter(function (t) {
     if (!t.parent_ticket_id || outcome_(t) !== 'open' || !canSeeTicket_(u, t)) return false;
     if (u.role === 'sales') return t.requestor_email === u.email;
-    if (u.role === 'sr') return t.sr_email === u.email;
+    if (u.role === 'sr') return isSr_(t, u.email);
     return true;
   }).sort(function (a, b) { return new Date(a.created_at) - new Date(b.created_at); });
 }
@@ -425,7 +425,7 @@ function listTicketBoard() {
     const rows = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return canSeeTicket_(u, t); }).map(function (t) {
       const r = summaryRow_(t, ctx, now);
       r.is_inbox = isAssignee_(u, t, ctx);
-      r.is_mine = u.role === 'sr' ? t.sr_email === u.email : t.requestor_email === u.email;
+      r.is_mine = u.role === 'sr' ? isSr_(t, u.email) : t.requestor_email === u.email;
       r.is_follow_up = !!t.parent_ticket_id;
       r.outcome = outcome_(t);
       r.priority = String(t.priority);

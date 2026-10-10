@@ -184,15 +184,15 @@ function canEditRequest_(u, t) {
  */
 function canEditQuotes_(u, t) {
   if (u.role === 'admin') return ['sourcing', 'pending_sr_manager', 'pending_gm_price'].indexOf(t.stage) !== -1;
-  if (u.role === 'sr') return t.sr_email === u.email && t.stage === 'sourcing';
-  if (u.role === 'sr_manager') return t.stage === 'pending_sr_manager' && t.sr_email !== u.email;
+  if (u.role === 'sr') return isSr_(t, u.email) && t.stage === 'sourcing';
+  if (u.role === 'sr_manager') return t.stage === 'pending_sr_manager' && !isSr_(t, u.email);
   if (u.role === 'gm') return t.stage === 'pending_gm_price';
   return false;
 }
 
 function canEditChecklist_(u, t) {
   if (u.role === 'admin') return t.stage === 'doc_check';
-  return u.role === 'sr' && t.sr_email === u.email && t.stage === 'doc_check';
+  return u.role === 'sr' && isSr_(t, u.email) && t.stage === 'doc_check';
 }
 
 function canUpload_(u, t) {
@@ -201,13 +201,43 @@ function canUpload_(u, t) {
     // until GM approves (pending_gm included: the Sales Manager step may be skipped right after submit)
     return ['pending_manager', 'returned', 'pending_gm', 'need_info'].indexOf(t.stage) !== -1;
   }
-  return u.role === 'sr' && t.sr_email === u.email && t.status === 'on_process';
+  return u.role === 'sr' && isSr_(t, u.email) && t.status === 'on_process';
+}
+
+// ---------------------------------------------------------------- SR per item (one request may have several SRs)
+
+/** Is `email` one of the SRs working on this request? */
+function isSr_(t, email) {
+  const e = String(email || '').toLowerCase();
+  return !!e && (t.srs || []).indexOf(e) !== -1;
+}
+
+/** SR who prices this item: the item's own SR; old single-SR tickets fall back to the ticket SR. */
+function itemOwner_(t, it) {
+  const e = String((it && it.sr_email) || '').trim().toLowerCase();
+  if (e) return e;
+  return String(t.sr_emails || '').trim() ? '' : t.sr_email;
+}
+
+/** Vendor prices / winner / GP of ONE item: an SR only on their own item (until they sent it); reviewers / Admin any item. */
+function canEditItem_(u, t, it) {
+  if (!canEditQuotes_(u, t)) return false;
+  if (u.role === 'sr') return itemOwner_(t, it) === u.email && !it.sr_submitted_at;
+  return true;
+}
+
+/** Move an item to another SR: its SR (before sending the price), SR Manager or Admin. */
+function canTransferItem_(u, t, it) {
+  if (it.quote_status) return false;
+  const st = ['doc_check', 'need_info', 'sourcing'];
+  if (u.role === 'admin' || u.role === 'sr_manager') return st.concat(['pending_assign']).indexOf(t.stage) !== -1;
+  return u.role === 'sr' && st.indexOf(t.stage) !== -1 && itemOwner_(t, it) === u.email && !it.sr_submitted_at;
 }
 
 // ---------------------------------------------------------------- Admin acting on behalf of others
 
 /** Actions Admin does as Admin (not on behalf of anyone). */
-const ADMIN_OWN_ACTIONS_ = ['assign', 'admin_cancel', 'admin_delete', 'admin_restore'];
+const ADMIN_OWN_ACTIONS_ = ['assign', 'assign_items', 'transfer_item', 'admin_cancel', 'admin_delete', 'admin_restore'];
 const SALES_ACTIONS_ = ['resubmit', 'cancel', 'respond_info', 'accept', 'request_revision'];
 const SR_ACTIONS_ = ['request_info', 'doc_complete', 'submit_quote'];
 
@@ -268,6 +298,9 @@ function normTicket_(r) {
   t.version = Number(t.version || 0);
   t.revision_count = Number(t.revision_count || 0);
   t.info_request = parseJson_(t.info_request_json, null);
+  // every SR on the request (items can go to different SRs); old tickets: the one sr_email
+  t.srs = String(t.sr_emails || '').split(',').map(function (e) { return e.trim().toLowerCase(); }).filter(String);
+  if (!t.srs.length && t.sr_email) t.srs = [t.sr_email];
   return t;
 }
 

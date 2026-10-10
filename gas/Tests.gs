@@ -21,7 +21,7 @@ function runAcceptanceTests() {
       // Tests run WITH a Sales Manager; the "no Sales Manager → skip to GM" path is tested separately
       updateRow_(TAB.DEPARTMENTS, 'SALES-FOOD', { manager_email: demoUsers_().mgrFood });
       // The original flow cases below run with the pre-FPR switches; runFprCases_ turns the FPR switches on
-      setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1' });
+      setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false' });
     });
     runCases_(results);
     runPhase2Cases_(results);
@@ -37,6 +37,7 @@ function runAcceptanceTests() {
     runReviewerEditCases_(results);
     runFprCases_(results);
     runAdminCases_(results);
+    runGroupAssignCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -500,7 +501,7 @@ function runPhase2Cases_(results) {
     });
     ok(!menuFor_(userByEmail_(U.salesFood1)).some(function (m) { return m.key === 'reports' || m.key === 'suppliers'; }) &&
       menuFor_(userByEmail_(U.gm)).some(function (m) { return m.key === 'reports'; }), 'Reports for managers only; Supplier not for Sales');
-    ok(b.ref.product_groups.length === 5 && b.ref.vat_rate === 0.07, 'Bootstrap: reference data (product groups, VAT rate)');
+    ok(b.ref.product_groups.length === 6 && b.ref.vat_rate === 0.07, 'Bootstrap: reference data (product groups, VAT rate)');
     expectErr(as('nobody@' + DEMO_DOMAIN, function () { return getBootstrap(); }), 'NOT_REGISTERED', 'Bootstrap: unregistered user gets NOT_REGISTERED');
   });
 
@@ -1718,7 +1719,7 @@ function runFprCases_(results) {
   TEST_HTTP_ = http;
   TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' },
     reminder: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/rem', secret: 'sec-b' } };
-  setTestSettings_({ sales_manager_step: 'false', gm_assigns_sr: 'true', min_suppliers: '3' });
+  setTestSettings_({ sales_manager_step: 'false', gm_assigns_sr: 'true', min_suppliers: '3', assign_by_group: 'false' });
   try {
     // ---------- happy path ----------
     wrap('FPR_HAPPY', function () {
@@ -1939,7 +1940,7 @@ function runFprCases_(results) {
       ok(larkSign_(1700000000, 'sec-a') === Utilities.base64Encode(Utilities.computeHmacSha256Signature('', '1700000000\nsec-a')), 'Signature: HmacSHA256(timestamp + \\n + secret) base64');
     });
   } finally {
-    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1' });
+    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false' });
     TEST_BOTS_ = null;
   }
 }
@@ -1972,7 +1973,7 @@ function runAdminCases_(results) {
   const lastLog = function (id, action) { return findAll_(TAB.LOGS, 'ticket_id', id).filter(function (l) { return l.action === action; }).pop(); };
   TEST_HTTP_ = fakeHttp_();
   TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' }, reminder: { url: '', secret: '' } };
-  setTestSettings_({ sales_manager_step: 'false', gm_assigns_sr: 'true', min_suppliers: '3' });
+  setTestSettings_({ sales_manager_step: 'false', gm_assigns_sr: 'true', min_suppliers: '3', assign_by_group: 'false' });
   try {
     wrap('ADMIN_FLOW', function () {
       expectErr(A(function () { return createTicket(form()); }), 'VALIDATION', 'Admin: creating a request needs the Sales it is for');
@@ -2072,7 +2073,109 @@ function runAdminCases_(results) {
       }
     });
   } finally {
-    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1' });
+    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false' });
+    TEST_BOTS_ = null;
+  }
+}
+
+// ===================================================================== SR per item by product group (assign_by_group)
+function runGroupAssignCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  const owner = function (id, line) { return activeItemsOf_(id).filter(function (x) { return x.line_no === line; })[0].sr_email; };
+  const itemOf = function (id, line) { return activeItemsOf_(id).filter(function (x) { return x.line_no === line; })[0]; };
+  const quote = function (name, price) { return { quote_id: Utilities.getUuid(), vendor_name: name, unit_price: price, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }; };
+  const price = function (sr, id, line, p) {
+    const q = quote('Supplier ' + line, p);
+    return as(sr, function () { return saveSourcingDraft(id, [{ item_id: itemOf(id, line).item_id, quotes: [q], winner_quote_id: q.quote_id }]); });
+  };
+  TEST_HTTP_ = fakeHttp_();
+  TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' }, reminder: { url: '', secret: '' } };
+  setTestSettings_({ sales_manager_step: 'false', assign_by_group: 'true', min_suppliers: '1' });
+  withLock_(function () {
+    updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-SHRIMP', { sr_email: U.sr1 });
+    updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-FISH', { sr_email: U.sr2 });
+    updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-OTHERS', { sr_email: '' });
+  });
+  try {
+    const t = must(as(U.salesFood1, function () {
+      return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'ลูกค้าหลายกลุ่ม', due_date: inDays(3), items: [
+        { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว', net_weight: '80%', size: '31/40', packing_size: '1 kg', qty: 100, uom: 'กก.', target_price: 0 },
+        { product_group_code: 'FOOD-FISH', product_name: 'แซลมอน', net_weight: '100%', size: '1-2 kg', packing_size: 'IVP', qty: 50, uom: 'กก.', target_price: 0 },
+        { product_group_code: 'FOOD-OTHERS', product_name: 'ซอสพอนสึ', net_weight: '100%', size: '1.8 L', packing_size: '6/ลัง', qty: 20, uom: 'ขวด', target_price: 0 }] });
+    })).ticket;
+    const id = t.ticket_id;
+    must(go(U.gm, id, 'gm_approve'));
+    const a = ticketById_(id);
+    ok(a.stage === 'doc_check' && owner(id, 1) === U.sr1 && owner(id, 2) === U.sr2 && owner(id, 3) === '',
+      'Group: GM approves (no SR to pick) → shrimp to sr1, salmon to sr2, Others unassigned');
+    ok(a.srs.join() === [U.sr1, U.sr2].join(), 'Group: one request, two SRs (sr_emails)');
+    const card = botLog_(id, 'assigned')[0].summary;
+    ok(/<at email=sr1@/.test(card) && /<at email=sr2@/.test(card) && /<at email=sr\.manager@/.test(card) && /รอ SR Manager แบ่งงาน: #3 ซอสพอนสึ/.test(card),
+      'Group: card tags both SRs + SR Manager (Others waiting) and lists who prices what');
+    ok(as(U.sr2, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id && r.is_inbox && r.is_mine; }), 'Group: the request is in both SRs’ inbox');
+    const v1 = as(U.sr1, function () { return must(getTicket(id)); });
+    ok(v1.items[0].can_transfer && !v1.items[1].can_transfer && v1.items[1].sr_name.length > 0, 'Group: SR may transfer only their own item; sees the other SR name');
+    expectErr(go(U.sr1, id, 'assign_items', '', { assignments: [{ item_id: itemOf(id, 3).item_id, sr_email: U.sr1 }] }), 'FORBIDDEN', 'Group: an SR cannot split the work');
+    expectErr(go(U.sr2, id, 'transfer_item', '', { item_id: itemOf(id, 1).item_id, sr_email: U.sr2 }), 'FORBIDDEN', 'Group: an SR cannot take another SR’s item');
+    must(go(U.srManager, id, 'assign_items', '', { assignments: [{ item_id: itemOf(id, 3).item_id, sr_email: U.sr2 }] }));
+    ok(owner(id, 3) === U.sr2 && /<at email=sr2@/.test(botLog_(id, 'assigned')[1].summary) && !/<at email=sr1@/.test(botLog_(id, 'assigned')[1].summary.split('ผู้ดำเนินการ')[1] || ''),
+      'Group: SR Manager gives the Others item to sr2 (card tags sr2)');
+    must(go(U.sr2, id, 'transfer_item', 'sr1 รู้จักผู้ขายซอส', { item_id: itemOf(id, 3).item_id, sr_email: U.sr1 }));
+    ok(owner(id, 3) === U.sr1 && /โยกงาน: #3/.test(botLog_(id, 'assigned')[2].summary), 'Group: sr2 transfers the sauce to sr1 (card shows the move)');
+    as(U.sr2, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+    must(go(U.sr1, id, 'doc_complete'));
+    ok(ticketById_(id).stage === 'sourcing', 'Group: any SR of the request checks documents');
+    expectErr(price(U.sr1, id, 2, 400), 'FORBIDDEN', 'Group: sr1 cannot price sr2’s salmon');
+    must(price(U.sr1, id, 1, 200)); must(price(U.sr1, id, 3, 150));
+    must(go(U.sr1, id, 'submit_quote'));
+    const p1 = ticketById_(id);
+    ok(p1.stage === 'sourcing' && itemOf(id, 1).sr_submitted_at && itemOf(id, 3).sr_submitted_at && !itemOf(id, 2).sr_submitted_at,
+      'Group: sr1 sends their 2 items — request waits for sr2');
+    ok(!botLog_(id, 'sm_review').length, 'Group: no SM card yet');
+    expectErr(price(U.sr1, id, 1, 190), 'FORBIDDEN', 'Group: sr1 cannot change an item already sent');
+    expectErr(go(U.sr1, id, 'submit_quote'), 'ALREADY_SUBMITTED', 'Group: sr1 submitting again is refused');
+    ok(as(U.sr1, function () { return must(getTicket(id)); }).permissions.actions.indexOf('submit_quote') === -1 &&
+      as(U.sr2, function () { return must(getTicket(id)); }).permissions.actions.indexOf('submit_quote') !== -1, 'Group: “ส่งราคา” button only for the SR who still has items');
+    must(price(U.sr2, id, 2, 420));
+    must(go(U.sr2, id, 'submit_quote'));
+    ok(ticketById_(id).stage === 'pending_sr_manager' && botLog_(id, 'sm_review').length === 1, 'Group: last SR sends → SM_REVIEW (one card)');
+    must(go(U.srManager, id, 'srm_return', 'ปรับราคาแซลมอน'));
+    ok(ticketById_(id).stage === 'sourcing' && activeItemsOf_(id).every(function (it) { return !it.sr_submitted_at; }), 'Group: returned → every item can be re-sent');
+    const sv = as(U.salesFood1, function () { return must(getTicket(id)); });
+    ok(sv.items.every(function (it) { return !it.can_edit_quotes && !(it.quotations || []).length; }) && sv.ticket.sr_name.indexOf(',') !== -1, 'Group: Sales sees the SR names only, no prices');
+
+    // only Others → SR Manager first
+    const o = must(as(U.salesFood2, function () {
+      return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'ลูกค้า Others', due_date: inDays(3), items: [
+        { product_group_code: 'FOOD-OTHERS', product_name: 'สาหร่ายโนริ', net_weight: '100%', size: 'A4', packing_size: '100 แผ่น', qty: 10, uom: 'แพ็ค', target_price: 0 }] });
+    })).ticket;
+    must(go(U.gm, o.ticket_id, 'gm_approve'));
+    ok(ticketById_(o.ticket_id).stage === 'pending_assign' && /<at email=sr\.manager@/.test(botLog_(o.ticket_id, 'queued')[0].summary),
+      'Group: only Others → waits for SR Manager (card tags SR Manager)');
+    ok(as(U.srManager, function () { return must(getTicket(o.ticket_id)); }).permissions.can_assign_items, 'Group: SR Manager gets the split panel');
+    must(go(U.srManager, o.ticket_id, 'assign_items', '', { assignments: [{ item_id: activeItemsOf_(o.ticket_id)[0].item_id, sr_email: U.sr2 }] }));
+    ok(ticketById_(o.ticket_id).stage === 'doc_check' && ticketById_(o.ticket_id).srs.join() === U.sr2, 'Group: SR Manager assigns → ASSIGNED to sr2');
+    withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-SHRIMP', { sr_email: 'nobody@' + DEMO_DOMAIN }); });
+    ok(groupSrOf_('FOOD-SHRIMP') === '', 'Group: an unknown / inactive SR in ProductGroups counts as no SR');
+  } catch (e) {
+    results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: GROUP_ASSIGN — ' + e.message + '\n' + e.stack);
+  } finally {
+    withLock_(function () { ['FOOD-SHRIMP', 'FOOD-FISH'].forEach(function (c) { updateRow_(TAB.PRODUCT_GROUPS, c, { sr_email: '' }); }); });
+    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false' });
     TEST_BOTS_ = null;
   }
 }

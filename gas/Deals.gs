@@ -56,7 +56,7 @@ function dealRows_(u, withCost) {
         customer_name: String(t.customer_name || ''), customer_group: String(t.customer_group || ''),
         destination_country: String(t.destination_country || ''),
         requestor_email: t.requestor_email, requestor_name: ctx.names[t.requestor_email] || t.requestor_email,
-        department_code: String(t.department_code || ''), sr_email: String(t.sr_email || ''), sr_name: t.sr_email ? (ctx.names[t.sr_email] || t.sr_email) : '',
+        department_code: String(t.department_code || ''), sr_email: itemOwner_(t, it) || String(t.sr_email || ''), sr_name: (function (e) { return e ? (ctx.names[e] || e) : ''; })(itemOwner_(t, it) || t.sr_email),
         product_name: it.product_name, product_group_code: it.product_group_code, size: it.size, packing_size: it.packing_size,
         net_weight: it.net_weight, spec: it.spec,
         qty: it.qty, uom: it.uom, target_price: it.target_price || 0,
@@ -178,7 +178,7 @@ function updateDeal(itemId, patch) {
         enqueueGroupEvent_('deal_won', t, { lines: ['• #' + row.line_no + ' ' + row.product_name +
           ' — ลูกค้าใช้ประมาณ ' + fmtQty_(qty) + ' ' + row.uom + '/เดือน'] });
         // SR + SR Manager learn which of their prices sold (in-app + Lark DM, no price in the text)
-        const srs = [t.sr_email].concat(activeUsersByRole_('sr_manager').map(function (x) { return x.email; }));
+        const srs = [itemOwner_(t, row) || t.sr_email].concat(activeUsersByRole_('sr_manager').map(function (x) { return x.email; }));
         enqueueNotifications_(srs, t, 'deal_won', '🎉 [' + t.ticket_no + '] ปิดการขายได้: ' + row.product_name,
           (t.customer_name || '') + ' — ' + u.full_name + ' อัปเดตว่าลูกค้าตกลงซื้อ', ticketLink_(t, 'ticket'));
       }

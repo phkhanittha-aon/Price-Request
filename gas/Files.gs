@@ -51,6 +51,8 @@ function beginUpload(meta) {
       const it = findOne_(TAB.ITEMS, 'item_id', m.item_id);
       if (!it || String(it.ticket_id) !== t.ticket_id || toBool_(it.is_deleted)) throw appError_('VALIDATION', 'รายการสินค้าไม่ได้อยู่ในใบนี้');
       itemId = String(it.item_id);
+      // supplier photos: an SR only on their own item
+      if (category === 'quote_photo' && u.role === 'sr' && itemOwner_(t, it) !== u.email) throw appError_('FORBIDDEN', 'รายการนี้เป็นงานของ SR คนอื่น');
     }
     let quoteId = '';
     if (category === 'quote_photo') {

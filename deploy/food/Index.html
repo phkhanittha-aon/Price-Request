@@ -229,6 +229,7 @@
     .qcard { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 10px; }
     .tag-cheap { background: #E9F7F0; border-color: #B7E3CB; color: #0d5b35; }
     .tag-win { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .tag-sr { background: var(--blue-soft); border-color: transparent; color: var(--blue); }
     /* request form (Food) — document-style form: numbered sections, 3-column grid, hints under inputs */
     .form-wrap { max-width: 1080px; }
     .form-title { margin-bottom: 8px; }
@@ -2503,6 +2504,65 @@ Pages.tickets = (function () {
   document checklist, attachments (upload / open / delete), traceability timeline.
 -->
 <script>
+/**
+ * SR per item: badge, "โยกงาน" (an SR passes their item to another SR) and the SR Manager / Admin split panel.
+ * Shared by the request page and the pricing page. Server: transitionTicket assign_items / transfer_item.
+ */
+const ItemAssign = (function () {
+  function badge(it, showDone) {
+    if (it.quote_status) return '';
+    if (!it.sr_email) return '<span class="sla warning">⚠ รอ SR Manager แบ่งงาน</span>';
+    return '<span class="badge tag-sr">👤 ' + esc(it.sr_name || it.sr_email) + '</span>' + (showDone && it.sr_submitted ? ' <span class="sla ok">✓ ส่งราคาแล้ว</span>' : '');
+  }
+  function srOptions(cur, blank) {
+    return (blank ? '<option value="">— เลือก SR —</option>' : '') + (state.ref.sr_users || []).map(function (u) {
+      return '<option value="' + esc(u.email) + '"' + (u.email === cur ? ' selected' : '') + '>' + esc(u.full_name) + '</option>';
+    }).join('');
+  }
+  function transfer(d, it, done) {
+    dialog({ title: '🔀 โยกรายการ #' + it.line_no + ' ไปให้ SR อื่น', message: it.product_name + ' — ราคา supplier ที่กรอกไว้ย้ายไปด้วย',
+      html: '<label class="field"><span>ให้ SR <span class="req">*</span></span><select id="dlg-sr">' +
+        '<option value="">— เลือก SR —</option>' + (state.ref.sr_users || []).filter(function (u) { return u.email !== it.sr_email; })
+          .map(function (u) { return '<option value="' + esc(u.email) + '">' + esc(u.full_name) + '</option>'; }).join('') + '</select></label>',
+      comment: 'optional', commentLabel: 'หมายเหตุถึง SR ที่รับงาน', confirmText: 'โยกงาน',
+      validate: function (root) { return $('#dlg-sr', root).value ? null : 'กรุณาเลือก SR'; }
+    }).then(function (res) {
+      if (!res) return;
+      api('transitionTicket', d.ticket.ticket_id, 'transfer_item', res.comment, { expected_version: d.ticket.version, item_id: it.item_id, sr_email: $('#dlg-sr', res.root).value })
+        .then(function () { toast('โยกรายการ #' + it.line_no + ' แล้ว', 'ok'); refreshPoll(); done(); })
+        .catch(function (e) { toast(e.error, 'err', 9000); if (e.code === 'VERSION_CONFLICT') done(); });
+    });
+  }
+  /** SR Manager / Admin: one select per item, save only the changed lines. */
+  function panelHtml(d) {
+    if (!d.permissions.can_assign_items) return '';
+    const items = d.items.filter(function (it) { return !it.quote_status; });
+    const none = items.filter(function (it) { return !it.sr_email; }).length;
+    return '<div class="card" id="ia-panel"><h3>👥 แบ่งงาน SR ตามรายการ' + (none ? ' <span class="sla warning">รอแบ่ง ' + none + ' รายการ</span>' : '') + '</h3>' +
+      '<div class="small muted">รายการที่กลุ่มสินค้ามี SR ประจำ (แท็บ ProductGroups › sr_email) เข้า SR อัตโนมัติหลัง GM อนุมัติ · รายการ “อื่นๆ / ไม่มี SR” แบ่งที่นี่</div>' +
+      '<div class="tbl-wrap"><table class="tbl stack"><thead><tr><th>#</th><th>สินค้า</th><th>กลุ่มสินค้า</th><th>SR ผู้ทำราคา</th></tr></thead><tbody>' +
+      items.map(function (it) {
+        return '<tr><td data-label="#">' + it.line_no + '</td><td class="main">' + esc(it.product_name) + (it.sr_submitted ? ' <span class="sla ok">✓ ส่งแล้ว</span>' : '') + '</td>' +
+          '<td data-label="กลุ่มสินค้า">' + esc(it.product_group_name) + '</td>' +
+          '<td data-label="SR"><select data-ia="' + esc(it.item_id) + '" data-cur="' + esc(it.sr_email || '') + '">' + srOptions(it.sr_email, !it.sr_email) + '</select></td></tr>';
+      }).join('') + '</tbody></table></div><div class="actions"><button class="btn primary" id="ia-save">💾 บันทึกการแบ่งงาน</button></div></div>';
+  }
+  function bindPanel(view, d, done) {
+    const btn = $('#ia-save', view);
+    if (!btn) return;
+    btn.onclick = function () {
+      const list = $all('[data-ia]', view).filter(function (s) { return s.value && s.value !== s.getAttribute('data-cur'); })
+        .map(function (s) { return { item_id: s.getAttribute('data-ia'), sr_email: s.value }; });
+      if (!list.length) { toast('ยังไม่ได้เปลี่ยน SR ของรายการใด', 'err'); return; }
+      btn.disabled = true;
+      api('transitionTicket', d.ticket.ticket_id, 'assign_items', '', { expected_version: d.ticket.version, assignments: list })
+        .then(function () { toast('แบ่งงาน ' + list.length + ' รายการแล้ว', 'ok'); refreshPoll(); done(); })
+        .catch(function (e) { btn.disabled = false; toast(e.error, 'err', 9000); if (e.code === 'VERSION_CONFLICT') done(); });
+    };
+  }
+  return { badge: badge, transfer: transfer, panelHtml: panelHtml, bindPanel: bindPanel };
+})();
+
 Pages.ticket = (function () {
   /** UI for each workflow action. Server re-checks every rule; this only shapes the dialog. */
   const ACTION_UI = {
@@ -2515,7 +2575,7 @@ Pages.ticket = (function () {
     claim: { label: '✅ รับงาน', cls: 'primary', comment: 'none', confirm: 'รับงานใบ {no}? ระบบจะบันทึกคุณเป็น SR ผู้รับผิดชอบ' },
     queue_return: { label: '↩ ตีกลับ — ข้อมูลไม่ครบ', cls: 'danger', comment: 'required', commentLabel: 'ข้อมูลที่ขาด / สิ่งที่ต้องการให้ Sales เพิ่ม', fields: true,
       confirm: 'ส่งใบ {no} กลับให้ Sales เพิ่มข้อมูล — เมื่อ Sales ตอบ งานจะกลับเข้าคิวรอรับงาน' },
-    assign: { label: 'มอบหมาย SR', cls: '', comment: 'optional', select: 'sr' },
+    assign: { label: 'มอบหมายทั้งใบให้ SR คนเดียว', cls: '', comment: 'optional', select: 'sr' },
     srm_approve: { label: 'อนุมัติราคา (SR Manager)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันราคาใบ {no} ส่งต่อให้ GM อนุมัติฝั่งซื้อ?' },
     srm_return: { label: 'ส่งกลับให้ SR แก้ราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ SR แก้ไข' },
     srm_reject: { label: 'ปฏิเสธ (ปิดใบ)', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ปฏิเสธ', confirm: 'ปฏิเสธใบ {no}? ใบจะถูกปิดและแก้ไขต่อไม่ได้' },
@@ -2636,7 +2696,8 @@ Pages.ticket = (function () {
     const showQ = d.permissions.can_view_quotes;
     return '<div class="card"><h3>รายการสินค้า (' + d.items.length + ')</h3>' + d.items.map(function (it) {
       let html = '<div class="item-row"><div class="head"><span>#' + it.line_no + ' ' + esc(it.product_name) + '</span><span class="sep"></span>' +
-        '<span class="badge">' + esc(it.product_group_name) + '</span></div>' +
+        '<span class="badge">' + esc(it.product_group_name) + '</span>' + ItemAssign.badge(it, showQ) +
+        (it.can_transfer && d.me.role === 'sr' ? ' <button type="button" class="btn sm ghost" data-transfer="' + esc(it.item_id) + '">🔀 โยกงาน</button>' : '') + '</div>' +
         '<dl class="kv small" style="margin-top:6px">' +
         '<dt>% Net Weight</dt><dd>' + esc(it.net_weight || '–') + '</dd><dt>ขนาด (Size)</dt><dd>' + esc(it.size || '–') + '</dd>' +
         '<dt>แพคย่อย (Packing Size)</dt><dd>' + esc(it.packing_size || '–') + '</dd>' +
@@ -2891,6 +2952,11 @@ Pages.ticket = (function () {
     const t = d.ticket;
     Photos.bind(view, { attachments: function () { return d.attachments; } });
     $all('[data-action]', view).forEach(function (b) { b.onclick = function () { runAction(view, d, b.getAttribute('data-action')); }; });
+    const reload = function () { load(view, t.ticket_id); };
+    ItemAssign.bindPanel(view, d, reload);
+    $all('[data-transfer]', view).forEach(function (b) {
+      b.onclick = function () { ItemAssign.transfer(d, d.items.filter(function (x) { return x.item_id === b.getAttribute('data-transfer'); })[0], reload); };
+    });
     $all('[data-nav]', view).forEach(function (b) { b.onclick = function () { go({ page: b.getAttribute('data-nav'), id: t.ticket_id }); }; });
     $all('[data-copy]', view).forEach(function (b) { b.onclick = function () { go({ page: 'new', copy: t.ticket_id }); }; });
     $all('[data-goto]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-goto') }); }; });
@@ -2940,7 +3006,7 @@ Pages.ticket = (function () {
   function load(view, id, isCurrent) {
     api('getTicket', id).then(function (d) {
       if (isCurrent && !isCurrent()) return;
-      view.innerHTML = header(d) + notices(d) + actionBar(d) + itemsHtml(d) + checklistHtml(d) + attachmentsHtml(d) + timelineHtml(d);
+      view.innerHTML = header(d) + notices(d) + actionBar(d) + ItemAssign.panelHtml(d) + itemsHtml(d) + checklistHtml(d) + attachmentsHtml(d) + timelineHtml(d);
       bind(view, d);
     }).catch(function (e) {
       if (isCurrent && !isCurrent()) return;
@@ -3003,7 +3069,7 @@ Pages.new = Pages.edit = (function () {
 
   function subGroupOptions(selected) {
     const groups = state.ref.product_groups.filter(function (g) { return g.parent_code; });
-    return '<option value="">— ไม่ระบุ —</option>' + groups.map(function (g) {
+    return '<option value="">— เลือกกลุ่มสินค้า —</option>' + groups.map(function (g) {
       return '<option value="' + esc(g.code) + '"' + (selected === g.code ? ' selected' : '') + '>' + esc(g.name) + '</option>';
     }).join('');
   }
@@ -3021,7 +3087,7 @@ Pages.new = Pages.edit = (function () {
       (count > 1 ? '<button type="button" class="btn sm danger" data-remove="' + i + '">ลบสินค้านี้</button>' : '') + '</div>' +
       '<div class="fgrid">' +
       field('ชื่อสินค้า', 'Product', '<input type="text" data-k="product_name" list="prod-list" maxlength="300" placeholder="เช่น กุ้งขาว Vannamei HLSO — หรือเลือกสินค้าที่เคยขอ" value="' + esc(it.product_name) + '">', { req: true, span: 2, hint: 'เลือกสินค้าที่เคยขอ ระบบเติม NW / Size / Packing ให้ (แก้ได้)' }) +
-      field('ประเภทสินค้า', 'Category', '<select data-k="product_group_code">' + subGroupOptions(it.product_group_code) + '</select>', { hint: 'ไม่บังคับ — ใช้เลือกรายการตรวจเอกสาร' }) +
+      field('กลุ่มสินค้า', 'Product Group', '<select data-k="product_group_code">' + subGroupOptions(it.product_group_code) + '</select>', { req: true, hint: 'ใช้ส่งงานให้ SR ประจำกลุ่ม — ไม่แน่ใจเลือก “อื่นๆ (Others)”' }) +
       field('น้ำหนักสุทธิ', '% Net Weight', '<input type="text" data-k="net_weight" maxlength="100" placeholder="เช่น 80% หรือ NW 90%" value="' + esc(it.net_weight) + '">', { req: true, hint: 'ไม่รวมน้ำแข็ง' }) +
       field('ขนาด', 'Size', '<input type="text" data-k="size" maxlength="100" placeholder="เช่น 31/40 หรือ 1.0–1.5 kg/pc" value="' + esc(it.size) + '">', { req: true }) +
       field('แพคย่อย', 'Packing Size', '<input type="text" data-k="packing_size" maxlength="100" placeholder="เช่น 1 Kg/Pack หรือ 500 g" value="' + esc(it.packing_size) + '">', { req: true }) +
@@ -3123,6 +3189,7 @@ Pages.new = Pages.edit = (function () {
     $all('.item-row', view).forEach(function (row) {
       const get = function (k) { return $('[data-k="' + k + '"]', row); };
       if (!get('product_name').value.trim()) mark(get('product_name'), 'กรอกชื่อสินค้า');
+      if (!get('product_group_code').value) mark(get('product_group_code'), 'เลือกกลุ่มสินค้า');
       if (!get('net_weight').value.trim()) mark(get('net_weight'), 'กรอก % Net Weight');
       if (!get('size').value.trim()) mark(get('size'), 'กรอกขนาด');
       if (!get('packing_size').value.trim()) mark(get('packing_size'), 'กรอกขนาดแพคย่อย');
@@ -3788,6 +3855,10 @@ Pages.pricing = (function () {
     }).join('') + '</ol>';
   }
 
+  /** This user may edit this item (an SR only their own items until sent; reviewers / Admin every item — server: canEditItem_). */
+  function itemEditable(it) { return !!ctx.d.permissions.can_edit_quotes && it.can_edit_quotes !== false; }
+  function multiSr(d) { return (d.ticket.sr_emails_list || []).length > 1 || d.items.some(function (it) { return !it.quote_status && !it.sr_email; }); }
+
   /** SR Manager / GM editing prices in their own approval step (server: canEditQuotes_). */
   function reviewing(d) {
     return d.permissions.can_edit_quotes && (d.ticket.stage === 'pending_sr_manager' || d.ticket.stage === 'pending_gm_price');
@@ -4027,7 +4098,7 @@ Pages.pricing = (function () {
       const q = mi && mi.quotes.filter(function (x) { return x.quote_id === quoteId; })[0];
       if (!q) return;
       const box = document.createElement('div');
-      box.innerHTML = galleryHtml(it, q, ctx.d.permissions.can_edit_quotes);
+      box.innerHTML = galleryHtml(it, q, itemEditable(it));
       g.replaceWith(box.firstChild);
       bindPhotos();
     });
@@ -4053,7 +4124,7 @@ Pages.pricing = (function () {
 
   /** Item the SR answered without a price — compact card (no vendor grid). */
   function statusCard(it, idx) {
-    const editable = ctx.d.permissions.can_edit_quotes;
+    const editable = itemEditable(it);
     const follow = it.quote_status === 'follow_up';
     return '<section class="card item-stat ' + (follow ? 'follow' : 'no') + '" data-sitem="' + idx + '"><div class="ihead"><div><b>#' + it.line_no + ' ' + esc(it.product_name) + '</b>' +
       ' <span class="badge">' + esc(it.product_group_name) + '</span><div class="small">' + fmtNum(it.qty) + ' ' + esc(it.uom) + '/เดือน · Size ' + esc(it.size || '–') +
@@ -4069,7 +4140,7 @@ Pages.pricing = (function () {
   function itemCard(it, idx) {
     if (it.quote_status) return statusCard(it, idx);
     const mi = ctx.model.items[idx];
-    const editable = ctx.d.permissions.can_edit_quotes;
+    const editable = itemEditable(it);
     const isFood = rootOf(it.product_group_code) === 'FOOD';
     let cols = mi.quotes.map(function (q, qi) { return vendorCol(it, mi, q, qi, editable, isFood); }).join('');
     // fixed 3-slot grid (max 3 vendors): the next empty slot is the "add vendor" box, so columns always line up
@@ -4079,7 +4150,9 @@ Pages.pricing = (function () {
     }
     if (!mi.quotes.length && !editable) cols = '<div class="empty small">ยังไม่มีราคา vendor</div>';
     return '<details class="card item" data-item="' + idx + '"' + (idx < 2 ? ' open' : '') + '>' +
-      '<summary><div class="ihead"><div><b>#' + it.line_no + ' ' + esc(it.product_name) + '</b> <span class="badge">' + esc(it.product_group_name) + '</span>' +
+      '<summary><div class="ihead"><div><b>#' + it.line_no + ' ' + esc(it.product_name) + '</b> <span class="badge">' + esc(it.product_group_name) + '</span> ' + ItemAssign.badge(it, true) +
+      (it.can_transfer && state.me.role === 'sr' ? ' <button type="button" class="btn sm ghost" data-transfer="' + idx + '">🔀 โยกงาน</button>' : '') +
+      (!editable && ctx.d.permissions.can_edit_quotes && !it.sr_submitted ? ' <span class="small muted">(งานของ SR คนอื่น — ดูอย่างเดียว)</span>' : '') +
       '<div class="small">' + fmtNum(it.qty) + ' ' + esc(it.uom) + '/เดือน · NW ' + esc(it.net_weight || '–') + ' · Size ' + esc(it.size || '–') +
       ' · Pack ' + esc(it.packing_size || '–') + (it.target_price ? ' · ลูกค้าคาดหวัง ' + fmtMoney(it.target_price) + ' บาท/' + esc(it.uom) : ' · ลูกค้ายังไม่บอกราคา') + '</div></div>' +
       '<span class="istatus"></span></div></summary>' +
@@ -4108,7 +4181,7 @@ Pages.pricing = (function () {
       (d.permissions.can_edit_quotes ? '<div class="savebar"><div class="sum" id="pp-sum"></div><span class="sep"></span>' +
         (reviewing(d) ? '<button class="btn" data-back>← กลับไปหน้าอนุมัติ</button><button class="btn primary" id="pp-save">💾 บันทึกการแก้ไข</button>' :
           '<button class="btn" id="pp-info">ขอข้อมูลเพิ่ม</button><button class="btn" id="pp-save">บันทึกร่าง</button>' +
-          '<button class="btn primary" id="pp-submit">ส่งราคาให้ SR Manager ตรวจ</button>') + '</div>' : '');
+          '<button class="btn primary" id="pp-submit">' + (multiSr(d) ? 'ส่งราคารายการของฉัน' : 'ส่งราคาให้ SR Manager ตรวจ') + '</button>') + '</div>' : '');
     bind();
     bindPhotos();
     $all('.card.item', view).forEach(function (card) { refreshItem(Number(card.getAttribute('data-item'))); });
@@ -4140,7 +4213,7 @@ Pages.pricing = (function () {
       const bdOn = hasBd(r.q);
       const clrEl = $('[data-f="clearance_thb"]', col);
       if (clrEl && bdOn) clrEl.value = r.c ? Math.round(r.c.clearance * 100) / 100 : '';
-      if (clrEl) clrEl.disabled = bdOn || !ctx.d.permissions.can_edit_quotes;
+      if (clrEl) clrEl.disabled = bdOn || !itemEditable(it);
       const clrHint = $('[data-clr-hint]', col);
       if (clrHint) clrHint.textContent = bdOn ? 'คำนวณจากรายละเอียดต้นทุนนำเข้าด้านล่าง' : '';
       const bdOut = $('[data-bd-out]', col);
@@ -4153,7 +4226,7 @@ Pages.pricing = (function () {
       const fx = $('[data-f="fx_rate"]', col);
       if (fx) {
         if (r.q.currency === 'THB') { fx.value = 1; fx.disabled = true; }
-        else if (ctx.d.permissions.can_edit_quotes) fx.disabled = false;
+        else if (itemEditable(it)) fx.disabled = false;
       }
     });
     const reason = $('.reason', card);
@@ -4301,6 +4374,14 @@ Pages.pricing = (function () {
     // per-item decision: not offered / send later (split) / back to quoting
     $all('[data-istatus]', view).forEach(function (b) {
       b.onclick = function () { setItemStatus(Number(b.getAttribute('data-idx')), b.getAttribute('data-istatus')); };
+    });
+    $all('[data-transfer]', view).forEach(function (b) {
+      b.onclick = function (e) {
+        e.preventDefault(); e.stopPropagation();
+        const go2 = function () { api('getTicket', ctx.d.ticket.ticket_id).then(function (d) { ctx.d = d; ctx.model = fromDetail(d); ctx.dirty = false; render(); }); };
+        const run = function () { ItemAssign.transfer(ctx.d, ctx.d.items[Number(b.getAttribute('data-transfer'))], go2); };
+        if (ctx.dirty) save().then(run).catch(function () {}); else run();
+      };
     });
     $all('[data-restore]', view).forEach(function (b) { b.onclick = function () { setItemStatus(Number(b.getAttribute('data-restore')), 'quote'); }; });
     $all('[data-gotk]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-gotk') }); }; });
@@ -4521,7 +4602,7 @@ Pages.pricing = (function () {
   }
 
   function payload() {
-    return ctx.model.items.filter(function (mi, i) { return !ctx.d.items[i].quote_status; }).map(function (mi) {
+    return ctx.model.items.filter(function (mi, i) { return !ctx.d.items[i].quote_status && itemEditable(ctx.d.items[i]); }).map(function (mi) {
       return {
         item_id: mi.item_id,
         winner_quote_id: mi.winner || '',
@@ -4582,7 +4663,7 @@ Pages.pricing = (function () {
     const out = [];
     const today = todayYmd(0);
     ctx.d.items.forEach(function (it, i) {
-      if (it.quote_status) return;
+      if (it.quote_status || !itemEditable(it)) return;   // only the items this user sends
       const mi = ctx.model.items[i];
       const filled = mi.quotes.filter(function (q) { return !isBlank(q); });
       const calc = itemCalc(mi, it);
@@ -4611,7 +4692,7 @@ Pages.pricing = (function () {
       return;
     }
     dialog({
-      title: 'ส่งราคาให้ SR Manager ตรวจ?',
+      title: multiSr(ctx.d) ? 'ส่งราคารายการของคุณ?' : 'ส่งราคาให้ SR Manager ตรวจ?',
       html: '<p class="small">ลำดับ: SR Manager ตรวจ → GM อนุมัติ → ส่งถึง ' + esc(ctx.d.ticket.requestor_name) + ' · ระหว่างนี้แก้ราคาไม่ได้ จนกว่าจะถูกส่งกลับ</p>' +
         summaryTable(summaryRows()),
       confirmText: 'ยืนยันส่งราคา'
@@ -4621,7 +4702,8 @@ Pages.pricing = (function () {
       save().then(function (r) {
         return api('transitionTicket', ctx.d.ticket.ticket_id, 'submit_quote', '', { expected_version: r.detail.ticket.version });
       }).then(function (r) {
-        toast('ส่งราคา ' + r.ticket.ticket_no + ' แล้ว → ' + r.ticket.stage_label, 'ok');
+        toast(r.ticket.stage === 'sourcing' ? 'ส่งราคารายการของคุณแล้ว — รอ SR คนอื่นส่งรายการที่เหลือ แล้วจึงไป SR Manager' :
+          'ส่งราคา ' + r.ticket.ticket_no + ' แล้ว → ' + r.ticket.stage_label, 'ok', 7000);
         refreshPoll();
         go({ page: 'ticket', id: r.ticket.ticket_id }, true);
       }).catch(function (e) { if (e && e.error && e.code !== 'VALIDATION') toast(e.error, 'err', 9000); });

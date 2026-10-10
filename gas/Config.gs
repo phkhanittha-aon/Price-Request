@@ -7,7 +7,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.10-6';
+const APP_VERSION = '2026.10.11-1';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -75,7 +75,9 @@ const SCHEMA = {
   ProductGroups: {
     key: 'code',
     cols: ['code', 'name', 'name_en', 'parent_code', 'checklist_json', 'sort_order', 'is_active',
-           'created_at', 'updated_at']
+           'created_at', 'updated_at',
+           // appended v2026.10.11-1: SR (Sourcing) who prices this group — items go to them right after GM approval
+           'sr_email']
   },
   Vendors: {
     key: 'vendor_id',
@@ -116,7 +118,9 @@ const SCHEMA = {
            // appended v2026.10.08-3: where the goods go and who the customer is
            'destination_country', 'customer_group',
            // appended v2026.10.10-3 (FPR): start of the current pricing round (SLA) · last SLA reminder sent
-           'pricing_started_at', 'last_reminded_at']
+           'pricing_started_at', 'last_reminded_at',
+           // appended v2026.10.11-1: every SR working on this request (comma list; items can go to different SRs)
+           'sr_emails']
   },
   TicketItems: {
     key: 'item_id',
@@ -133,7 +137,9 @@ const SCHEMA = {
            // follow-up v2 (appended v2026.10.09-1, same structure as the MGS Sales app): where the customer is + what Sales does next
            'deal_stage', 'deal_next_step',
            // appended v2026.10.10-3 (FPR): why this item has fewer suppliers than Settings › min_suppliers
-           'supplier_shortfall_reason']
+           'supplier_shortfall_reason',
+           // appended v2026.10.11-1: SR who prices this item (from its product group / SR Manager / transfer) · when that SR sent its price
+           'sr_email', 'sr_submitted_at']
   },
   Quotations: {
     key: 'quote_id',
@@ -282,6 +288,7 @@ const DEFAULT_SETTINGS = [
   ['deal_next_steps', JSON.stringify(['โทรติดตาม', 'นัดเข้าพบลูกค้า', 'ส่งตัวอย่างสินค้า', 'ส่งเอกสาร / ข้อมูลเพิ่มเติม', 'ขอปรับราคาจาก SR', 'รอ PO',
     'ปิดการขาย', 'ยุติการติดตาม']), 'ขั้นตอนถัดไปของ Sales (dropdown ในการอัปเดตความคืบหน้า)'],
   ['sales_manager_step', 'false', 'true = คำขอผ่าน Sales Manager ก่อน GM · false (FPR) = ส่งตรงถึง GM'],
+  ['assign_by_group', 'true', 'true = หลัง GM อนุมัติ แต่ละรายการเข้า SR ตามกลุ่มสินค้า (แท็บ ProductGroups › sr_email) ทันที · รายการที่ไม่มี SR (Others) ไปให้ SR Manager แบ่งงาน · 1 ใบมีหลาย SR ได้'],
   ['gm_assigns_sr', 'true', 'true (FPR) = GM เลือก Sourcing ผู้ทำราคาตอนอนุมัติ · false = เข้าคิวให้ SR กดรับงานเอง'],
   ['min_suppliers', '3', 'จำนวน supplier ขั้นต่ำต่อรายการก่อนส่งราคา (น้อยกว่านี้ต้องกรอกเหตุผล)'],
   ['min_gp_percent', '10', 'GP % ขั้นต่ำ — ต่ำกว่านี้แสดงเตือนสีแดงในหน้าทำราคาและหน้าอนุมัติ'],

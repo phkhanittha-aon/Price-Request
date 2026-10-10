@@ -43,7 +43,7 @@ Pages.new = Pages.edit = (function () {
 
   function subGroupOptions(selected) {
     const groups = state.ref.product_groups.filter(function (g) { return g.parent_code; });
-    return '<option value="">— ไม่ระบุ —</option>' + groups.map(function (g) {
+    return '<option value="">— เลือกกลุ่มสินค้า —</option>' + groups.map(function (g) {
       return '<option value="' + esc(g.code) + '"' + (selected === g.code ? ' selected' : '') + '>' + esc(g.name) + '</option>';
     }).join('');
   }
@@ -61,7 +61,7 @@ Pages.new = Pages.edit = (function () {
       (count > 1 ? '<button type="button" class="btn sm danger" data-remove="' + i + '">ลบสินค้านี้</button>' : '') + '</div>' +
       '<div class="fgrid">' +
       field('ชื่อสินค้า', 'Product', '<input type="text" data-k="product_name" list="prod-list" maxlength="300" placeholder="เช่น กุ้งขาว Vannamei HLSO — หรือเลือกสินค้าที่เคยขอ" value="' + esc(it.product_name) + '">', { req: true, span: 2, hint: 'เลือกสินค้าที่เคยขอ ระบบเติม NW / Size / Packing ให้ (แก้ได้)' }) +
-      field('ประเภทสินค้า', 'Category', '<select data-k="product_group_code">' + subGroupOptions(it.product_group_code) + '</select>', { hint: 'ไม่บังคับ — ใช้เลือกรายการตรวจเอกสาร' }) +
+      field('กลุ่มสินค้า', 'Product Group', '<select data-k="product_group_code">' + subGroupOptions(it.product_group_code) + '</select>', { req: true, hint: 'ใช้ส่งงานให้ SR ประจำกลุ่ม — ไม่แน่ใจเลือก “อื่นๆ (Others)”' }) +
       field('น้ำหนักสุทธิ', '% Net Weight', '<input type="text" data-k="net_weight" maxlength="100" placeholder="เช่น 80% หรือ NW 90%" value="' + esc(it.net_weight) + '">', { req: true, hint: 'ไม่รวมน้ำแข็ง' }) +
       field('ขนาด', 'Size', '<input type="text" data-k="size" maxlength="100" placeholder="เช่น 31/40 หรือ 1.0–1.5 kg/pc" value="' + esc(it.size) + '">', { req: true }) +
       field('แพคย่อย', 'Packing Size', '<input type="text" data-k="packing_size" maxlength="100" placeholder="เช่น 1 Kg/Pack หรือ 500 g" value="' + esc(it.packing_size) + '">', { req: true }) +
@@ -163,6 +163,7 @@ Pages.new = Pages.edit = (function () {
     $all('.item-row', view).forEach(function (row) {
       const get = function (k) { return $('[data-k="' + k + '"]', row); };
       if (!get('product_name').value.trim()) mark(get('product_name'), 'กรอกชื่อสินค้า');
+      if (!get('product_group_code').value) mark(get('product_group_code'), 'เลือกกลุ่มสินค้า');
       if (!get('net_weight').value.trim()) mark(get('net_weight'), 'กรอก % Net Weight');
       if (!get('size').value.trim()) mark(get('size'), 'กรอกขนาด');
       if (!get('packing_size').value.trim()) mark(get('packing_size'), 'กรอกขนาดแพคย่อย');

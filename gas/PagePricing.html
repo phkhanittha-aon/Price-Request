@@ -119,6 +119,10 @@ Pages.pricing = (function () {
     }).join('') + '</ol>';
   }
 
+  /** This user may edit this item (an SR only their own items until sent; reviewers / Admin every item — server: canEditItem_). */
+  function itemEditable(it) { return !!ctx.d.permissions.can_edit_quotes && it.can_edit_quotes !== false; }
+  function multiSr(d) { return (d.ticket.sr_emails_list || []).length > 1 || d.items.some(function (it) { return !it.quote_status && !it.sr_email; }); }
+
   /** SR Manager / GM editing prices in their own approval step (server: canEditQuotes_). */
   function reviewing(d) {
     return d.permissions.can_edit_quotes && (d.ticket.stage === 'pending_sr_manager' || d.ticket.stage === 'pending_gm_price');
@@ -358,7 +362,7 @@ Pages.pricing = (function () {
       const q = mi && mi.quotes.filter(function (x) { return x.quote_id === quoteId; })[0];
       if (!q) return;
       const box = document.createElement('div');
-      box.innerHTML = galleryHtml(it, q, ctx.d.permissions.can_edit_quotes);
+      box.innerHTML = galleryHtml(it, q, itemEditable(it));
       g.replaceWith(box.firstChild);
       bindPhotos();
     });
@@ -384,7 +388,7 @@ Pages.pricing = (function () {
 
   /** Item the SR answered without a price — compact card (no vendor grid). */
   function statusCard(it, idx) {
-    const editable = ctx.d.permissions.can_edit_quotes;
+    const editable = itemEditable(it);
     const follow = it.quote_status === 'follow_up';
     return '<section class="card item-stat ' + (follow ? 'follow' : 'no') + '" data-sitem="' + idx + '"><div class="ihead"><div><b>#' + it.line_no + ' ' + esc(it.product_name) + '</b>' +
       ' <span class="badge">' + esc(it.product_group_name) + '</span><div class="small">' + fmtNum(it.qty) + ' ' + esc(it.uom) + '/เดือน · Size ' + esc(it.size || '–') +
@@ -400,7 +404,7 @@ Pages.pricing = (function () {
   function itemCard(it, idx) {
     if (it.quote_status) return statusCard(it, idx);
     const mi = ctx.model.items[idx];
-    const editable = ctx.d.permissions.can_edit_quotes;
+    const editable = itemEditable(it);
     const isFood = rootOf(it.product_group_code) === 'FOOD';
     let cols = mi.quotes.map(function (q, qi) { return vendorCol(it, mi, q, qi, editable, isFood); }).join('');
     // fixed 3-slot grid (max 3 vendors): the next empty slot is the "add vendor" box, so columns always line up
@@ -410,7 +414,9 @@ Pages.pricing = (function () {
     }
     if (!mi.quotes.length && !editable) cols = '<div class="empty small">ยังไม่มีราคา vendor</div>';
     return '<details class="card item" data-item="' + idx + '"' + (idx < 2 ? ' open' : '') + '>' +
-      '<summary><div class="ihead"><div><b>#' + it.line_no + ' ' + esc(it.product_name) + '</b> <span class="badge">' + esc(it.product_group_name) + '</span>' +
+      '<summary><div class="ihead"><div><b>#' + it.line_no + ' ' + esc(it.product_name) + '</b> <span class="badge">' + esc(it.product_group_name) + '</span> ' + ItemAssign.badge(it, true) +
+      (it.can_transfer && state.me.role === 'sr' ? ' <button type="button" class="btn sm ghost" data-transfer="' + idx + '">🔀 โยกงาน</button>' : '') +
+      (!editable && ctx.d.permissions.can_edit_quotes && !it.sr_submitted ? ' <span class="small muted">(งานของ SR คนอื่น — ดูอย่างเดียว)</span>' : '') +
       '<div class="small">' + fmtNum(it.qty) + ' ' + esc(it.uom) + '/เดือน · NW ' + esc(it.net_weight || '–') + ' · Size ' + esc(it.size || '–') +
       ' · Pack ' + esc(it.packing_size || '–') + (it.target_price ? ' · ลูกค้าคาดหวัง ' + fmtMoney(it.target_price) + ' บาท/' + esc(it.uom) : ' · ลูกค้ายังไม่บอกราคา') + '</div></div>' +
       '<span class="istatus"></span></div></summary>' +
@@ -439,7 +445,7 @@ Pages.pricing = (function () {
       (d.permissions.can_edit_quotes ? '<div class="savebar"><div class="sum" id="pp-sum"></div><span class="sep"></span>' +
         (reviewing(d) ? '<button class="btn" data-back>← กลับไปหน้าอนุมัติ</button><button class="btn primary" id="pp-save">💾 บันทึกการแก้ไข</button>' :
           '<button class="btn" id="pp-info">ขอข้อมูลเพิ่ม</button><button class="btn" id="pp-save">บันทึกร่าง</button>' +
-          '<button class="btn primary" id="pp-submit">ส่งราคาให้ SR Manager ตรวจ</button>') + '</div>' : '');
+          '<button class="btn primary" id="pp-submit">' + (multiSr(d) ? 'ส่งราคารายการของฉัน' : 'ส่งราคาให้ SR Manager ตรวจ') + '</button>') + '</div>' : '');
     bind();
     bindPhotos();
     $all('.card.item', view).forEach(function (card) { refreshItem(Number(card.getAttribute('data-item'))); });
@@ -471,7 +477,7 @@ Pages.pricing = (function () {
       const bdOn = hasBd(r.q);
       const clrEl = $('[data-f="clearance_thb"]', col);
       if (clrEl && bdOn) clrEl.value = r.c ? Math.round(r.c.clearance * 100) / 100 : '';
-      if (clrEl) clrEl.disabled = bdOn || !ctx.d.permissions.can_edit_quotes;
+      if (clrEl) clrEl.disabled = bdOn || !itemEditable(it);
       const clrHint = $('[data-clr-hint]', col);
       if (clrHint) clrHint.textContent = bdOn ? 'คำนวณจากรายละเอียดต้นทุนนำเข้าด้านล่าง' : '';
       const bdOut = $('[data-bd-out]', col);
@@ -484,7 +490,7 @@ Pages.pricing = (function () {
       const fx = $('[data-f="fx_rate"]', col);
       if (fx) {
         if (r.q.currency === 'THB') { fx.value = 1; fx.disabled = true; }
-        else if (ctx.d.permissions.can_edit_quotes) fx.disabled = false;
+        else if (itemEditable(it)) fx.disabled = false;
       }
     });
     const reason = $('.reason', card);
@@ -632,6 +638,14 @@ Pages.pricing = (function () {
     // per-item decision: not offered / send later (split) / back to quoting
     $all('[data-istatus]', view).forEach(function (b) {
       b.onclick = function () { setItemStatus(Number(b.getAttribute('data-idx')), b.getAttribute('data-istatus')); };
+    });
+    $all('[data-transfer]', view).forEach(function (b) {
+      b.onclick = function (e) {
+        e.preventDefault(); e.stopPropagation();
+        const go2 = function () { api('getTicket', ctx.d.ticket.ticket_id).then(function (d) { ctx.d = d; ctx.model = fromDetail(d); ctx.dirty = false; render(); }); };
+        const run = function () { ItemAssign.transfer(ctx.d, ctx.d.items[Number(b.getAttribute('data-transfer'))], go2); };
+        if (ctx.dirty) save().then(run).catch(function () {}); else run();
+      };
     });
     $all('[data-restore]', view).forEach(function (b) { b.onclick = function () { setItemStatus(Number(b.getAttribute('data-restore')), 'quote'); }; });
     $all('[data-gotk]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-gotk') }); }; });
@@ -852,7 +866,7 @@ Pages.pricing = (function () {
   }
 
   function payload() {
-    return ctx.model.items.filter(function (mi, i) { return !ctx.d.items[i].quote_status; }).map(function (mi) {
+    return ctx.model.items.filter(function (mi, i) { return !ctx.d.items[i].quote_status && itemEditable(ctx.d.items[i]); }).map(function (mi) {
       return {
         item_id: mi.item_id,
         winner_quote_id: mi.winner || '',
@@ -913,7 +927,7 @@ Pages.pricing = (function () {
     const out = [];
     const today = todayYmd(0);
     ctx.d.items.forEach(function (it, i) {
-      if (it.quote_status) return;
+      if (it.quote_status || !itemEditable(it)) return;   // only the items this user sends
       const mi = ctx.model.items[i];
       const filled = mi.quotes.filter(function (q) { return !isBlank(q); });
       const calc = itemCalc(mi, it);
@@ -942,7 +956,7 @@ Pages.pricing = (function () {
       return;
     }
     dialog({
-      title: 'ส่งราคาให้ SR Manager ตรวจ?',
+      title: multiSr(ctx.d) ? 'ส่งราคารายการของคุณ?' : 'ส่งราคาให้ SR Manager ตรวจ?',
       html: '<p class="small">ลำดับ: SR Manager ตรวจ → GM อนุมัติ → ส่งถึง ' + esc(ctx.d.ticket.requestor_name) + ' · ระหว่างนี้แก้ราคาไม่ได้ จนกว่าจะถูกส่งกลับ</p>' +
         summaryTable(summaryRows()),
       confirmText: 'ยืนยันส่งราคา'
@@ -952,7 +966,8 @@ Pages.pricing = (function () {
       save().then(function (r) {
         return api('transitionTicket', ctx.d.ticket.ticket_id, 'submit_quote', '', { expected_version: r.detail.ticket.version });
       }).then(function (r) {
-        toast('ส่งราคา ' + r.ticket.ticket_no + ' แล้ว → ' + r.ticket.stage_label, 'ok');
+        toast(r.ticket.stage === 'sourcing' ? 'ส่งราคารายการของคุณแล้ว — รอ SR คนอื่นส่งรายการที่เหลือ แล้วจึงไป SR Manager' :
+          'ส่งราคา ' + r.ticket.ticket_no + ' แล้ว → ' + r.ticket.stage_label, 'ok', 7000);
         refreshPoll();
         go({ page: 'ticket', id: r.ticket.ticket_id }, true);
       }).catch(function (e) { if (e && e.error && e.code !== 'VALIDATION') toast(e.error, 'err', 9000); });

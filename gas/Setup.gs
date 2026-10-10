@@ -15,7 +15,7 @@ const DEMO_DOMAIN = 'example.co.th';   // ← change to your company domain befo
 
 const DATE_COLS_ = ['created_at', 'updated_at', 'ts', 'stage_entered_at', 'submitted_at', 'manager_approved_at',
   'gm_approved_at', 'assigned_at', 'doc_checked_at', 'completed_at', 'closed_at', 'rejected_at', 'cancelled_at',
-  'checked_at', 'uploaded_at', 'deleted_at', 'read_at', 'lark_sent_at', 'deal_updated_at', 'deal_closed_at', 'pricing_started_at', 'last_reminded_at'];
+  'checked_at', 'uploaded_at', 'deleted_at', 'read_at', 'lark_sent_at', 'deal_updated_at', 'deal_closed_at', 'pricing_started_at', 'last_reminded_at', 'sr_submitted_at'];
 const DAY_COLS_ = ['due_date', 'valid_until', 'deal_next_date', 'fx_date', 'date'];
 const NUMBER_COLS_ = ['qty', 'target_price', 'unit_price', 'fx_rate', 'vat_rate', 'moq', 'lead_time_days',
   'net_unit_cost', 'net_unit_cost_thb', 'gross_unit_price_thb', 'line_no', 'version', 'revision_count',
@@ -43,6 +43,14 @@ function setupDatabase() {
     report.push('Created Drive folder ' + folder.getId());
   }
   const mig = withLock_(function () { return migrateSuppliersCore_(); });
+  // v2026.10.11-1: product group "Others" (items without an SR → SR Manager splits the work)
+  withLock_(function () {
+    if (!findOne_(TAB.PRODUCT_GROUPS, 'code', 'FOOD-OTHERS') && findOne_(TAB.PRODUCT_GROUPS, 'code', 'FOOD')) {
+      insertRow_(TAB.PRODUCT_GROUPS, { code: 'FOOD-OTHERS', name: 'อื่นๆ (Others)', name_en: 'Others', parent_code: 'FOOD', sort_order: 199,
+        checklist_json: '[]', is_active: true, sr_email: '', created_at: new Date(), updated_at: new Date() });
+      report.push('ProductGroups: added FOOD-OTHERS (อื่นๆ) — ใส่ sr_email ให้แต่ละกลุ่มสินค้าเพื่อแบ่งงาน SR อัตโนมัติ');
+    }
+  });
   // document chips renamed (Test report covers micro + heavy metal + chemical; Food Safety Cert covers GMP/HACCP/BRC …)
   // only when Admin has not customised the list yet
   const OLD_DOCS = ['COA', 'Health Certificate', 'Halal', 'Spec sheet', 'ใบวิเคราะห์จุลินทรีย์', 'GMP / HACCP'];
@@ -189,7 +197,8 @@ function seedMaster_() {
     ['FOOD-SHRIMP', 'กุ้ง', 'Shrimp', 'FOOD', 101, tpl([['glazing', '% Glazing']])],
     ['FOOD-FISH', 'ปลา (แซลมอน / ซาบะ / อื่นๆ)', 'Fish', 'FOOD', 102, tpl([['cut_type', 'รูปแบบการตัดแต่ง (Fillet / Steak / Whole)']])],
     ['FOOD-CEPHALOPOD', 'หมึก / ปลาหมึก', 'Squid & Octopus', 'FOOD', 103, '[]'],
-    ['FOOD-PROCESSED', 'อาหารแปรรูป / Global Food', 'Processed & Global Food', 'FOOD', 104, tpl([['ingredients', 'ส่วนประกอบ / ฉลาก']])]
+    ['FOOD-PROCESSED', 'อาหารแปรรูป / Global Food', 'Processed & Global Food', 'FOOD', 104, tpl([['ingredients', 'ส่วนประกอบ / ฉลาก']])],
+    ['FOOD-OTHERS', 'อื่นๆ (Others)', 'Others', 'FOOD', 199, '[]']
   ].filter(function (g) { return !findOne_(TAB.PRODUCT_GROUPS, 'code', g[0]); })
     .map(function (g) {
       return { code: g[0], name: g[1], name_en: g[2], parent_code: g[3], sort_order: g[4], checklist_json: g[5],
@@ -253,6 +262,11 @@ function seedDemoData() {
   const result = withLock_(function () {
     const out = seedMaster_();
     out.push('users +' + seedUsers_());
+    // demo: SR in charge of each product group (production: fill ProductGroups › sr_email in the sheet)
+    const U = demoUsers_();
+    [['FOOD-SHRIMP', U.sr1], ['FOOD-CEPHALOPOD', U.sr1], ['FOOD-FISH', U.sr2], ['FOOD-PROCESSED', U.sr2]].forEach(function (g) {
+      if (findOne_(TAB.PRODUCT_GROUPS, 'code', g[0]) && !findOne_(TAB.PRODUCT_GROUPS, 'code', g[0]).sr_email) updateRow_(TAB.PRODUCT_GROUPS, g[0], { sr_email: g[1], updated_at: new Date() });
+    });
     out.push(seedDemoTickets_());
     return out;
   });
@@ -277,6 +291,13 @@ function seedDemoTickets_() {
   const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
   // GM approval → SR: FPR mode (GM picks the SR) or queue mode (SR claims) — works with either Settings switch
   const toSr = function (id, sr, comment) {
+    if (toBool_(setting_('assign_by_group', true))) {
+      // by product group: items go to the group's SR; the demo then gives the whole request to `sr`
+      const x = go(U.gm, id, 'gm_approve', comment || '');
+      const t1 = ticketById_(id);
+      if (t1.srs.length === 1 && t1.srs[0] === sr && t1.stage !== 'pending_assign') return x;
+      return go(U.srManager, id, 'assign', '', { sr_email: sr });
+    }
     if (toBool_(setting_('gm_assigns_sr', true))) return go(U.gm, id, 'gm_approve', comment || '', { sr_email: sr });
     go(U.gm, id, 'gm_approve', comment || '');
     return go(sr, id, 'claim');
@@ -318,7 +339,7 @@ function seedDemoTickets_() {
   t = req(U.salesFood1, 'seed-B', { customer_name: 'ร้านซูชิ ABC' }, [
     { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว Vannamei HLSO', net_weight: '80%', size: '31/40', packing_size: '1 kg/pack', qty: 500, uom: 'กก.', target_price: 0 }
   ]);
-  if (toBool_(setting_('gm_assigns_sr', true))) go(U.gm, t.ticket_id, 'gm_approve', '', { sr_email: U.sr1 });
+  if (toBool_(setting_('assign_by_group', true)) || toBool_(setting_('gm_assigns_sr', true))) toSr(t.ticket_id, U.sr1);
   else { go(U.gm, t.ticket_id, 'gm_approve'); go(U.srManager, t.ticket_id, 'assign', '', { sr_email: U.sr1 }); }
   go(U.sr1, t.ticket_id, 'request_info', 'ขอ % glazing และรูปแบบ packing ของกุ้ง', { missing_items: ['glazing', 'packing'] });
 
@@ -412,5 +433,15 @@ function seedDemoTickets_() {
     { vendor_id: 'V-0003', vendor_name: 'บริษัท ซีฟู้ด เทรดดิ้ง จำกัด', unit_price: 182 }, 15, 1, { status: 'sample', note: 'ส่งตัวอย่าง 5 กก. ให้เชฟทดลอง' });
   priced(U.salesFood1, 'seed-M', { customer_name: 'ร้านอาหาร ครัวทะเล' }, { product_group_code: 'FOOD-CEPHALOPOD', product_name: 'ปลาหมึกกระดอง Cut', size: '40/60', qty: 300, target_price: 190 },
     { vendor_id: 'V-0001', vendor_name: 'Andaman Seafood Co., Ltd.', unit_price: 158 }, 15, 0, null);
-  return 'demo tickets +13';
+
+  // (N) one request, three product groups → shrimp to sr1, salmon to sr2, sauce (Others) waits for the SR Manager
+  if (toBool_(setting_('assign_by_group', true))) {
+    t = req(U.salesFood2, 'seed-N', { customer_name: 'โรงแรม ซีวิว (ครัวญี่ปุ่น)', documents_needed: 'Spec sheet' }, [
+      { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว Vannamei Nobashi', net_weight: '100%', size: '4L', packing_size: '20 pcs/tray', qty: 120, uom: 'กก.', target_price: 0 },
+      { product_group_code: 'FOOD-FISH', product_name: 'แซลมอน Sashimi Grade Loin', net_weight: '100%', size: '1–1.5 kg', packing_size: 'IVP', qty: 80, uom: 'กก.', target_price: 950 },
+      { product_group_code: 'FOOD-OTHERS', product_name: 'ซอสพอนสึ 1.8 L', net_weight: '100%', size: '1.8 ลิตร', packing_size: '6 ขวด/ลัง', qty: 40, uom: 'ขวด', target_price: 0 }
+    ]);
+    go(U.gm, t.ticket_id, 'gm_approve', 'อนุมัติ — แบ่งตามกลุ่มสินค้า');
+  }
+  return 'demo tickets +' + (toBool_(setting_('assign_by_group', true)) ? 14 : 13);
 }

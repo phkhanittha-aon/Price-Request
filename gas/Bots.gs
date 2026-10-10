@@ -30,18 +30,18 @@ const BOT_PROPS_ = {
  */
 const FPR_EVENTS_ = {
   submitted:  { icon: '📥', title: 'คำขอราคาใหม่ รอ GM อนุมัติ', color: 'blue',   mention: function () { return roleEmails_('gm'); } },
-  assigned:   { icon: '🔧', title: 'มอบหมายทำราคา', color: 'indigo',            mention: function (t) { return [t.sr_email]; } },
-  queued:     { icon: '🧾', title: 'GM อนุมัติแล้ว — รอ Sourcing รับงาน', color: 'blue', mention: function () { return roleEmails_('sr'); } },
+  assigned:   { icon: '🔧', title: 'มอบหมายทำราคา', color: 'indigo',            mention: function (t, x) { return x.srs || t.srs; } },
+  queued:     { icon: '🧾', title: 'GM อนุมัติแล้ว — รอ Sourcing รับงาน', color: 'blue', mention: function (t, x) { return x.srs || roleEmails_('sr'); } },
   sm_review:  { icon: '📊', title: 'รอ Sourcing Manager อนุมัติ', color: 'orange',  mention: function () { return roleEmails_('sr_manager'); } },
   gm_final:   { icon: '🏁', title: 'รอ GM อนุมัติราคาสุดท้าย', color: 'purple',    mention: function () { return roleEmails_('gm'); } },
-  approved:   { icon: '🎉', title: 'อนุมัติราคาแล้ว', color: 'green',             mention: function (t) { return [t.requestor_email, t.sr_email]; } },
-  rejected:   { icon: '❌', title: 'ปฏิเสธ', color: 'red',                        mention: function (t) { return [t.requestor_email, t.sr_email]; } },
-  returned:   { icon: '↩️', title: 'ตีกลับแก้ไข', color: 'red',                    mention: function (t, x) { return x.fixer || [t.sr_email]; } },
+  approved:   { icon: '🎉', title: 'อนุมัติราคาแล้ว', color: 'green',             mention: function (t) { return [t.requestor_email].concat(t.srs); } },
+  rejected:   { icon: '❌', title: 'ปฏิเสธ', color: 'red',                        mention: function (t) { return [t.requestor_email].concat(t.srs); } },
+  returned:   { icon: '↩️', title: 'ตีกลับแก้ไข', color: 'red',                    mention: function (t, x) { return x.fixer || t.srs; } },
   need_info:  { icon: '↩️', title: 'ตีกลับ — ขอข้อมูลเพิ่มจากผู้ขอ', color: 'red', mention: function (t) { return [t.requestor_email]; } },
-  cancelled:  { icon: '🚫', title: 'ยกเลิกคำขอ', color: 'grey',                    mention: function (t) { return [t.requestor_email, t.sr_email]; } },
-  revision:   { icon: '✏️', title: 'ผู้ขอขอให้ปรับราคา', color: 'orange',          mention: function (t) { return [t.sr_email]; } },
-  follow_up:  { icon: '📌', title: 'แยกรายการส่งราคาตามหลัง', color: 'wathet',     mention: function (t) { return [t.sr_email]; } },
-  deal_won:   { icon: '🏆', title: 'ปิดการขายได้', color: 'green',                mention: function (t) { return [t.sr_email]; } }
+  cancelled:  { icon: '🚫', title: 'ยกเลิกคำขอ', color: 'grey',                    mention: function (t) { return [t.requestor_email].concat(t.srs); } },
+  revision:   { icon: '✏️', title: 'ผู้ขอขอให้ปรับราคา', color: 'orange',          mention: function (t) { return t.srs; } },
+  follow_up:  { icon: '📌', title: 'แยกรายการส่งราคาตามหลัง', color: 'wathet',     mention: function (t) { return t.srs; } },
+  deal_won:   { icon: '🏆', title: 'ปิดการขายได้', color: 'green',                mention: function (t) { return t.srs; } }
 };
 
 /** Workflow stage → SLA key of Settings › fpr_sla. */

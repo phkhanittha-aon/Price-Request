@@ -178,6 +178,7 @@ function saveQuotationCore_(u, p) {
   if (!item || toBool_(item.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบรายการสินค้า');
   const t = ticketForUser_(u, item.ticket_id);
   if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน (ขั้นหาราคา) หรือผู้อนุมัติขั้นปัจจุบัน (SR Manager / GM)');
+  if (!canEditItem_(u, t, item)) throw appError_('FORBIDDEN', 'รายการนี้เป็นงานของ SR คนอื่น หรือส่งราคาไปแล้ว — แก้ได้เฉพาะ SR เจ้าของรายการ (ก่อนส่งราคา) หรือผู้อนุมัติขั้นปัจจุบัน');
   requireQuotable_(item);
 
   const quoteId = cleanText_(p.quote_id, 64);
@@ -320,6 +321,7 @@ function deleteQuotationCore_(u, quoteId) {
   if (!q || toBool_(q.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบใบเสนอราคา');
   const t = ticketForUser_(u, q.ticket_id);
   if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน (ขั้นหาราคา) หรือผู้อนุมัติขั้นปัจจุบัน (SR Manager / GM)');
+  if (!canEditItem_(u, t, findOne_(TAB.ITEMS, 'item_id', q.item_id) || {})) throw appError_('FORBIDDEN', 'รายการนี้เป็นงานของ SR คนอื่น หรือส่งราคาไปแล้ว — แก้ได้เฉพาะ SR เจ้าของรายการ (ก่อนส่งราคา) หรือผู้อนุมัติขั้นปัจจุบัน');
   updateRow_(TAB.QUOTATIONS, q.quote_id, { is_deleted: true, is_selected: false, selection_reason: '', updated_at: new Date() });
   removeQuotePhotos_(u, String(q.quote_id));
   appendLog_({ ticket_id: t.ticket_id, action: 'quotation_deleted', actor_email: u.email, actor_role: u.role,
@@ -342,6 +344,7 @@ function selectQuotationCore_(u, quoteId, reason) {
   if (!q || toBool_(q.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบใบเสนอราคา');
   const t = ticketForUser_(u, q.ticket_id);
   if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน (ขั้นหาราคา) หรือผู้อนุมัติขั้นปัจจุบัน (SR Manager / GM)');
+  if (!canEditItem_(u, t, findOne_(TAB.ITEMS, 'item_id', q.item_id) || {})) throw appError_('FORBIDDEN', 'รายการนี้เป็นงานของ SR คนอื่น หรือส่งราคาไปแล้ว — แก้ได้เฉพาะ SR เจ้าของรายการ (ก่อนส่งราคา) หรือผู้อนุมัติขั้นปัจจุบัน');
   const why = cleanText_(reason, 500);
   const now = new Date();
   const item = findOne_(TAB.ITEMS, 'item_id', q.item_id);
@@ -391,6 +394,7 @@ function saveSourcingDraft(ticketId, items) {
       const plan = list.map(function (row) {
         const it = byId[String(row && row.item_id)];
         if (!it) throw appError_('NOT_FOUND', 'ไม่พบรายการสินค้าในใบนี้');
+        if (!canEditItem_(u, t, it)) throw appError_('FORBIDDEN', 'รายการที่ ' + it.line_no + ': เป็นงานของ SR คนอื่น หรือส่งราคาไปแล้ว', { line_no: it.line_no });
         requireQuotable_(it);
         const quotes = (Array.isArray(row.quotes) ? row.quotes : []).filter(function (q) {
           return cleanText_(q.vendor_name) || String(q.unit_price === undefined || q.unit_price === null ? '' : q.unit_price).trim() !== '';
@@ -522,7 +526,8 @@ function setItemQuoteStatus(ticketId, itemId, status, reason, expectedVersion) {
     return withLock_(function () {
       const u = currentUser_();
       const t = ticketForUser_(u, ticketId);
-      if (!((u.role === 'admin' || (u.role === 'sr' && t.sr_email === u.email)) && (t.stage === 'sourcing' || t.stage === 'doc_check'))) {
+      const own = findOne_(TAB.ITEMS, 'item_id', cleanText_(itemId, 64));
+      if (!((u.role === 'admin' || (u.role === 'sr' && own && itemOwner_(t, own) === u.email && !own.sr_submitted_at)) && (t.stage === 'sourcing' || t.stage === 'doc_check'))) {
         throw appError_('FORBIDDEN', 'ตั้งสถานะรายการได้เฉพาะ SR ผู้รับงาน ในขั้นตอนตรวจเอกสาร / หาราคา');
       }
       requireVersion_(t, expectedVersion);
@@ -560,7 +565,7 @@ function setItemQuoteStatus(ticketId, itemId, status, reason, expectedVersion) {
         metadata: { item_id: it.item_id, line_no: it.line_no, label: 'รายการที่ ' + it.line_no + ' ' + it.product_name,
           follow_up_ticket_no: followUp ? followUp.ticket_no : undefined } });
       if (followUp) {
-        enqueueNotifications_([t.requestor_email, t.sr_email].concat(activeUsersByRole_('sr_manager').map(function (x) { return x.email; })), followUp,
+        enqueueNotifications_([t.requestor_email].concat(t.srs).concat(activeUsersByRole_('sr_manager').map(function (x) { return x.email; })), followUp,
           'item_follow_up', '[' + t.ticket_no + '] รายการที่ ' + it.line_no + ' ส่งราคาตามหลัง → ' + followUp.ticket_no,
           it.product_name + ' — ' + why + '\nแยกเป็นงานค้าง ' + followUp.ticket_no + ' (SR ' + u.full_name + ')', ticketLink_(followUp, 'ticket'));
       }
@@ -585,6 +590,8 @@ function splitFollowUp_(u, t, it, why, now) {
     quote_submitted_at: '', sr_manager_email: '', sr_manager_approved_at: '', gm_price_approved_at: '',
     completed_at: '', closed_at: '', rejected_at: '', cancelled_at: '',
     client_key: '', created_at: now, updated_at: now,
+    // the SR of that item continues it
+    sr_email: itemOwner_(t, it) || t.sr_email, sr_emails: itemOwner_(t, it) || t.sr_email,
     description: cleanText_((t.description ? t.description + '\n' : '') + 'แยกจาก ' + t.ticket_no + ' รายการที่ ' + it.line_no + ' — ' + why, CFG.MAX_TEXT)
   });
   insertRow_(TAB.TICKETS, ticket);
@@ -595,7 +602,7 @@ function splitFollowUp_(u, t, it, why, now) {
   Object.assign(item, { item_id: newItemId, ticket_id: ticketId, line_no: 1, quote_status: '', quote_status_reason: '',
     follow_up_ticket_id: '', gp_percent: src.gp_percent === undefined ? '' : src.gp_percent, sell_price_thb: '', created_at: now, updated_at: now,
     deal_status: '', deal_reason: '', deal_note: '', deal_next_date: '', deal_updated_by: '', deal_updated_at: '', deal_closed_at: '',
-    deal_stage: '', deal_next_step: '' });
+    deal_stage: '', deal_next_step: '', sr_email: itemOwner_(t, it) || t.sr_email, sr_submitted_at: '' });
   insertRow_(TAB.ITEMS, item);
   // vendor prices + item pictures + quotation files move with the item
   const moved = activeQuotesOfItem_(it.item_id).map(function (q) {

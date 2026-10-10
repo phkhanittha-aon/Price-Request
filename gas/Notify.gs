@@ -19,10 +19,15 @@ function stageAssignees_(t) {
     case 'pending_gm':
       return activeUsersByRole_('gm').map(function (u) { return u.email; });
     case 'pending_assign':
-      return activeUsersByRole_('sr').map(function (u) { return u.email; });
+      // by product group: nothing matched an SR → the SR Manager splits the work · queue mode: any SR claims it
+      return activeUsersByRole_(toBool_(setting_('assign_by_group', true)) ? 'sr_manager' : 'sr').map(function (u) { return u.email; });
     case 'doc_check':
-    case 'sourcing':
-      return [t.sr_email];
+    case 'sourcing': {
+      const out = (t.srs || []).slice();
+      // items nobody prices yet → the SR Manager has to give them to an SR
+      if (activeItemsOf_(t.ticket_id).some(function (it) { return !it.quote_status && !itemOwner_(t, it); })) out.push.apply(out, roleEmails_('sr_manager'));
+      return out;
+    }
     case 'pending_sr_manager':
       return activeUsersByRole_('sr_manager').map(function (u) { return u.email; });
     case 'pending_gm_price':
@@ -103,16 +108,20 @@ const MGMT_GROUP_KEY_ = '#mgmt_group';
 /** transition → { event, extra } for the FPR Bot (null = no card). */
 function groupEventOfTransition_(action, saved, note, meta) {
   const sales = [saved.requestor_email];
-  const sr = [saved.sr_email];
+  const sr = (saved.srs || []).slice();
   switch (action) {
     case 'resubmit':
     case 'manager_approve': return saved.stage === 'pending_gm' ? { event: 'submitted', extra: {} } : null;
-    case 'gm_approve': return { event: saved.stage === 'doc_check' ? 'assigned' : 'queued', extra: {} };
+    case 'gm_approve':
+      if (saved.stage === 'doc_check') return { event: 'assigned', extra: assignExtra_(saved, null) };
+      return { event: 'queued', extra: meta && meta.unassigned ? { srs: roleEmails_('sr_manager'), lines: ['ยังไม่มี SR ประจำกลุ่มสินค้า — **SR Manager แบ่งงาน** ให้ SR'] } : {} };
     case 'claim':
-    case 'assign': return { event: 'assigned', extra: {} };
+    case 'assign': return { event: 'assigned', extra: assignExtra_(saved, null) };
+    case 'assign_items':
+    case 'transfer_item': return { event: 'assigned', extra: assignExtra_(saved, meta && meta.moves) };
     case 'queue_return':
     case 'request_info': return { event: 'need_info', extra: { lines: meta && meta.missing_items && meta.missing_items.length ? ['**ข้อมูลที่ต้องเพิ่ม:** ' + meta.missing_items.join(', ')] : [] } };
-    case 'submit_quote': return { event: 'sm_review', extra: { lines: reviewFacts_(saved) } };
+    case 'submit_quote': return saved.stage === 'pending_sr_manager' ? { event: 'sm_review', extra: { lines: reviewFacts_(saved) } } : null;   // partial: wait for the other SRs
     case 'srm_approve': return { event: 'gm_final', extra: { lines: reviewFacts_(saved) } };
     case 'gm_price_approve': return { event: 'approved', extra: { lines: ['ราคาขายส่งถึงผู้ขอในระบบแล้ว · ผู้ขอกด “รับทราบราคา” หรือ “ขอปรับราคา” ได้ในหน้ารายการ'] } };
     case 'srm_return':
@@ -128,6 +137,31 @@ function groupEventOfTransition_(action, saved, note, meta) {
     case 'request_revision': return { event: 'revision', extra: { lines: ['ผู้ขอขอให้ปรับราคา — ดูรายละเอียดในระบบ'] } };
     default: return null;
   }
+}
+
+/**
+ * Who prices what (card lines + @mentions): "• คุณบอย SR — #1 กุ้ง, #3 หมึก" · items without an SR → SR Manager.
+ * moves (assign_items / transfer_item): only the SRs who just received items are tagged.
+ */
+function assignExtra_(t, moves) {
+  const names = {};
+  const by = {}, order = [], none = [];
+  activeItemsOf_(t.ticket_id).forEach(function (it) {
+    if (it.quote_status) return;
+    const o = itemOwner_(t, it);
+    if (!o) { none.push('#' + it.line_no + ' ' + it.product_name); return; }
+    if (!by[o]) { by[o] = []; order.push(o); }
+    by[o].push('#' + it.line_no + ' ' + it.product_name);
+  });
+  const nm = function (e) { if (!names[e]) { const u = userByEmail_(e); names[e] = u ? u.full_name : e; } return names[e]; };
+  const lines = order.map(function (e) { return '• **' + nm(e) + '** — ' + by[e].join(', '); });
+  if (moves && moves.length) {
+    lines.unshift('**โยกงาน:** ' + moves.map(function (m) { return '#' + m.line_no + ' ' + (m.from ? nm(m.from) : 'ยังไม่มี SR') + ' → ' + nm(m.to); }).join(' · '));
+  }
+  if (none.length) lines.push('⚠ **รอ SR Manager แบ่งงาน:** ' + none.join(', '));
+  let srs = moves && moves.length ? moves.map(function (m) { return m.to; }) : order.slice();
+  if (none.length) srs = srs.concat(roleEmails_('sr_manager'));
+  return { srs: srs, lines: lines.length ? ['**SR ผู้ทำราคา**'].concat(lines) : [] };
 }
 
 function fmtQty_(n) {
