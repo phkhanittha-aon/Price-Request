@@ -35,6 +35,7 @@ function runAcceptanceTests() {
     runPhotoDealCases_(results);
     runFollowUpV2Cases_(results);
     runReviewerEditCases_(results);
+    runFprCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -1665,5 +1666,258 @@ function runReviewerEditCases_(results) {
     ok(m.some(function (x) { return x.key === 'deals'; }) && m.length <= 5, 'Follow-up: SR menu has “ติดตามงานขาย” (≤ 5 items)');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: SOURCING_VIEW — ' + e.message + '\n' + e.stack);
+  }
+}
+
+// ===================================================================== FPR workflow (FPR switches on)
+function runFprCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  const wrap = function (name, fn) {
+    try { fn(); } catch (e) { results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: ' + name + ' — ' + e.message + '\n' + e.stack); }
+  };
+  const newReq = function (who, name) {
+    return as(who || U.salesFood1, function () {
+      return must(createTicket({ customer_group: 'ร้านอาหาร', customer_name: name || 'ลูกค้า FPR', due_date: inDays(3), items: [
+        { product_name: 'กุ้งขาว Vannamei HLSO', net_weight: '80%', size: '31/40', packing_size: '1 kg/pack', qty: 500, uom: 'กก.', target_price: 0 },
+        { product_name: 'หมึกกล้วย IQF', net_weight: '90%', size: 'U/10', packing_size: '1 kg/bag', qty: 300, uom: 'กก.', target_price: 0 }] })).ticket;
+    });
+  };
+  const toPricing = function (id) {
+    must(go(U.gm, id, 'gm_approve', '', { sr_email: U.sr1 }));
+    as(U.sr1, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+    must(go(U.sr1, id, 'doc_complete'));
+  };
+  const q = function (name, price, extra) {
+    return Object.assign({ quote_id: Utilities.getUuid(), vendor_name: name, unit_price: price, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }, extra || {});
+  };
+  const price3 = function (id) {
+    const rows = activeItemsOf_(id).map(function (it, i) {
+      const qs = [q('Supplier A' + i, 100 + i), q('Supplier B' + i, 110 + i), q('Supplier C' + i, 120 + i)];
+      return { item_id: it.item_id, quotes: qs, winner_quote_id: qs[0].quote_id };
+    });
+    must(as(U.sr1, function () { return saveSourcingDraft(id, rows); }));
+  };
+
+  const http = fakeHttp_();
+  TEST_HTTP_ = http;
+  TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' },
+    reminder: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/rem', secret: 'sec-b' } };
+  setTestSettings_({ sales_manager_step: 'false', gm_assigns_sr: 'true', min_suppliers: '3' });
+  try {
+    // ---------- happy path ----------
+    wrap('FPR_HAPPY', function () {
+      const t = newReq();
+      const id = t.ticket_id;
+      ok(/^FPR-\d{4}-\d{4,}$/.test(t.ticket_no) && t.stage === 'pending_gm', 'FPR: SUBMITTED goes straight to GM_REVIEW (no Sales Manager step) — ' + t.ticket_no);
+      ok(botLog_(id, 'submitted').length === 1 && /<at email=gm@/.test(botLog_(id, 'submitted')[0].summary), 'FPR: “ใบขอราคาใหม่” card @GM on submit');
+      ok(as(U.salesFood1, function () { return must(getTicket(t.ticket_no)); }).ticket.ticket_id === id, 'FPR: request opens by FPR number (?page=ticket&id=FPR-…)');
+      expectErr(go(U.gm, id, 'gm_approve'), 'INVALID_ASSIGNEE', 'FPR: GM must pick the Sourcing person when approving');
+      expectErr(go(U.gm, id, 'gm_approve', '', { sr_email: U.salesFood2 }), 'INVALID_ASSIGNEE', 'FPR: the assignee must be an active SR');
+      expectErr(go(U.sr1, id, 'gm_approve', '', { sr_email: U.sr1 }), 'NOT_FOUND', 'FPR: SR cannot even see / approve a request at GM_REVIEW');
+      expectErr(go(U.srManager, id, 'gm_approve', '', { sr_email: U.sr1 }), 'NOT_FOUND', 'FPR: Sourcing Manager cannot approve GM_REVIEW');
+      // double click: two approvals with the same version → the second is refused
+      const v = ticketById_(id).version;
+      must(as(U.gm, function () { return transitionTicket(id, 'gm_approve', '', { expected_version: v, sr_email: U.sr1 }); }));
+      expectErr(as(U.gm, function () { return transitionTicket(id, 'gm_approve', '', { expected_version: v, sr_email: U.sr2 }); }), 'VERSION_CONFLICT', 'FPR: double click on approve is refused (one transition only)');
+      const a = ticketById_(id);
+      ok(a.stage === 'doc_check' && a.sr_email === U.sr1 && a.pricing_started_at, 'FPR: GM approval → ASSIGNED to the chosen SR, pricing clock started');
+      ok(botLog_(id, 'assigned').length === 1 && /<at email=sr1@/.test(botLog_(id, 'assigned')[0].summary), 'FPR: “มอบหมายงาน” card @the chosen SR');
+      ok(botLog_(id, 'gm_approve').length === 0 && botLog_(id).length === 2, 'FPR: one card per step (no duplicate cards)');
+      expectErr(go(U.salesFood1, id, 'cancel', 'ไม่ใช้แล้ว'), 'INVALID_STATE', 'FPR: requester cannot cancel after GM approval');
+      as(U.sr1, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+      must(go(U.sr1, id, 'doc_complete'));
+
+      // fewer than 3 suppliers → refused unless a reason is given
+      const items = activeItemsOf_(id);
+      const two = [q('Supplier A', 100), q('Supplier B', 105)];
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: items[0].item_id, quotes: two, winner_quote_id: two[0].quote_id }]); }));
+      const three = [q('Supplier X', 200), q('Supplier Y', 210), q('Supplier Z', 220)];
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: items[1].item_id, quotes: three, winner_quote_id: three[0].quote_id }]); }));
+      const few = expectErr(go(U.sr1, id, 'submit_quote'), 'FEW_SUPPLIERS', 'FPR: submit with only 2 suppliers is refused');
+      ok(/ลำดับที่ 1/.test(few.error) && !/2/.test(few.error.replace(/\d+ ราย/, '')), 'FPR: the error names the item that is short (line 1 only)');
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: items[0].item_id, quotes: two, winner_quote_id: two[0].quote_id, shortfall_reason: 'สินค้าขาดตลาด มีผู้ขายเพียง 2 ราย' }]); }));
+      ok(findOne_(TAB.ITEMS, 'item_id', items[0].item_id).supplier_shortfall_reason === 'สินค้าขาดตลาด มีผู้ขายเพียง 2 ราย', 'FPR: shortfall reason saved on the item');
+      must(go(U.sr1, id, 'submit_quote'));
+      ok(ticketById_(id).stage === 'pending_sr_manager', 'FPR: with a reason the price goes to SM_REVIEW');
+      ok(botLog_(id, 'sm_review').length === 1 && /<at email=sr\.manager@/.test(botLog_(id, 'sm_review')[0].summary), 'FPR: SM_REVIEW card @Sourcing Manager');
+      expectErr(go(U.gm, id, 'gm_price_approve'), 'INVALID_STATE', 'FPR: GM cannot skip the Sourcing Manager step');
+      must(go(U.srManager, id, 'srm_approve'));
+      ok(botLog_(id, 'gm_final').length === 1 && /<at email=gm@/.test(botLog_(id, 'gm_final')[0].summary), 'FPR: GM_FINAL_REVIEW card @GM');
+      must(go(U.gm, id, 'gm_price_approve'));
+      const fin = ticketById_(id);
+      ok(fin.status === 'priced' || fin.stage === 'price_ready' || OPEN_STATUSES.indexOf(fin.status) === -1 || botLog_(id, 'approved').length === 1, 'FPR: APPROVED');
+      const ap = botLog_(id, 'approved');
+      ok(ap.length === 1 && /<at email=sales\.food1@/.test(ap[0].summary) && /มีราคาแล้ว/.test(ap[0].summary), 'FPR: approved card @requester with “มีราคาแล้ว”');
+      const all = botLog_(id).map(function (n) { return n.summary; }).join('\n');
+      ok(!/Supplier [ABXYZ]/.test(all) && !/\b(100|105|200|210|220)(\.\d+)? ?บาท/.test(all) && !/GP ?\d/.test(all), 'FPR: no card shows supplier, cost or GP');
+      ok(botLog_(id).every(function (n) { return n.bot === 'FPR Bot' && n.status === 'sent'; }), 'FPR: every workflow card went through FPR Bot');
+      ok(http.hooks.every(function (h) { return h.timestamp && h.sign && h.msg_type === 'interactive'; }), 'FPR: every webhook call is signed (timestamp + sign) and interactive');
+      const lastHook = http.hooks[http.hooks.length - 1];
+      ok(JSON.stringify(lastHook).indexOf('?page=ticket&id=' + t.ticket_no) !== -1, 'FPR: card button opens ?page=ticket&id=FPR-…');
+    });
+
+    // ---------- every return ----------
+    wrap('FPR_RETURNS', function () {
+      const id = newReq(U.salesFood2, 'ลูกค้าตีกลับ').ticket_id;
+      expectErr(go(U.gm, id, 'gm_return'), 'COMMENT_REQUIRED', 'FPR: GM return needs a reason');
+      must(go(U.gm, id, 'gm_return', 'กรุณาระบุขนาดให้ชัดเจน'));
+      ok(ticketById_(id).stage === 'returned', 'FPR: GM_REVIEW → returned to the requester');
+      const r1 = botLog_(id, 'returned');
+      ok(r1.length === 1 && /<at email=sales\.food2@/.test(r1[0].summary) && /ระบุขนาด/.test(r1[0].summary), 'FPR: return card @requester with the reason');
+      must(go(U.salesFood2, id, 'resubmit'));
+      ok(ticketById_(id).stage === 'pending_gm' && botLog_(id, 'submitted').length === 2, 'FPR: resubmit goes back to GM_REVIEW (card again)');
+      toPricing(id);
+      price3(id);
+      must(go(U.sr1, id, 'submit_quote'));
+      must(go(U.srManager, id, 'srm_return', 'ราคาสูงไป หาเพิ่ม'));
+      const r2 = botLog_(id, 'returned');
+      ok(ticketById_(id).stage === 'sourcing' && r2.length === 2 && /<at email=sr1@/.test(r2[1].summary) && !/ราคาสูง/.test(r2[1].summary),
+        'FPR: SM return → back to PRICING, card @SR, price reason not in the group');
+      must(go(U.sr1, id, 'submit_quote'));
+      must(go(U.srManager, id, 'srm_approve'));
+      must(go(U.gm, id, 'gm_price_return', 'ต่อรองใหม่'));
+      ok(ticketById_(id).stage === 'sourcing' && botLog_(id, 'returned').length === 3, 'FPR: GM final return → back to PRICING');
+    });
+
+    // ---------- reject / cancel ----------
+    wrap('FPR_REJECT', function () {
+      const a = newReq(U.salesFood1, 'ลูกค้าไม่อนุมัติ').ticket_id;
+      expectErr(go(U.gm, a, 'gm_reject'), 'COMMENT_REQUIRED', 'FPR: GM reject needs a reason');
+      must(go(U.gm, a, 'gm_reject', 'ไม่ใช่สินค้าหลักของบริษัท'));
+      ok(ticketById_(a).stage === 'rejected' && /ไม่ใช่สินค้าหลัก/.test(botLog_(a, 'rejected')[0].summary), 'FPR: GM_REVIEW reject → REJECTED, reason on the card');
+
+      const b = newReq(U.salesFood1, 'ลูกค้า SM ปฏิเสธ').ticket_id;
+      toPricing(b); price3(b);
+      must(go(U.sr1, b, 'submit_quote'));
+      expectErr(go(U.srManager, b, 'srm_reject'), 'COMMENT_REQUIRED', 'FPR: Sourcing Manager reject needs a reason');
+      expectErr(go(U.sr1, b, 'srm_reject', 'x'), 'FORBIDDEN', 'FPR: SR cannot reject at SM_REVIEW');
+      must(go(U.srManager, b, 'srm_reject', 'ต้นทุนสูงเกินตลาด 30%'));
+      ok(ticketById_(b).stage === 'rejected' && botLog_(b, 'rejected').length === 1 && !/ต้นทุนสูง/.test(botLog_(b, 'rejected')[0].summary),
+        'FPR: SM reject → REJECTED (cost reason kept off the group card)');
+
+      const c = newReq(U.salesFood1, 'ลูกค้า GM ปฏิเสธราคา').ticket_id;
+      toPricing(c); price3(c);
+      must(go(U.sr1, c, 'submit_quote'));
+      must(go(U.srManager, c, 'srm_approve'));
+      expectErr(go(U.gm, c, 'gm_price_reject'), 'COMMENT_REQUIRED', 'FPR: GM final reject needs a reason');
+      must(go(U.gm, c, 'gm_price_reject', 'GP ต่ำเกินไป'));
+      ok(ticketById_(c).stage === 'rejected', 'FPR: GM_FINAL_REVIEW reject → REJECTED');
+
+      const d = newReq(U.salesFood1, 'ลูกค้ายกเลิกเอง').ticket_id;
+      must(go(U.salesFood1, d, 'cancel', 'ลูกค้าเปลี่ยนใจ'));
+      ok(ticketById_(d).stage === 'cancelled' && botLog_(d, 'cancelled').length === 1, 'FPR: requester cancels before GM approval → CANCELLED card');
+
+      const e = newReq(U.salesFood1, 'ลูกค้า Admin ยกเลิก').ticket_id;
+      toPricing(e);
+      expectErr(go(U.gm, e, 'admin_cancel', 'x'), 'FORBIDDEN', 'FPR: only Admin can cancel a request in progress');
+      expectErr(go(U.admin, e, 'admin_cancel'), 'COMMENT_REQUIRED', 'FPR: Admin cancel needs a reason');
+      must(go(U.admin, e, 'admin_cancel', 'ใบซ้ำกับ FPR อื่น'));
+      ok(ticketById_(e).stage === 'cancelled' && /ใบซ้ำ/.test(botLog_(e, 'cancelled')[0].summary), 'FPR: Admin cancels at any step with a reason');
+      expectErr(go(U.admin, e, 'admin_cancel', 'อีกครั้ง'), 'INVALID_STATE', 'FPR: a closed request cannot be cancelled again');
+    });
+
+    // ---------- unauthorized ----------
+    wrap('FPR_AUTH', function () {
+      const id = newReq(U.salesFood1, 'ลูกค้าสิทธิ์').ticket_id;
+      expectErr(as('outsider@' + DEMO_DOMAIN, function () { return getTicket(id); }), 'NOT_REGISTERED', 'FPR: unregistered user cannot open a request');
+      expectErr(go(U.salesFood2, id, 'cancel', 'x'), 'NOT_FOUND', 'FPR: another Sales cannot cancel the request');
+      expectErr(go(U.admin, id, 'gm_approve', '', { sr_email: U.sr1 }), 'FORBIDDEN', 'FPR: Admin cannot approve on behalf of GM');
+      expectErr(as(U.salesFood2, function () { return getTicket(id); }), 'NOT_FOUND', 'FPR: another Sales cannot open the request');
+      toPricing(id); price3(id);
+      expectErr(as(U.sr2, function () { return saveSourcingDraft(id, []); }), 'FORBIDDEN', 'FPR: another SR cannot price it');
+      const sales = as(U.salesFood1, function () { return must(getTicket(id)); });
+      ok(sales.items.every(function (it) { return !(it.quotations || []).length && !it.pricing && !('gp_percent' in it); }), 'FPR: requester never receives quotations / cost / GP');
+    });
+
+    // ---------- landed cost + GP floor ----------
+    wrap('FPR_COST', function () {
+      const bd = costBreakdown_(1000, { freight: 50, insurance: 10, duty_pct: 5, fees: 3, cold: 2, inland: 4, other: 1 });
+      ok(bd.duty_thb === 53 && bd.total_thb === 123, 'FPR: duty = 5% × CIF (1000 + 50 + 10) = 53; extra cost per unit = 123');
+      const id = newReq(U.salesFood3, 'ลูกค้าต้นทุนนำเข้า').ticket_id;
+      toPricing(id);
+      const it = activeItemsOf_(id)[0];
+      const usd = q('Norway Seafood AS', 3, { currency: 'USD', fx_rate: 35, fx_date: inDays(0), cost_breakdown: { freight: 5, insurance: 0.5, duty_pct: 10, fees: 1, cold: 2, inland: 1.5, other: 0 } });
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [usd], winner_quote_id: usd.quote_id, gp_percent: 8 }]); }));
+      const sq = activeQuotesOfItem_(it.item_id)[0];
+      // net 3 USD × 35 = 105 THB; CIF = 105 + 5 + 0.5 = 110.5; duty 11.05; extras = 5 + 0.5 + 11.05 + 1 + 2 + 1.5 = 21.05
+      ok(Math.abs(Number(sq.clearance_thb) - 21.05) < 0.001 && Math.abs(Number(sq.landed_unit_cost_thb) - 126.05) < 0.001, 'FPR: landed cost = 105 + 21.05 = 126.05 THB / unit');
+      ok(String(sq.fx_date) !== '' && /"duty_thb":11.05/.test(sq.cost_breakdown_json), 'FPR: FX date and breakdown stored with the quotation');
+      const view = as(U.sr1, function () { return must(getTicket(id)); }).items.filter(function (x) { return x.item_id === it.item_id; })[0];
+      ok(view.pricing.gp_below_min === true && view.pricing.min_gp_percent === 10, 'FPR: GP 8% is flagged below the 10% minimum');
+      ok(view.pricing.sell_price_thb === round_(126.05 / 0.92, 2), 'FPR: selling price = landed ÷ (1 − GP)');
+    });
+
+    // ---------- working-time SLA ----------
+    wrap('FPR_SLA', function () {
+      const wh = { start: 510, end: 1050, days: [1, 2, 3, 4, 5] };
+      const fri = new Date('2026-10-09T09:30:00Z');   // Fri 16:30 Bangkok
+      ok(addWorkMinutes_(fri, 240, wh, {}).toISOString() === '2026-10-12T04:30:00.000Z', 'SLA: Fri 16:30 + 4 working h = Mon 11:30 (weekend skipped)');
+      ok(addWorkMinutes_(fri, 240, wh, { '2026-10-12': 'หยุด' }).toISOString() === '2026-10-13T04:30:00.000Z', 'SLA: holiday on Monday → Tue 11:30');
+      ok(addWorkMinutes_(fri, 2 * 540, wh, {}).toISOString() === '2026-10-13T09:30:00.000Z', 'SLA: 2 working days from Fri 16:30 = Tue 16:30');
+      ok(workMinutesBetween_(fri, new Date('2026-10-12T04:30:00Z'), wh, {}) === 240, 'SLA: Fri 16:30 → Mon 11:30 = 240 working minutes');
+      ok(addWorkMinutes_(new Date('2026-10-10T03:00:00Z'), 60, wh, {}).toISOString() === '2026-10-12T02:30:00.000Z', 'SLA: started on Saturday → counts from Mon 08:30');
+    });
+
+    // ---------- reminder bot ----------
+    wrap('FPR_REMINDER', function () {
+      const t = newReq(U.salesFood2, 'ลูกค้าค้าง SLA');
+      withLock_(function () { updateRow_(TAB.TICKETS, t.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000) }); });
+      expectErr(as(U.salesFood2, function () { try { sendSlaReminders(); return { ok: true }; } catch (e) { return { ok: false, code: e.code, error: e.message }; } }), 'FORBIDDEN',
+        'Reminder: a normal user cannot run the reminder job');
+      const r1 = as(U.admin, function () { return sendSlaReminders(); });
+      const rem = botLog_(t.ticket_id).filter(function (n) { return n.bot === 'FPR Reminder'; });
+      ok(r1.reminded.indexOf(t.ticket_no) !== -1 && rem.length === 1 && rem[0].event === 'sla_GM_REVIEW' && /<at email=gm@/.test(rem[0].summary),
+        'Reminder: request over GM_REVIEW SLA → FPR Reminder card @GM');
+      ok(/เกินกำหนด/.test(rem[0].summary), 'Reminder: card shows how late it is (working time)');
+      const r2 = as(U.admin, function () { return sendSlaReminders(); });
+      ok(r2.reminded.indexOf(t.ticket_no) === -1, 'Reminder: not repeated within 8 working hours');
+      withLock_(function () { updateRow_(TAB.TICKETS, t.ticket_id, { last_reminded_at: new Date(Date.now() - 10 * 86400000) }); });
+      ok(as(U.admin, function () { return sendSlaReminders(); }).reminded.indexOf(t.ticket_no) !== -1, 'Reminder: repeats after 8 working hours');
+      must(go(U.gm, t.ticket_id, 'gm_approve', '', { sr_email: U.sr2 }));
+      ok(as(U.admin, function () { return sendSlaReminders(); }).reminded.indexOf(t.ticket_no) === -1, 'Reminder: new step → clock restarts (no reminder)');
+    });
+
+    // ---------- webhook down / test bots / mentions ----------
+    wrap('FPR_BOTS', function () {
+      http.hookDown = true;
+      const t = newReq(U.salesFood3, 'ลูกค้า webhook ล่ม');
+      http.hookDown = false;
+      const s = botLog_(t.ticket_id, 'submitted');
+      ok(ticketById_(t.ticket_id).stage === 'pending_gm' && s.length === 1 && s[0].status === 'failed' && s[0].attempts === 3,
+        'Webhook down: request still saved, card retried 3× and logged as failed in NotifLog');
+      TEST_BOTS_ = { fpr: { url: '', secret: '' }, reminder: { url: '', secret: '' } };
+      const t2 = newReq(U.salesFood3, 'ลูกค้าไม่มีบอท');
+      ok(botLog_(t2.ticket_id, 'submitted')[0].status === 'not_configured', 'No webhook URL in Script Properties → logged as not_configured, nothing breaks');
+      TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' },
+        reminder: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/rem', secret: 'sec-b' } };
+      const n0 = http.hooks.length;
+      const out = as(U.admin, function () { return testBots(); });
+      ok(out.length === Object.keys(FPR_EVENTS_).length + 1 && out.every(function (l) { return /: sent$/.test(l); }) && http.hooks.length - n0 === out.length,
+        'testBots: one sample card per event + one reminder, all sent');
+      expectErr(as(U.salesFood1, function () { try { testBots(); return { ok: true }; } catch (e) { return { ok: false, code: e.code, error: e.message }; } }), 'FORBIDDEN',
+        'testBots: Admin / owner only');
+      ok(buildMention(U.gm) === '<at email=' + U.gm + '></at>', 'Mention: <at email=…> by default');
+      withLock_(function () { updateRow_(TAB.USERS, U.gm, { lark_open_id: 'ou_gm123' }); });
+      ok(buildMention(U.gm) === '<at id=ou_gm123></at>', 'Mention: falls back to open_id when set on the user (mention not showing fix)');
+      withLock_(function () { updateRow_(TAB.USERS, U.gm, { lark_open_id: '' }); });
+      ok(larkSign_(1700000000, 'sec-a') === Utilities.base64Encode(Utilities.computeHmacSha256Signature('', '1700000000\nsec-a')), 'Signature: HmacSHA256(timestamp + \\n + secret) base64');
+    });
+  } finally {
+    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1' });
+    TEST_BOTS_ = null;
   }
 }
