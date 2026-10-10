@@ -1,0 +1,69 @@
+Created tab Users
+Users: added columns email, full_name, role, department_code, is_active, lark_open_id, phone, created_at, updated_at, updated_by
+Created tab Departments
+Departments: added columns code, name, manager_email, is_active, created_at, updated_at
+Created tab ProductGroups
+ProductGroups: added columns code, name, name_en, parent_code, checklist_json, sort_order, is_active, created_at, updated_at, sr_email
+Created tab Vendors
+Vendors: added columns vendor_id, name, tax_id, country, default_currency, default_vat_term, contact_name, phone, email, note, is_active, created_by, created_at, updated_at, short_name, supplier_type, payment_term, incoterm, lead_time_days, moq, validity_days, clearance_per_kg, brands, product_groups, chat_id, certs_json, quality_note, updated_by, version
+Created tab UsageLog
+UsageLog: added columns log_id, day, email, role, page, views
+Created tab SupplierLogs
+SupplierLogs: added columns log_id, ts, vendor_id, actor_email, actor_role, action, diff_json
+Created tab Settings
+Settings: added columns key, value, description, updated_at, updated_by
+Created tab Counters
+Counters: added columns name, last_no, updated_at
+Created tab Tickets
+Tickets: added columns ticket_id, ticket_no, title, description, customer_name, priority, status, stage, requestor_email, department_code, manager_email, gm_email, sr_email, due_date, revision_count, version, info_request_json, rejection_reason, stage_entered_at, submitted_at, manager_approved_at, gm_approved_at, assigned_at, doc_checked_at, completed_at, closed_at, rejected_at, cancelled_at, client_key, created_at, updated_at, documents_needed, quote_submitted_at, sr_manager_email, sr_manager_approved_at, gm_price_approved_at, parent_ticket_id, destination_country, customer_group, pricing_started_at, last_reminded_at, sr_emails
+Created tab TicketItems
+TicketItems: added columns item_id, ticket_id, line_no, product_group_code, product_name, spec, description, qty, uom, target_price, target_currency, is_deleted, created_at, updated_at, net_weight, size, packing_size, gp_percent, sell_price_thb, quote_status, quote_status_reason, follow_up_ticket_id, deal_status, deal_reason, deal_note, deal_next_date, deal_updated_by, deal_updated_at, deal_closed_at, deal_stage, deal_next_step, supplier_shortfall_reason, sr_email, sr_submitted_at
+Created tab Quotations
+Quotations: added columns quote_id, item_id, ticket_id, vendor_id, vendor_name, unit_price, currency, fx_rate, vat_term, vat_rate, moq, lead_time_days, payment_term, valid_until, remark, attachment_file_id, is_selected, selection_reason, net_unit_cost, net_unit_cost_thb, gross_unit_price_thb, is_deleted, created_by, created_at, updated_at, brand, origin_country, packing, incoterm, shelf_life, clearance_thb, landed_unit_cost_thb, cost_breakdown_json, fx_date
+Created tab Checklist
+Checklist: added columns check_id, ticket_id, product_group_code, item_key, label, is_required, sort_order, is_checked, checked_by, checked_at, note, updated_at
+Created tab Attachments
+Attachments: added columns attachment_id, ticket_id, item_id, quote_id, category, file_name, drive_file_id, mime_type, size_bytes, uploaded_by, uploaded_at, is_deleted, deleted_by, deleted_at
+Created tab TicketLogs
+TicketLogs: added columns log_id, ts, ticket_id, log_type, actor_email, actor_role, action, from_status, to_status, from_stage, to_stage, comment, metadata_json, stage_duration_sec, app_version, prev_hash, hash
+Created tab Notifications
+Notifications: added columns notif_id, user_email, ticket_id, type, title, body, link, is_read, read_at, created_at, lark_status, lark_attempts, lark_error, lark_sent_at
+Created tab SlaAlerts
+SlaAlerts: added columns alert_key, ticket_id, stage, stage_entered_at, level, created_at
+Created tab NotifLog
+NotifLog: added columns log_id, ts, ticket_id, ticket_no, bot, event, status, http_code, attempts, response, summary
+Created tab Holidays
+Holidays: added columns date, name
+Created tab ErrorLog
+ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
+Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
+Created Drive folder folder-6912e01e-8ce2-4368-9a54-01f0cf74f228
+Suppliers from old quotations: +0 created, 0 quotations linked
+Database URL: https://docs.google.com/spreadsheets/d/7d51681e-8ad1-407c-ab81-f8d0382ecac7
+departments +3
+product groups +6
+vendors +6
+users +9
+demo tickets +14
+| Status | stage | งานค้างของ (inbox) | แจ้งเตือน (stageAssignees_) | มีปุ่ม/สิทธิ์ทำ |
+|---|---|---|---|---|
+| SUBMITTED → GM_REVIEW | `pending_gm` | GM | GM | Sales1: cancel<br>GM: gm_approve/gm_return/gm_reject<br>Admin: cancel/gm_approve/gm_return/gm_reject/admin_cancel/admin_delete |
+| GM ตีกลับให้ผู้ขอ | `returned` | Sales1 | Sales1 | Sales1: resubmit/cancel<br>Admin: resubmit/cancel/admin_cancel/admin_delete |
+| ASSIGNED (SR1 กุ้ง, SR2 ปลา, Others ไม่มี SR) | `doc_check` | SR1, SR2 | SR1, SR2, SRMgr | SR1: request_info/doc_complete/โยกงาน<br>SR2: request_info/doc_complete/โยกงาน<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: request_info/doc_complete/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน |
+| doc_check หลัง SRM แบ่ง Others | `doc_check` | SR1, SR2 | SR1, SR2 | SR1: request_info/doc_complete/โยกงาน<br>SR2: request_info/doc_complete/โยกงาน<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: request_info/doc_complete/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน |
+| SR ขอข้อมูลเพิ่ม (need_info) | `need_info` | Sales1 | Sales1 | Sales1: respond_info<br>SR1: โยกงาน<br>SR2: โยกงาน<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: respond_info/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน |
+| PRICING (ยังไม่มีใครส่ง) | `sourcing` | SR1, SR2 | SR1, SR2 | SR1: request_info/submit_quote/โยกงาน/กรอกราคา<br>SR2: request_info/submit_quote/โยกงาน/กรอกราคา<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: request_info/submit_quote/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน/กรอกราคา |
+| PRICING — SR1 ส่งแล้ว, SR2 ยังไม่ส่ง | `sourcing` | SR1, SR2 | SR1, SR2 | SR1: request_info<br>SR2: request_info/submit_quote/โยกงาน/กรอกราคา<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: request_info/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน/กรอกราคา |
+| SM_REVIEW | `pending_sr_manager` | SRMgr | SRMgr | SRMgr: srm_approve/srm_return/srm_reject/กรอกราคา<br>Admin: srm_approve/srm_return/srm_reject/admin_cancel/admin_delete/กรอกราคา |
+| GM_FINAL_REVIEW | `pending_gm_price` | GM | GM | GM: gm_price_approve/gm_price_return/gm_price_reject/กรอกราคา<br>Admin: gm_price_approve/gm_price_return/gm_price_reject/admin_cancel/admin_delete/กรอกราคา |
+| APPROVED (รอ Sales รับทราบ) | `awaiting_sales_ack` | Sales1 | Sales1 | Sales1: accept/request_revision<br>Admin: accept/request_revision/admin_cancel/admin_delete |
+| ปิดงาน (closed) | `closed` | — | — | Admin: admin_delete |
+
+Loop completed: closed · approx. clicks for the whole loop (all roles): ~87
+Double submit same client_key → duplicate=true same id=true
+
+### Absence / delegation
+- GM ลา (GM คนเดียว) ใบรอ GM_REVIEW → GM ที่ active เหลือ 0 คน · Admin อนุมัติแทน: NO_PROXY ไม่พบผู้รับผิดชอบขั้นนี้ที่ใช้งานอยู่ (ตรวจแท็บ Users)
+- SR1 ลา มีรายการกุ้งค้างอยู่ (doc_check) → SR Manager โยกให้ SR2: ได้ · ใหม่ใน ProductGroups ยังชี้ SR1 → ใบใหม่กุ้งจะไปหา SR Manager (SR1 inactive)
+- Sales1 ลา ใบอยู่ need_info / awaiting_sales_ack → Sales คนอื่นเปิดใบ: NOT_FOUND · Sales Manager ตอบแทน: ไม่มีปุ่ม · เหลือ Admin ทำแทนเท่านั้น
+- SR Manager ลา ใบรอ SM_REVIEW → SR Manager active เหลือ 0 คน → Admin เท่านั้นที่อนุมัติแทนได้ (proxyUserFor_ หา SR Manager ที่ active ไม่เจอ = NO_PROXY)

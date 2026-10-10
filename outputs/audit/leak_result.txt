@@ -1,0 +1,120 @@
+Created tab Users
+Users: added columns email, full_name, role, department_code, is_active, lark_open_id, phone, created_at, updated_at, updated_by
+Created tab Departments
+Departments: added columns code, name, manager_email, is_active, created_at, updated_at
+Created tab ProductGroups
+ProductGroups: added columns code, name, name_en, parent_code, checklist_json, sort_order, is_active, created_at, updated_at, sr_email
+Created tab Vendors
+Vendors: added columns vendor_id, name, tax_id, country, default_currency, default_vat_term, contact_name, phone, email, note, is_active, created_by, created_at, updated_at, short_name, supplier_type, payment_term, incoterm, lead_time_days, moq, validity_days, clearance_per_kg, brands, product_groups, chat_id, certs_json, quality_note, updated_by, version
+Created tab UsageLog
+UsageLog: added columns log_id, day, email, role, page, views
+Created tab SupplierLogs
+SupplierLogs: added columns log_id, ts, vendor_id, actor_email, actor_role, action, diff_json
+Created tab Settings
+Settings: added columns key, value, description, updated_at, updated_by
+Created tab Counters
+Counters: added columns name, last_no, updated_at
+Created tab Tickets
+Tickets: added columns ticket_id, ticket_no, title, description, customer_name, priority, status, stage, requestor_email, department_code, manager_email, gm_email, sr_email, due_date, revision_count, version, info_request_json, rejection_reason, stage_entered_at, submitted_at, manager_approved_at, gm_approved_at, assigned_at, doc_checked_at, completed_at, closed_at, rejected_at, cancelled_at, client_key, created_at, updated_at, documents_needed, quote_submitted_at, sr_manager_email, sr_manager_approved_at, gm_price_approved_at, parent_ticket_id, destination_country, customer_group, pricing_started_at, last_reminded_at, sr_emails
+Created tab TicketItems
+TicketItems: added columns item_id, ticket_id, line_no, product_group_code, product_name, spec, description, qty, uom, target_price, target_currency, is_deleted, created_at, updated_at, net_weight, size, packing_size, gp_percent, sell_price_thb, quote_status, quote_status_reason, follow_up_ticket_id, deal_status, deal_reason, deal_note, deal_next_date, deal_updated_by, deal_updated_at, deal_closed_at, deal_stage, deal_next_step, supplier_shortfall_reason, sr_email, sr_submitted_at
+Created tab Quotations
+Quotations: added columns quote_id, item_id, ticket_id, vendor_id, vendor_name, unit_price, currency, fx_rate, vat_term, vat_rate, moq, lead_time_days, payment_term, valid_until, remark, attachment_file_id, is_selected, selection_reason, net_unit_cost, net_unit_cost_thb, gross_unit_price_thb, is_deleted, created_by, created_at, updated_at, brand, origin_country, packing, incoterm, shelf_life, clearance_thb, landed_unit_cost_thb, cost_breakdown_json, fx_date
+Created tab Checklist
+Checklist: added columns check_id, ticket_id, product_group_code, item_key, label, is_required, sort_order, is_checked, checked_by, checked_at, note, updated_at
+Created tab Attachments
+Attachments: added columns attachment_id, ticket_id, item_id, quote_id, category, file_name, drive_file_id, mime_type, size_bytes, uploaded_by, uploaded_at, is_deleted, deleted_by, deleted_at
+Created tab TicketLogs
+TicketLogs: added columns log_id, ts, ticket_id, log_type, actor_email, actor_role, action, from_status, to_status, from_stage, to_stage, comment, metadata_json, stage_duration_sec, app_version, prev_hash, hash
+Created tab Notifications
+Notifications: added columns notif_id, user_email, ticket_id, type, title, body, link, is_read, read_at, created_at, lark_status, lark_attempts, lark_error, lark_sent_at
+Created tab SlaAlerts
+SlaAlerts: added columns alert_key, ticket_id, stage, stage_entered_at, level, created_at
+Created tab NotifLog
+NotifLog: added columns log_id, ts, ticket_id, ticket_no, bot, event, status, http_code, attempts, response, summary
+Created tab Holidays
+Holidays: added columns date, name
+Created tab ErrorLog
+ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
+Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
+Created Drive folder folder-93cf37fc-2ccb-4c07-9550-703cdfc5bb99
+Suppliers from old quotations: +0 created, 0 quotations linked
+Database URL: https://docs.google.com/spreadsheets/d/6de6ca1b-04e9-4378-8301-7fe07d15e9a5
+departments +3
+product groups +6
+vendors +6
+users +9
+demo tickets +14
+PASS | sales.food1@example.co.th | getTicket FPR-2610-0001 (closed)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0001 (closed)
+PASS | sales.food1@example.co.th | getTicket FPR-2610-0002 (need_info)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0002 (need_info)
+PASS | sales.food3@example.co.th | getTicket FPR-2610-0003 (pending_gm)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0003 (pending_gm)
+PASS | sales.food2@example.co.th | getTicket FPR-2610-0004 (pending_gm)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0004 (pending_gm)
+PASS | sales.food2@example.co.th | getTicket FPR-2610-0005 (sourcing)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0005 (sourcing)
+PASS | sales.food3@example.co.th | getTicket FPR-2610-0006 (pending_sr_manager) | NOTE supplier_shortfall_reason present
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0006 (pending_sr_manager) | NOTE supplier_shortfall_reason present
+PASS | sales.food1@example.co.th | getTicket FPR-2610-0007 (closed) | NOTE supplier_shortfall_reason present
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0007 (closed) | NOTE supplier_shortfall_reason present
+PASS | sales.food2@example.co.th | getTicket FPR-2610-0008 (closed) | NOTE supplier_shortfall_reason present
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0008 (closed) | NOTE supplier_shortfall_reason present
+PASS | sales.food3@example.co.th | getTicket FPR-2610-0009 (closed) | NOTE supplier_shortfall_reason present
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0009 (closed) | NOTE supplier_shortfall_reason present
+PASS | sales.food1@example.co.th | getTicket FPR-2610-0010 (closed) | NOTE supplier_shortfall_reason present
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0010 (closed) | NOTE supplier_shortfall_reason present
+PASS | sales.food2@example.co.th | getTicket FPR-2610-0011 (closed) | NOTE supplier_shortfall_reason present
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0011 (closed) | NOTE supplier_shortfall_reason present
+PASS | sales.food3@example.co.th | getTicket FPR-2610-0012 (closed) | NOTE supplier_shortfall_reason present
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0012 (closed) | NOTE supplier_shortfall_reason present
+PASS | sales.food1@example.co.th | getTicket FPR-2610-0013 (awaiting_sales_ack) | NOTE supplier_shortfall_reason present
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0013 (awaiting_sales_ack) | NOTE supplier_shortfall_reason present
+PASS | sales.food2@example.co.th | getTicket FPR-2610-0014 (doc_check)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0014 (doc_check)
+PASS | mgr.food@example.co.th | getBootstrap
+PASS | mgr.food@example.co.th | listTicketBoard
+PASS | mgr.food@example.co.th | listDeals
+PASS | mgr.food@example.co.th | getPoll
+PASS | mgr.food@example.co.th | getNotifications
+PASS | mgr.food@example.co.th | getSalesHistory
+PASS | mgr.food@example.co.th | getDashboard
+PASS | mgr.food@example.co.th | listSuppliers → FORBIDDEN
+PASS | mgr.food@example.co.th | getGpSummary → FORBIDDEN
+PASS | mgr.food@example.co.th | supplierHints → FORBIDDEN
+PASS | sales.food1@example.co.th | getBootstrap
+PASS | sales.food1@example.co.th | listTicketBoard
+PASS | sales.food1@example.co.th | listDeals
+PASS | sales.food1@example.co.th | getPoll
+PASS | sales.food1@example.co.th | getNotifications
+PASS | sales.food1@example.co.th | getSalesHistory
+PASS | sales.food1@example.co.th | getDashboard
+PASS | sales.food1@example.co.th | listSuppliers → FORBIDDEN
+PASS | sales.food1@example.co.th | getGpSummary → FORBIDDEN
+PASS | sales.food1@example.co.th | supplierHints → FORBIDDEN
+PASS | sales.food2@example.co.th | getBootstrap
+PASS | sales.food2@example.co.th | listTicketBoard
+PASS | sales.food2@example.co.th | listDeals
+PASS | sales.food2@example.co.th | getPoll
+PASS | sales.food2@example.co.th | getNotifications
+PASS | sales.food2@example.co.th | getSalesHistory
+PASS | sales.food2@example.co.th | getDashboard
+PASS | sales.food2@example.co.th | listSuppliers → FORBIDDEN
+PASS | sales.food2@example.co.th | getGpSummary → FORBIDDEN
+PASS | sales.food2@example.co.th | supplierHints → FORBIDDEN
+PASS | sales.food3@example.co.th | getBootstrap
+PASS | sales.food3@example.co.th | listTicketBoard
+PASS | sales.food3@example.co.th | listDeals
+PASS | sales.food3@example.co.th | getPoll
+PASS | sales.food3@example.co.th | getNotifications
+PASS | sales.food3@example.co.th | getSalesHistory
+PASS | sales.food3@example.co.th | getDashboard
+PASS | sales.food3@example.co.th | listSuppliers → FORBIDDEN
+PASS | sales.food3@example.co.th | getGpSummary → FORBIDDEN
+PASS | sales.food3@example.co.th | supplierHints → FORBIDDEN
+PASS | sales side | 9 notifications / Lark DMs scanned
+INFO | sales DM sample with selling price: [FPR-2610-0001] รอ Sales รับทราบราคา GM อนุมัติฝั่งซื้อ (ราคา → ส่งถึง Sales) โดย คุณสมชาย GM — บจก. ซูชิ ดีไลท์ — Salmon Fillet Trim D (Skin-on) **#1 Salmon Fillet Trim D (Skin-on)** (1.0–1.5 kg/pc ·
+PASS | Lark group | 61 cards scanned
+
+0 FAIL / 70 PASS

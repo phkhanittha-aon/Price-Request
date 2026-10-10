@@ -1,0 +1,110 @@
+Created tab Users
+Users: added columns email, full_name, role, department_code, is_active, lark_open_id, phone, created_at, updated_at, updated_by
+Created tab Departments
+Departments: added columns code, name, manager_email, is_active, created_at, updated_at
+Created tab ProductGroups
+ProductGroups: added columns code, name, name_en, parent_code, checklist_json, sort_order, is_active, created_at, updated_at, sr_email
+Created tab Vendors
+Vendors: added columns vendor_id, name, tax_id, country, default_currency, default_vat_term, contact_name, phone, email, note, is_active, created_by, created_at, updated_at, short_name, supplier_type, payment_term, incoterm, lead_time_days, moq, validity_days, clearance_per_kg, brands, product_groups, chat_id, certs_json, quality_note, updated_by, version
+Created tab UsageLog
+UsageLog: added columns log_id, day, email, role, page, views
+Created tab SupplierLogs
+SupplierLogs: added columns log_id, ts, vendor_id, actor_email, actor_role, action, diff_json
+Created tab Settings
+Settings: added columns key, value, description, updated_at, updated_by
+Created tab Counters
+Counters: added columns name, last_no, updated_at
+Created tab Tickets
+Tickets: added columns ticket_id, ticket_no, title, description, customer_name, priority, status, stage, requestor_email, department_code, manager_email, gm_email, sr_email, due_date, revision_count, version, info_request_json, rejection_reason, stage_entered_at, submitted_at, manager_approved_at, gm_approved_at, assigned_at, doc_checked_at, completed_at, closed_at, rejected_at, cancelled_at, client_key, created_at, updated_at, documents_needed, quote_submitted_at, sr_manager_email, sr_manager_approved_at, gm_price_approved_at, parent_ticket_id, destination_country, customer_group, pricing_started_at, last_reminded_at, sr_emails
+Created tab TicketItems
+TicketItems: added columns item_id, ticket_id, line_no, product_group_code, product_name, spec, description, qty, uom, target_price, target_currency, is_deleted, created_at, updated_at, net_weight, size, packing_size, gp_percent, sell_price_thb, quote_status, quote_status_reason, follow_up_ticket_id, deal_status, deal_reason, deal_note, deal_next_date, deal_updated_by, deal_updated_at, deal_closed_at, deal_stage, deal_next_step, supplier_shortfall_reason, sr_email, sr_submitted_at
+Created tab Quotations
+Quotations: added columns quote_id, item_id, ticket_id, vendor_id, vendor_name, unit_price, currency, fx_rate, vat_term, vat_rate, moq, lead_time_days, payment_term, valid_until, remark, attachment_file_id, is_selected, selection_reason, net_unit_cost, net_unit_cost_thb, gross_unit_price_thb, is_deleted, created_by, created_at, updated_at, brand, origin_country, packing, incoterm, shelf_life, clearance_thb, landed_unit_cost_thb, cost_breakdown_json, fx_date
+Created tab Checklist
+Checklist: added columns check_id, ticket_id, product_group_code, item_key, label, is_required, sort_order, is_checked, checked_by, checked_at, note, updated_at
+Created tab Attachments
+Attachments: added columns attachment_id, ticket_id, item_id, quote_id, category, file_name, drive_file_id, mime_type, size_bytes, uploaded_by, uploaded_at, is_deleted, deleted_by, deleted_at
+Created tab TicketLogs
+TicketLogs: added columns log_id, ts, ticket_id, log_type, actor_email, actor_role, action, from_status, to_status, from_stage, to_stage, comment, metadata_json, stage_duration_sec, app_version, prev_hash, hash
+Created tab Notifications
+Notifications: added columns notif_id, user_email, ticket_id, type, title, body, link, is_read, read_at, created_at, lark_status, lark_attempts, lark_error, lark_sent_at
+Created tab SlaAlerts
+SlaAlerts: added columns alert_key, ticket_id, stage, stage_entered_at, level, created_at
+Created tab NotifLog
+NotifLog: added columns log_id, ts, ticket_id, ticket_no, bot, event, status, http_code, attempts, response, summary
+Created tab Holidays
+Holidays: added columns date, name
+Created tab ErrorLog
+ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
+Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
+Created Drive folder folder-6534d4af-59d3-4b36-bf26-d1064d0fdb05
+Suppliers from old quotations: +0 created, 0 quotations linked
+Database URL: https://docs.google.com/spreadsheets/d/bfefd703-920a-4440-8da5-f712cf603675
+departments +3
+product groups +6
+vendors +6
+users +9
+demo tickets +14
+PASS database configured
+PASS all tabs + headers match schema — 19 tabs
+PASS drive folder configured
+FAIL database + attachment folder are NOT shared with Sales (cost data lives there) — f.getSharingAccess is not a function
+PASS vat_rate valid — 0.07
+FAIL every department with sales has a manager — แผนกไม่มี Manager ที่ใช้งานได้: SALES-FOOD
+PASS every ticket has a create log (no half-written ticket)
+PASS status matches stage on every ticket
+PASS audit log hash chain intact — 559 rows
+PASS no Lark messages failed permanently in 24 h
+FAIL lark configured — LARK_APP_ID / LARK_APP_SECRET not set
+submitted: sent
+assigned: sent
+queued: sent
+sm_review: sent
+gm_final: sent
+approved: sent
+rejected: sent
+returned: sent
+need_info: sent
+cancelled: sent
+revision: sent
+follow_up: sent
+deal_won: sent
+reminder: not_configured
+| Action | Expected | sales | manager | gm | sr | sr_manager | admin |
+|---|---|---|---|---|---|---|---|
+| Bootstrap / menu | sales, manager, gm, sr, sr_manager, admin | R | R | R | R | R | R |
+| List tickets (board) | sales, manager, gm, sr, sr_manager, admin | R | R | R | R | R | R |
+| Open OWN pending request (Sales1) | sales, manager, gm, admin | R | R | R | – | – | R |
+| Open OTHER Sales request (Sales2, sourcing) | manager, gm, sr, sr_manager, admin | – | R | R | R | R | R |
+| Create request | sales, admin | W | – | – | – | – | W |
+| Edit request header (pending_gm, own) | sales, admin | – ⚠(FORBIDDEN) | – | – | – | – | W |
+| GM approve (pending_gm) | gm, admin | – | – | W | – | – | W |
+| Cancel request (pending_gm, own) | sales, admin | W | – | – | – | – | W |
+| Save prices (sourcing, SR2 item) | admin | – | – | – | – | – | W |
+| SR Manager approve price | sr_manager, admin | – | – | – | – | W | W |
+| GM final approve price | gm, admin | – | – | W | – | – | W |
+| Accept price on ANOTHER Sales request (Sales2) | admin | – | – | – | – | – | W |
+| Accept price on OWN request (Sales1) | sales, admin | W | – | – | – | – | W |
+| Delete request (soft) | admin | – | – | – | – | – | W |
+| Supplier list | gm, sr, sr_manager, admin | – | – | R | R | R | R |
+| Supplier save | sr, sr_manager, admin | – | – | – | W | W | W |
+| Supplier hints (last prices) | gm, sr, sr_manager, admin | – | – | R | R | R | R |
+| GP summary | gm, sr_manager, admin | – | – | R | – | R | R |
+| Deal follow-up list | sales, manager, gm, sr, sr_manager, admin | R | R | R | R | R | R |
+| Reports dashboard (scoped: Sales/SR = own) | sales, manager, gm, sr, sr_manager, admin | R | R | R | R | R | R |
+| Sales history (form autofill; others get empty) | sales | R | – | – | – | – | – |
+| Admin health | admin | – | – | – | – | – | R |
+| Bot settings read | admin | – | – | – | – | – | R |
+| Bot settings write | admin | – | – | – | – | – | W |
+| Verify audit chain | admin | – | – | – | – | – | R |
+| setupDatabase (owner only) |  | – | – | – | – | – | – |
+| seedDemoData (owner only) |  | – | – | – | – | – | – |
+| installTriggers (owner only) |  | – | – | – | – | – | – |
+| Job: sendSlaReminders from browser | admin | – | – | – | – | – | W |
+| Job: runSelfTest from browser | admin | – | – | – | – | – | W |
+| testBots (sends to Lark group) | admin | – | – | – | – | – | W |
+| buildMention (public helper, no auth) |  | R ⚠ | R ⚠ | R ⚠ | R ⚠ | R ⚠ | R ⚠ |
+| Unregistered domain user → getTicket |  | – | – | – | – | – | – |
+| Unregistered domain user → buildMention |  | R ⚠ | R ⚠ | R ⚠ | R ⚠ | R ⚠ | R ⚠ |
+
+Mismatches: 13
