@@ -113,6 +113,8 @@ Pages.ticket = (function () {
     if (d.me.role === 'sales' && t.requestor_email === d.me.email) buttons.push('<button class="btn" data-copy>📄 สร้างใบใหม่จากใบนี้</button>');
     const srWork = p.actions.indexOf('doc_complete') !== -1 || p.actions.indexOf('submit_quote') !== -1;
     if (srWork) buttons.push('<button class="btn primary" data-nav="pricing">' + (t.stage === 'doc_check' ? '📋 ตรวจเอกสาร' : '💰 กรอกราคา / เทียบราคา') + '</button>');
+    // SR Manager / GM may fix the price in their own approval step, then approve
+    if (p.can_edit_quotes && (t.stage === 'pending_sr_manager' || t.stage === 'pending_gm_price')) buttons.push('<button class="btn" data-nav="pricing">✏️ แก้ไขราคา</button>');
     p.actions.forEach(function (a) {
       const ui = ACTION_UI[a];
       if (ui) buttons.push('<button class="btn ' + ui.cls + '" data-action="' + a + '">' + esc(ui.label) + '</button>');

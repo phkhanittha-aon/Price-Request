@@ -177,7 +177,7 @@ function saveQuotationCore_(u, p) {
   const item = findOne_(TAB.ITEMS, 'item_id', cleanText_(p.item_id));
   if (!item || toBool_(item.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบรายการสินค้า');
   const t = ticketForUser_(u, item.ticket_id);
-  if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน ในขั้นตอนหาราคา');
+  if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน (ขั้นหาราคา) หรือผู้อนุมัติขั้นปัจจุบัน (SR Manager / GM)');
   requireQuotable_(item);
 
   const quoteId = cleanText_(p.quote_id, 64);
@@ -293,7 +293,7 @@ function deleteQuotationCore_(u, quoteId) {
   const q = findOne_(TAB.QUOTATIONS, 'quote_id', cleanText_(quoteId));
   if (!q || toBool_(q.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบใบเสนอราคา');
   const t = ticketForUser_(u, q.ticket_id);
-  if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน ในขั้นตอนหาราคา');
+  if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน (ขั้นหาราคา) หรือผู้อนุมัติขั้นปัจจุบัน (SR Manager / GM)');
   updateRow_(TAB.QUOTATIONS, q.quote_id, { is_deleted: true, is_selected: false, selection_reason: '', updated_at: new Date() });
   removeQuotePhotos_(u, String(q.quote_id));
   appendLog_({ ticket_id: t.ticket_id, action: 'quotation_deleted', actor_email: u.email, actor_role: u.role,
@@ -315,7 +315,7 @@ function selectQuotationCore_(u, quoteId, reason) {
   const q = findOne_(TAB.QUOTATIONS, 'quote_id', cleanText_(quoteId));
   if (!q || toBool_(q.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบใบเสนอราคา');
   const t = ticketForUser_(u, q.ticket_id);
-  if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน ในขั้นตอนหาราคา');
+  if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน (ขั้นหาราคา) หรือผู้อนุมัติขั้นปัจจุบัน (SR Manager / GM)');
   const why = cleanText_(reason, 500);
   const now = new Date();
   const item = findOne_(TAB.ITEMS, 'item_id', q.item_id);
@@ -356,7 +356,7 @@ function saveSourcingDraft(ticketId, items) {
     return withLock_(function () {
       const u = currentUser_();
       const t = ticketForUser_(u, ticketId);
-      if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน ในขั้นตอนหาราคา');
+      if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน (ขั้นหาราคา) หรือผู้อนุมัติขั้นปัจจุบัน (SR Manager / GM)');
       const byId = {};
       activeItemsOf_(t.ticket_id).forEach(function (it) { byId[it.item_id] = it; });
       const list = Array.isArray(items) ? items : [];

@@ -7,6 +7,7 @@
  *   · selling price we quoted · deal status (follow / sample / won / lost) · next follow-up date.
  *
  *   listDeals()        Sales side view (no cost) — Sales: own · Sales Manager / GM / Admin / SR Manager / SR: everyone they can see
+ *                      (SR / SR Manager use it per Sourcing person to follow up Sales in the weekly meeting — read only)
  *   updateDeal()       Sales (owner), the department's Sales Manager or Admin record the outcome
  *   getGpSummary()     GM / SR Manager / Admin only: + landed cost, GP %, profit — trend of quoted vs closed
  *
@@ -55,7 +56,7 @@ function dealRows_(u, withCost) {
         customer_name: String(t.customer_name || ''), customer_group: String(t.customer_group || ''),
         destination_country: String(t.destination_country || ''),
         requestor_email: t.requestor_email, requestor_name: ctx.names[t.requestor_email] || t.requestor_email,
-        department_code: String(t.department_code || ''), sr_name: t.sr_email ? (ctx.names[t.sr_email] || t.sr_email) : '',
+        department_code: String(t.department_code || ''), sr_email: String(t.sr_email || ''), sr_name: t.sr_email ? (ctx.names[t.sr_email] || t.sr_email) : '',
         product_name: it.product_name, product_group_code: it.product_group_code, size: it.size, packing_size: it.packing_size,
         net_weight: it.net_weight, spec: it.spec,
         qty: it.qty, uom: it.uom, target_price: it.target_price || 0,
@@ -110,6 +111,9 @@ function listDeals() {
       customer_stages: setting_('deal_customer_stages', []),
       next_steps: setting_('deal_next_steps', []),
       people: u.role === 'sales' ? [] : activeUsersByRole_('sales').map(function (x) { return { email: x.email, full_name: x.full_name, department_code: x.department_code }; }),
+      // Sourcing view (weekly meeting with Sales): one card per SR who priced the lines — same Sales-side data, no cost / GP
+      sourcing: u.role === 'sales' ? [] : activeUsersByRole_('sr').map(function (x) { return { email: x.email, full_name: x.full_name }; }),
+      default_sr: u.role === 'sr' ? u.email : '',
       statuses: [''].concat(DEAL_STATUSES).map(function (k) { return { key: k, label: DEAL_STATUS_LABEL_TH[k] }; }),
       can_see_everyone: u.role !== 'sales'
     };

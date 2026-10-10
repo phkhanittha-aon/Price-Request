@@ -100,6 +100,11 @@ Pages.pricing = (function () {
     }).join('') + '</ol>';
   }
 
+  /** SR Manager / GM editing prices in their own approval step (server: canEditQuotes_). */
+  function reviewing(d) {
+    return d.permissions.can_edit_quotes && (d.ticket.stage === 'pending_sr_manager' || d.ticket.stage === 'pending_gm_price');
+  }
+
   function headerHtml(d) {
     const t = d.ticket;
     let banner = '';
@@ -115,7 +120,10 @@ Pages.pricing = (function () {
     } else if (t.revision_count && t.stage === 'sourcing') {
       banner += '<div class="notice warn">Sales ขอให้ปรับราคา (ครั้งที่ ' + t.revision_count + ') — ดูเหตุผลใน Timeline ของใบ</div>';
     }
-    if (t.stage === 'pending_sr_manager' || t.stage === 'pending_gm_price') banner += '<div class="notice">ส่งราคาแล้ว — ' + esc(t.stage_label) + '</div>';
+    if (reviewing(d)) {
+      banner += '<div class="notice warn"><b>✏️ โหมดแก้ไขราคาโดย' + (state.me.role === 'gm' ? ' GM' : ' SR Manager') + '</b> — แก้ราคา vendor, เลือกผู้ชนะ หรือปรับ GP ได้เลย ' +
+        'กด “บันทึกการแก้ไข” แล้วกลับไปกดอนุมัติที่หน้ารายละเอียดใบ · ทุกการแก้ไขถูกบันทึกใน Timeline และแจ้ง SR ผู้ทำราคาเมื่ออนุมัติ</div>';
+    } else if (t.stage === 'pending_sr_manager' || t.stage === 'pending_gm_price') banner += '<div class="notice">ส่งราคาแล้ว — ' + esc(t.stage_label) + '</div>';
     return '<div class="page-head"><h1>' + esc(t.ticket_no) + ' · ใบเสนอราคา</h1>' + statusBadge(t.status, t.status_label) +
       '<button class="btn sm ghost" data-back>← รายละเอียดใบ</button></div>' +
       '<div class="card"><div class="row" style="gap:6px 24px">' +
@@ -351,7 +359,7 @@ Pages.pricing = (function () {
       '<div class="small" style="margin-top:8px">' + (follow ? 'แยกเป็นใบ <a href="#" data-gotk="' + esc(it.follow_up ? it.follow_up.ticket_id : '') + '"><b>' +
         esc(it.follow_up ? it.follow_up.ticket_no : '') + '</b></a> ' + (it.follow_up ? '<span class="muted">(' + esc(it.follow_up.stage_label) + ')</span>' : '') + ' · ' : '') +
       'เหตุผล: ' + esc(it.quote_status_reason || '–') + '</div>' +
-      (!follow && editable ? '<div class="item-tools"><button type="button" class="btn sm" data-restore="' + idx + '">↩ กลับมาเสนอราคารายการนี้</button></div>' : '') +
+      (!follow && editable && ctx.d.ticket.stage === 'sourcing' ? '<div class="item-tools"><button type="button" class="btn sm" data-restore="' + idx + '">↩ กลับมาเสนอราคารายการนี้</button></div>' : '') +
       '</section>';
   }
 
@@ -373,7 +381,7 @@ Pages.pricing = (function () {
       ' · Pack ' + esc(it.packing_size || '–') + (it.target_price ? ' · ลูกค้าคาดหวัง ' + fmtMoney(it.target_price) + ' บาท/' + esc(it.uom) : ' · ลูกค้ายังไม่บอกราคา') + '</div></div>' +
       '<span class="istatus"></span></div></summary>' +
       (it.description ? '<p class="small muted" style="white-space:pre-wrap">' + esc(it.description) + '</p>' : '') +
-      (editable ? '<div class="item-tools"><span class="small muted">หาราคารายการนี้ไม่ได้ตอนนี้?</span>' +
+      (editable && ctx.d.ticket.stage === 'sourcing' ? '<div class="item-tools"><span class="small muted">หาราคารายการนี้ไม่ได้ตอนนี้?</span>' +
         '<button type="button" class="btn sm" data-istatus="not_offered" data-idx="' + idx + '">✕ ไม่เสนอรายการนี้</button>' +
         '<button type="button" class="btn sm" data-istatus="follow_up" data-idx="' + idx + '">📌 ส่งตามหลัง (แยกเป็นงานค้าง)</button></div>' : '') +
       '<div class="vgrid">' + cols + '</div>' +
@@ -393,8 +401,9 @@ Pages.pricing = (function () {
       '<datalist id="pay-list"><option value="เงินสด"><option value="Credit 30 วัน"><option value="Credit 60 วัน"><option value="T/T 30% deposit"><option value="L/C at sight"></datalist>' +
       '<datalist id="origin-list"><option value="ไทย"><option value="นอร์เวย์"><option value="ชิลี"><option value="เวียดนาม"><option value="อินเดีย"><option value="จีน"><option value="ญี่ปุ่น"><option value="ออสเตรเลีย"></datalist>' +
       (d.permissions.can_edit_quotes ? '<div class="savebar"><div class="sum" id="pp-sum"></div><span class="sep"></span>' +
-        '<button class="btn" id="pp-info">ขอข้อมูลเพิ่ม</button><button class="btn" id="pp-save">บันทึกร่าง</button>' +
-        '<button class="btn primary" id="pp-submit">ส่งราคาให้ SR Manager ตรวจ</button></div>' : '');
+        (reviewing(d) ? '<button class="btn" data-back>← กลับไปหน้าอนุมัติ</button><button class="btn primary" id="pp-save">💾 บันทึกการแก้ไข</button>' :
+          '<button class="btn" id="pp-info">ขอข้อมูลเพิ่ม</button><button class="btn" id="pp-save">บันทึกร่าง</button>' +
+          '<button class="btn primary" id="pp-submit">ส่งราคาให้ SR Manager ตรวจ</button>') + '</div>' : '');
     bind();
     bindPhotos();
     $all('.card.item', view).forEach(function (card) { refreshItem(Number(card.getAttribute('data-item'))); });
@@ -575,8 +584,10 @@ Pages.pricing = (function () {
     $all('[data-gotk]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-gotk') }); }; });
 
     if ($('#pp-save', view)) {
-      $('#pp-save', view).onclick = function () { save().then(function () { toast('บันทึกร่างแล้ว', 'ok'); }).catch(function () {}); };
-      $('#pp-submit', view).onclick = submit;
+      $('#pp-save', view).onclick = function () {
+        save().then(function () { toast(reviewing(d) ? 'บันทึกการแก้ไขราคาแล้ว — กลับไปกดอนุมัติได้เลย' : 'บันทึกร่างแล้ว', 'ok'); }).catch(function () {});
+      };
+      if ($('#pp-submit', view)) $('#pp-submit', view).onclick = submit;
     }
   }
 

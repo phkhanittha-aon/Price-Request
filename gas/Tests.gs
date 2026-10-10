@@ -32,6 +32,7 @@ function runAcceptanceTests() {
     runQueueReturnCases_(results);
     runPhotoDealCases_(results);
     runFollowUpV2Cases_(results);
+    runReviewerEditCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -1538,5 +1539,98 @@ function runFollowUpV2Cases_(results) {
       'The management portal is not part of the Food app (separate web app in portal/)');
   } catch (e) {
     results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: FOLLOW_UP_V2 — ' + e.message + '\n' + e.stack);
+  }
+}
+
+// =============================================================================
+// SR Manager / GM edit prices in their own approval step · Sourcing view of the follow-up
+// =============================================================================
+function runReviewerEditCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', { expected_version: ticketById_(id).version }); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  try {
+    const t = as(U.salesFood1, function () {
+      return must(createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'ร้านทดสอบแก้ราคา', due_date: inDays(3), items: [
+        { product_name: 'ปลาหมึกกระดอง', net_weight: '90%', size: '40/60', packing_size: '1 kg', qty: 500, uom: 'กก.', target_price: 200 }] })).ticket;
+    });
+    const id = t.ticket_id;
+    must(go(U.mgrFood, id, 'manager_approve'));
+    must(go(U.gm, id, 'gm_approve'));
+    must(go(U.sr1, id, 'claim'));
+    as(U.sr1, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+    must(go(U.sr1, id, 'doc_complete'));
+    const it = activeItemsOf_(id)[0];
+    const qa = Utilities.getUuid(), qb = Utilities.getUuid();
+    const quotes = function (pa, pb) {
+      return [{ quote_id: qa, vendor_name: 'Vendor A', unit_price: pa, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) },
+        { quote_id: qb, vendor_name: 'Vendor B', unit_price: pb, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }];
+    };
+    must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: quotes(160, 170), winner_quote_id: qa }]); }));
+    must(go(U.sr1, id, 'submit_quote'));
+    ok(Number(findOne_(TAB.ITEMS, 'item_id', it.item_id).sell_price_thb) === 188.24, 'Submit stores the selling price (160 ÷ 0.85 = 188.24)');
+
+    // SR Manager step
+    ok(as(U.srManager, function () { return must(getTicket(id)); }).permissions.can_edit_quotes, 'SR Manager can edit prices while “รอ SR Manager ตรวจราคา”');
+    expectErr(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: quotes(150, 170), winner_quote_id: qa }]); }), 'FORBIDDEN',
+      'The SR cannot change prices while they are under review');
+    expectErr(as(U.gm, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: quotes(150, 170), winner_quote_id: qa }]); }), 'FORBIDDEN',
+      'GM cannot edit during the SR Manager step');
+    must(as(U.srManager, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: quotes(150, 170), winner_quote_id: qa, gp_percent: 18 }]); }));
+    ok(activeQuotesOfItem_(it.item_id).filter(function (q) { return q.quote_id === qa; })[0].unit_price === 150, 'SR Manager changed vendor price 160 → 150 and GP 15 → 18%');
+    ok(findAll_(TAB.LOGS, 'ticket_id', id).some(function (l) { return l.actor_email === U.srManager && COST_LOG_ACTIONS_.indexOf(l.action) !== -1; }), 'Reviewer change is in the audit log under the SR Manager');
+    expectErr(as(U.srManager, function () { return setItemQuoteStatus(id, it.item_id, 'not_offered', 'x', ticketById_(id).version); }), 'FORBIDDEN',
+      'Reviewer cannot split / drop items (SR only)');
+    must(go(U.srManager, id, 'srm_approve'));
+    ok(Number(findOne_(TAB.ITEMS, 'item_id', it.item_id).sell_price_thb) === 182.93 && Number(findOne_(TAB.ITEMS, 'item_id', it.item_id).gp_percent) === 18,
+      'Approval stores the edited selling price (150 ÷ 0.82 = 182.93)');
+    const lg = findAll_(TAB.LOGS, 'ticket_id', id).filter(function (l) { return l.action === 'srm_approve'; }).pop();
+    ok(parseJson_(lg.metadata_json, {}).reviewer_changes >= 1, 'Approval log records how many changes the reviewer made');
+    const srNote = findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === U.sr1 && /แก้ไขราคา/.test(n.body); });
+    ok(srNote.length === 1, 'The SR is told the SR Manager edited the price');
+    ok(!as(U.salesFood1, function () { return must(getTicket(id)); }).timeline.some(function (l) { return COST_LOG_ACTIONS_.indexOf(l.action) !== -1 || (l.metadata && l.metadata.reviewer_changes); }),
+      'Sales never sees the reviewer’s price edits');
+    expectErr(as(U.srManager, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: quotes(140, 170), winner_quote_id: qa }]); }), 'FORBIDDEN',
+      'SR Manager can no longer edit once it moved to GM');
+
+    // GM step
+    ok(as(U.gm, function () { return must(getTicket(id)); }).permissions.can_edit_quotes, 'GM can edit prices while “รอ GM อนุมัติฝั่งซื้อ”');
+    must(as(U.gm, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: quotes(150, 145), winner_quote_id: qb, selection_reason: '', gp_percent: 18 }]); }));
+    must(go(U.gm, id, 'gm_price_approve'));
+    const sell = Number(findOne_(TAB.ITEMS, 'item_id', it.item_id).sell_price_thb);
+    ok(sell === 176.83 && as(U.salesFood1, function () { return must(getTicket(id)); }).items[0].sales_pricing.sell_price_thb === 176.83,
+      'GM switched the winner to the cheaper vendor B → Sales gets 145 ÷ 0.82 = 176.83');
+    ok(findAll_(TAB.NOTIFICATIONS, 'ticket_id', id).filter(function (n) { return n.user_email === U.sr1 && /แก้ไขราคา/.test(n.body); }).length === 2, 'The SR is told the GM edited the price');
+    expectErr(as(U.mgrFood, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: quotes(1, 1), winner_quote_id: qa }]); }), 'FORBIDDEN',
+      'Sales Manager can never edit prices');
+  } catch (e) {
+    results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: REVIEWER_EDIT — ' + e.message + '\n' + e.stack);
+  }
+
+  // ---------- Sourcing view of the follow-up (weekly meeting) ----------
+  try {
+    const d = as(U.sr1, function () { return must(listDeals()); });
+    ok(d.default_sr === U.sr1 && d.sourcing.some(function (p) { return p.email === U.sr1; }), 'Follow-up: SR opens on the prices they made; list of Sourcing people');
+    ok(d.rows.length > 0 && d.rows.every(function (r) { return 'sr_email' in r && !r.can_edit; }), 'Follow-up: SR sees the Sales outcome but cannot change it');
+    ok(d.rows.every(function (r) { return !('landed_cost_thb' in r) && !('gp_percent' in r) && !('profit_thb' in r) && !('vendor_name' in r); }),
+      'Follow-up: Sourcing view has no cost / GP / vendor (same data as Sales)');
+    ok(as(U.srManager, function () { return must(listDeals()); }).sourcing.length >= 2, 'Follow-up: SR Manager gets every SR for the Sourcing view');
+    ok(as(U.salesFood1, function () { return must(listDeals()); }).sourcing.length === 0, 'Follow-up: Sales does not get the Sourcing list');
+    const m = menuFor_(userByEmail_(U.sr1));
+    ok(m.some(function (x) { return x.key === 'deals'; }) && m.length <= 5, 'Follow-up: SR menu has “ติดตามงานขาย” (≤ 5 items)');
+  } catch (e) {
+    results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: SOURCING_VIEW — ' + e.message + '\n' + e.stack);
   }
 }

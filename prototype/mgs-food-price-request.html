@@ -922,7 +922,7 @@ var HtmlService = {};
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.09-2';
+const APP_VERSION = '2026.10.10-1';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -1905,8 +1905,16 @@ function canEditRequest_(u, t) {
     (t.stage === 'pending_manager' || t.stage === 'returned');
 }
 
+/**
+ * Vendor prices / winner / GP: the assigned SR while sourcing, and the reviewer of the current
+ * approval step — SR Manager while "รอ SR Manager ตรวจราคา", GM while "รอ GM อนุมัติฝั่งซื้อ" —
+ * so a reviewer can fix the price and approve, instead of sending it back to the SR.
+ */
 function canEditQuotes_(u, t) {
-  return u.role === 'sr' && t.sr_email === u.email && t.stage === 'sourcing';
+  if (u.role === 'sr') return t.sr_email === u.email && t.stage === 'sourcing';
+  if (u.role === 'sr_manager') return t.stage === 'pending_sr_manager' && t.sr_email !== u.email;
+  if (u.role === 'gm') return t.stage === 'pending_gm_price';
+  return false;
 }
 
 function canEditChecklist_(u, t) {
@@ -2699,6 +2707,7 @@ function doTransition_(ticketId, action, comment, payload) {
       if (t.stage !== 'pending_sr_manager') badState();
       if (action === 'srm_approve') {
         meta = validateQuotesForSubmit_(t);
+        reviewerEdits_(u, t, meta, now, extraRecipients);
         patch.stage = 'pending_gm_price';
         patch.sr_manager_email = u.email;
         patch.sr_manager_approved_at = now;
@@ -2716,11 +2725,12 @@ function doTransition_(ticketId, action, comment, payload) {
       if (t.stage !== 'pending_gm_price') badState();
       if (action === 'gm_price_approve') {
         meta = validateQuotesForSubmit_(t);
+        reviewerEdits_(u, t, meta, now, extraRecipients);
         patch.stage = 'awaiting_sales_ack';
         patch.gm_price_approved_at = now;
         patch.completed_at = now;
         notifyType = 'quote_ready';
-        extraRecipients = [t.sr_email];
+        extraRecipients.push(t.sr_email);
       } else {
         needComment('กรุณาระบุสิ่งที่ต้องการให้ SR แก้ไขราคา');
         patch.stage = 'sourcing';
@@ -2780,7 +2790,8 @@ function doTransition_(ticketId, action, comment, payload) {
   if (PRICE_REVIEW_ACTIONS_.indexOf(action) !== -1) {
     // reviewer comments may discuss cost / GP → only cost roles get them; Sales side gets the status line
     const isCost = function (e) { const x = userByEmail_(e); return !!x && COST_ROLES_.indexOf(x.role) !== -1; };
-    enqueueNotifications_(recipients.filter(isCost), saved, notifyType, nTitle, nBody + (note ? '\n' + note : ''), ticketLink_(saved, page));
+    const edited = meta && meta.reviewer_changes ? '\n✏️ ' + u.full_name + ' แก้ไขราคา ' + meta.reviewer_changes + ' ครั้งก่อนอนุมัติ (ดูใน Timeline)' : '';
+    enqueueNotifications_(recipients.filter(isCost), saved, notifyType, nTitle, nBody + edited + (note ? '\n' + note : ''), ticketLink_(saved, page));
     const salesSide = recipients.filter(function (e) { return !isCost(e); });
     // the requesting Sales gets the selling price of THEIR OWN request (winning offer only) in the DM
     const own = action === 'gm_price_approve' ? '\n\n' + sellPriceLines_(saved).join('\n') : '';
@@ -2800,6 +2811,26 @@ function doTransition_(ticketId, action, comment, payload) {
   }
 
   return { ticket: publicTicket_(saved) };
+}
+
+/**
+ * At approval: if the reviewer edited prices in this step, store the new GP / selling price per item,
+ * record how many changes in the approval log and tell the SR (in-app + Lark, cost roles only).
+ */
+function reviewerEdits_(u, t, meta, now, extraRecipients) {
+  // log timestamps are whole seconds → compare from the start of the second the step began
+  const since = t.stage_entered_at ? Math.floor(new Date(t.stage_entered_at).getTime() / 1000) * 1000 : 0;
+  const changes = findAll_(TAB.LOGS, 'ticket_id', t.ticket_id).filter(function (l) {
+    return String(l.actor_email).toLowerCase() === u.email && COST_LOG_ACTIONS_.indexOf(String(l.action)) !== -1 && new Date(l.ts).getTime() >= since;
+  }).length;
+  meta.winners.forEach(function (w) {
+    updateRow_(TAB.ITEMS, w.item_id, { gp_percent: w.gp_percent, sell_price_thb: w.sell_price_thb, updated_at: now });
+  });
+  if (changes) {
+    meta.reviewer_changes = changes;
+    meta.edited_by = u.email;
+    if (t.sr_email) extraRecipients.push(t.sr_email);
+  }
 }
 
 /** All submit rules for SR quotations. Returns metadata (winners + total) for the log. */
@@ -3347,7 +3378,7 @@ function saveQuotationCore_(u, p) {
   const item = findOne_(TAB.ITEMS, 'item_id', cleanText_(p.item_id));
   if (!item || toBool_(item.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบรายการสินค้า');
   const t = ticketForUser_(u, item.ticket_id);
-  if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน ในขั้นตอนหาราคา');
+  if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน (ขั้นหาราคา) หรือผู้อนุมัติขั้นปัจจุบัน (SR Manager / GM)');
   requireQuotable_(item);
 
   const quoteId = cleanText_(p.quote_id, 64);
@@ -3463,7 +3494,7 @@ function deleteQuotationCore_(u, quoteId) {
   const q = findOne_(TAB.QUOTATIONS, 'quote_id', cleanText_(quoteId));
   if (!q || toBool_(q.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบใบเสนอราคา');
   const t = ticketForUser_(u, q.ticket_id);
-  if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน ในขั้นตอนหาราคา');
+  if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน (ขั้นหาราคา) หรือผู้อนุมัติขั้นปัจจุบัน (SR Manager / GM)');
   updateRow_(TAB.QUOTATIONS, q.quote_id, { is_deleted: true, is_selected: false, selection_reason: '', updated_at: new Date() });
   removeQuotePhotos_(u, String(q.quote_id));
   appendLog_({ ticket_id: t.ticket_id, action: 'quotation_deleted', actor_email: u.email, actor_role: u.role,
@@ -3485,7 +3516,7 @@ function selectQuotationCore_(u, quoteId, reason) {
   const q = findOne_(TAB.QUOTATIONS, 'quote_id', cleanText_(quoteId));
   if (!q || toBool_(q.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบใบเสนอราคา');
   const t = ticketForUser_(u, q.ticket_id);
-  if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน ในขั้นตอนหาราคา');
+  if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน (ขั้นหาราคา) หรือผู้อนุมัติขั้นปัจจุบัน (SR Manager / GM)');
   const why = cleanText_(reason, 500);
   const now = new Date();
   const item = findOne_(TAB.ITEMS, 'item_id', q.item_id);
@@ -3526,7 +3557,7 @@ function saveSourcingDraft(ticketId, items) {
     return withLock_(function () {
       const u = currentUser_();
       const t = ticketForUser_(u, ticketId);
-      if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน ในขั้นตอนหาราคา');
+      if (!canEditQuotes_(u, t)) throw appError_('FORBIDDEN', 'แก้ไขราคาได้เฉพาะ SR ผู้รับงาน (ขั้นหาราคา) หรือผู้อนุมัติขั้นปัจจุบัน (SR Manager / GM)');
       const byId = {};
       activeItemsOf_(t.ticket_id).forEach(function (it) { byId[it.item_id] = it; });
       const list = Array.isArray(items) ? items : [];
@@ -4140,6 +4171,7 @@ function migrateSuppliersCore_() {
  *   · selling price we quoted · deal status (follow / sample / won / lost) · next follow-up date.
  *
  *   listDeals()        Sales side view (no cost) — Sales: own · Sales Manager / GM / Admin / SR Manager / SR: everyone they can see
+ *                      (SR / SR Manager use it per Sourcing person to follow up Sales in the weekly meeting — read only)
  *   updateDeal()       Sales (owner), the department's Sales Manager or Admin record the outcome
  *   getGpSummary()     GM / SR Manager / Admin only: + landed cost, GP %, profit — trend of quoted vs closed
  *
@@ -4188,7 +4220,7 @@ function dealRows_(u, withCost) {
         customer_name: String(t.customer_name || ''), customer_group: String(t.customer_group || ''),
         destination_country: String(t.destination_country || ''),
         requestor_email: t.requestor_email, requestor_name: ctx.names[t.requestor_email] || t.requestor_email,
-        department_code: String(t.department_code || ''), sr_name: t.sr_email ? (ctx.names[t.sr_email] || t.sr_email) : '',
+        department_code: String(t.department_code || ''), sr_email: String(t.sr_email || ''), sr_name: t.sr_email ? (ctx.names[t.sr_email] || t.sr_email) : '',
         product_name: it.product_name, product_group_code: it.product_group_code, size: it.size, packing_size: it.packing_size,
         net_weight: it.net_weight, spec: it.spec,
         qty: it.qty, uom: it.uom, target_price: it.target_price || 0,
@@ -4243,6 +4275,9 @@ function listDeals() {
       customer_stages: setting_('deal_customer_stages', []),
       next_steps: setting_('deal_next_steps', []),
       people: u.role === 'sales' ? [] : activeUsersByRole_('sales').map(function (x) { return { email: x.email, full_name: x.full_name, department_code: x.department_code }; }),
+      // Sourcing view (weekly meeting with Sales): one card per SR who priced the lines — same Sales-side data, no cost / GP
+      sourcing: u.role === 'sales' ? [] : activeUsersByRole_('sr').map(function (x) { return { email: x.email, full_name: x.full_name }; }),
+      default_sr: u.role === 'sr' ? u.email : '',
       statuses: [''].concat(DEAL_STATUSES).map(function (k) { return { key: k, label: DEAL_STATUS_LABEL_TH[k] }; }),
       can_see_everyone: u.role !== 'sales'
     };
@@ -5675,6 +5710,8 @@ function menuFor_(u) {
   if (['sr', 'sr_manager', 'admin'].indexOf(u.role) !== -1) {
     m.push({ key: 'suppliers', group: MAIN, icon: '🏭', label: 'Supplier', route: { page: 'suppliers' } });
   }
+  // SR: follow up with Sales on the prices they made (weekly meeting) — Sales-side data only, no cost / GP
+  if (u.role === 'sr') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามงานขาย', hint: 'ราคาที่ฉันทำ · ประชุมประจำสัปดาห์', route: { page: 'deals' } });
   if (['manager', 'sr_manager', 'gm', 'admin'].indexOf(u.role) !== -1) {
     m.push({ key: 'reports', group: MAIN, icon: '📊', label: 'รายงาน', route: { page: 'dashboard' } });
   }
@@ -6383,7 +6420,7 @@ function fakeDrive_() {
     </aside>
     <div class="content">
       <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.09-2 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.10-1 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
     </div>
   </div>
   <div class="side-ov" id="side-ov"></div>
@@ -7283,13 +7320,15 @@ Pages.dashboard = (function () {
 <script>
 Pages.deals = (function () {
   let data = null, user = '';
-  const f = { filter: 'open', q: '', sales: '', group: '', view: 'jobs' };
+  const f = { filter: 'open', q: '', sales: '', sr: '', group: '', view: 'jobs' };
   const ST = {
     '': { cls: 'grey', label: 'รอติดตาม' }, follow: { cls: 'blue', label: 'กำลังติดตาม' }, sample: { cls: 'purple', label: 'ส่งตัวอย่าง / ทดลองสินค้า' },
     won: { cls: 'green', label: 'ปิดการขายได้ 🎉' }, lost: { cls: 'red', label: 'ไม่ได้งาน' }
   };
   const FILTERS = [['open', 'งานที่เปิดอยู่'], ['update', 'ต้องอัปเดต'], ['won', 'ปิดการขายได้'], ['lost', 'ไม่ได้งาน'], ['all', 'ทั้งหมด']];
 
+  /** Avatar letter: skip the Thai title “คุณ” so every card does not show ค */
+  const initial = function (name) { return String(name || '?').replace(/^คุณ\s*/, '').charAt(0) || '?'; };
   const agoTH = function (d) { return d == null ? '—' : d <= 0 ? 'วันนี้' : d === 1 ? 'เมื่อวาน' : d + ' วันที่แล้ว'; };
   const baht0 = function (v) { return '฿' + fmtInt(Math.round(v || 0)); };
   function inFilter(r, k) {
@@ -7302,6 +7341,7 @@ Pages.deals = (function () {
     const q = f.q.toLowerCase();
     return data.rows.filter(function (r) {
       if (f.sales && r.requestor_email !== f.sales) return false;
+      if (f.sr && r.sr_email !== f.sr) return false;
       if (f.group && r.customer_group !== f.group) return false;
       if (q && (r.ticket_no + ' ' + r.customer_name + ' ' + r.product_name + ' ' + r.size + ' ' + r.requestor_name).toLowerCase().indexOf(q) === -1) return false;
       return true;
@@ -7336,7 +7376,7 @@ Pages.deals = (function () {
       '<div class="job-spec hint">' + esc([r.size, r.packing_size, r.net_weight ? 'NW ' + r.net_weight : ''].filter(Boolean).join(' · ')) + '</div>' +
       (r.deal_note || r.deal_reason ? '<div class="job-note">' + (r.deal_reason ? '<b>เหตุผล:</b> ' + esc(r.deal_reason) + (r.deal_note ? ' — ' : '') : '') + esc(r.deal_note) + '</div>' : '') +
       '<div class="job-meta">' +
-        (teamMode() ? '<span>👤 ' + esc(r.requestor_name) + '</span>' : '') +
+        (teamMode() ? '<span>👤 ' + esc(r.requestor_name) + '</span>' + (r.sr_name ? '<span>🏭 SR ' + esc(r.sr_name) + '</span>' : '') : '') +
         '<span>💰 ได้ราคา ' + esc(fmtDate(r.quoted_ymd)) + '</span>' +
         (r.deal_updated_at ? '<span>📝 อัปเดต ' + esc(agoTH(r.days_since_update)) + (r.deal_updated_by ? ' · ' + esc(r.deal_updated_by) : '') + '</span>' : '<span>📝 ยังไม่เคยอัปเดต</span>') +
         (r.deal_next_step && r.is_open ? '<span>➡ ' + esc(r.deal_next_step) + '</span>' : '') +
@@ -7359,11 +7399,62 @@ Pages.deals = (function () {
     }).sort(function (a, b) { return b.upd - a.upd || b.open - a.open; });
     if (!list.length) return '<div class="empty"><div class="big">👥</div>ยังไม่มี Sales ในระบบ</div>';
     return '<div class="team">' + list.map(function (p) {
-      return '<button type="button" class="tcard" data-person="' + esc(p.email) + '"><div class="row-i"><span class="avatar">' + esc((p.name || '?').charAt(0)) + '</span>' +
+      return '<button type="button" class="tcard" data-person="' + esc(p.email) + '"><div class="row-i"><span class="avatar">' + esc(initial(p.name)) + '</span>' +
         '<span class="tn"><b>' + esc(p.name) + '</b><span class="hint">' + esc(p.email) + '</span></span>' + (p.upd ? '<span class="tag red">ค้างอัปเดต ' + p.upd + '</span>' : '') + '</div>' +
         '<div class="tstats"><div><b>' + p.open + '</b><span>งานเปิด</span></div><div><b>' + p.upd + '</b><span>ต้องอัปเดต</span></div><div><b>' + p.won + '</b><span>ปิดได้</span></div><div><b>' + p.lost + '</b><span>ไม่ได้</span></div></div>' +
         '<div class="hint">รอลูกค้าตัดสินใจ <b class="mono" style="color:var(--text)">' + baht0(p.pipe) + '</b>/เดือน</div></button>';
     }).join('') + '</div>';
+  }
+
+  /* ---------- Sourcing view: one card per SR who made the prices (weekly meeting with Sales) ---------- */
+  function updatedThisWeek(r) { return !!r.deal_updated_at && r.days_since_update <= 6; }
+  function sourcingHtml(rows) {
+    const people = {};
+    (data.sourcing || []).forEach(function (p) { people[p.email] = { email: p.email, name: p.full_name, rows: [] }; });
+    rows.forEach(function (r) { if (!r.sr_email) return; (people[r.sr_email] = people[r.sr_email] || { email: r.sr_email, name: r.sr_name, rows: [] }).rows.push(r); });
+    const list = Object.keys(people).map(function (k) {
+      const p = people[k], rs = p.rows;
+      const won = rs.filter(function (r) { return r.deal_status === 'won'; }).length, lost = rs.filter(function (r) { return r.deal_status === 'lost'; }).length;
+      const open = rs.filter(function (r) { return r.is_open; });
+      return { email: p.email, name: p.name, total: rs.length, open: open.length, upd: rs.filter(function (r) { return r.is_due; }).length, won: won, lost: lost,
+        week: rs.filter(updatedThisWeek).length, rate: rs.length ? Math.round(won / rs.length * 100) : null,
+        pipe: open.reduce(function (s, r) { return s + r.monthly_value_thb; }, 0) };
+    }).sort(function (a, b) { return b.total - a.total; });
+    if (!list.length) return '<div class="empty"><div class="big">🏭</div>ยังไม่มี SR ในระบบ</div>';
+    return '<p class="hint" style="margin:-4px 0 10px">แต่ละ SR ใช้ติดตามกับ Sales ใน weekly meeting ว่าราคาที่ตัวเองทำไปแล้ว ลูกค้าตอบอย่างไร · ข้อมูลเดียวกับที่ Sales เห็น (ไม่มีต้นทุน / GP)</p>' +
+      '<div class="team">' + list.map(function (p) {
+        return '<button type="button" class="tcard" data-srperson="' + esc(p.email) + '"><div class="row-i"><span class="avatar">' + esc(initial(p.name)) + '</span>' +
+          '<span class="tn"><b>' + esc(p.name) + '</b><span class="hint">ทำราคาแล้ว ' + p.total + ' รายการ · อัตราปิด ' + (p.rate == null ? '–' : p.rate + '%') + '</span></span>' +
+          (p.upd ? '<span class="tag red">Sales ค้างอัปเดต ' + p.upd + '</span>' : '') + '</div>' +
+          '<div class="tstats"><div><b>' + p.open + '</b><span>รอลูกค้า</span></div><div><b>' + p.week + '</b><span>อัปเดตสัปดาห์นี้</span></div><div><b>' + p.won + '</b><span>ปิดได้</span></div><div><b>' + p.lost + '</b><span>ไม่ได้</span></div></div>' +
+          '<div class="hint">รอลูกค้าตัดสินใจ <b class="mono" style="color:var(--text)">' + baht0(p.pipe) + '</b>/เดือน</div></button>';
+      }).join('') + '</div>';
+  }
+
+  /** Text for the weekly meeting: the SR's prices grouped by Sales — status, last update, next step (no cost / GP). */
+  function weeklyText(rows) {
+    const srName = f.sr ? ((data.sourcing || []).filter(function (p) { return p.email === f.sr; })[0] || {}).full_name || (rows[0] || {}).sr_name || f.sr : 'ทุก SR';
+    const keep = rows.filter(function (r) { return r.is_open || (r.deal_closed_at && (Date.now() - new Date(r.deal_closed_at).getTime()) < 8 * 86400000); });
+    const bySales = {};
+    keep.forEach(function (r) { (bySales[r.requestor_name] = bySales[r.requestor_name] || []).push(r); });
+    const n = function (k) { return keep.filter(function (r) { return k(r); }).length; };
+    const lines = ['📋 ติดตามงานขาย — SR ' + srName + ' · ' + fmtDate(todayYmd(0)),
+      'เปิดอยู่ ' + n(function (r) { return r.is_open; }) + ' · ต้องอัปเดต ' + n(function (r) { return r.is_due; }) + ' · ปิดได้สัปดาห์นี้ ' + n(function (r) { return r.deal_status === 'won'; }) +
+        ' · ไม่ได้งานสัปดาห์นี้ ' + n(function (r) { return r.deal_status === 'lost'; }), ''];
+    Object.keys(bySales).sort().forEach(function (s) {
+      lines.push('👤 ' + s);
+      bySales[s].sort(function (a, b) { return (b.is_due - a.is_due) || (a.quoted_at < b.quoted_at ? -1 : 1); }).forEach(function (r) {
+        const st = (ST[r.deal_status] || ST['']).label.replace(' 🎉', '');
+        lines.push((r.is_due ? '  ⏰ ' : '  • ') + r.ticket_no + ' ' + r.product_name + ' — ' + r.customer_name + ' · ' + fmtNum(r.qty) + ' ' + r.uom + '/เดือน · ' +
+          fmtMoney(r.sell_price_thb) + ' บาท/' + r.uom + ' · ' + st + (r.deal_stage ? ' (' + r.deal_stage + ')' : '') +
+          (r.deal_reason ? ' · เหตุผล: ' + r.deal_reason : '') +
+          ' · ' + (r.deal_updated_at ? 'อัปเดต ' + agoTH(r.days_since_update) : 'ยังไม่เคยอัปเดต') +
+          (r.is_open && r.deal_next_step ? ' · ถัดไป: ' + r.deal_next_step + (r.deal_next_date ? ' ' + fmtDate(r.deal_next_date) : '') : ''));
+      });
+      lines.push('');
+    });
+    if (!keep.length) lines.push('ไม่มีงานที่ต้องติดตาม');
+    return lines.join('\n').trim();
   }
 
   function draw(view) {
@@ -7378,13 +7469,17 @@ Pages.deals = (function () {
       return '<button type="button" class="kpi' + (f.filter === k && f.view === 'jobs' ? ' on' : '') + '" data-filter="' + k + '"><span class="l">' + l + '</span>' +
         '<span class="v"' + (color ? ' style="color:var(--' + color + ')"' : '') + '>' + v + '</span><span class="s">' + s + '</span></button>';
     };
-    let html = reportTabs('deals') +
-      '<div class="person"><span class="avatar lg">' + esc(((who || state.me.full_name) || '?').charAt(0)) + '</span><div style="flex:1;min-width:200px"><h1>' +
-        (f.sales ? 'งานของ ' + esc(who) : teamMode() ? 'ติดตามการขาย — ทีมขาย' : 'ติดตามการขายของฉัน') + '</h1>' +
+    const srWho = f.sr ? ((data.sourcing || []).filter(function (p) { return p.email === f.sr; })[0] || {}).full_name || (data.rows.filter(function (r) { return r.sr_email === f.sr; })[0] || {}).sr_name || f.sr : '';
+    let html = (state.me.role === 'sr' ? '' : reportTabs('deals')) +
+      '<div class="person"><span class="avatar lg">' + esc(initial(srWho || who || state.me.full_name)) + '</span><div style="flex:1;min-width:200px"><h1>' +
+        (f.sr ? 'ราคาที่ ' + (f.sr === state.me.email ? 'ฉัน' : esc(srWho)) + ' ทำ — ติดตามกับ Sales' + (f.sales ? ' · ' + esc(who) : '') : f.sales ? 'งานของ ' + esc(who) :
+          f.view === 'sourcing' ? 'ติดตามการขาย — แยกตาม Sourcing' : teamMode() ? 'ติดตามการขาย — ทีมขาย' : 'ติดตามการขายของฉัน') + '</h1>' +
         '<div class="hint">ทุกรายการที่ GM อนุมัติราคาแล้ว · อัปเดตความคืบหน้ากับลูกค้าอย่างน้อยทุก ' + data.follow_days + ' วัน</div></div>' +
         (teamMode() ? '<div class="seg" role="tablist"><button type="button" class="' + (f.view === 'jobs' ? 'on' : '') + '" data-view="jobs">📋 รายการ</button>' +
-          '<button type="button" class="' + (f.view === 'team' ? 'on' : '') + '" data-view="team">👥 ทีมขาย</button></div>' : '') +
-        (f.sales ? '<button class="btn sm ghost" data-clear-person>✕ ดูทุกคน</button>' : '') + '</div>';
+          '<button type="button" class="' + (f.view === 'team' ? 'on' : '') + '" data-view="team">👥 ทีมขาย</button>' +
+          ((data.sourcing || []).length ? '<button type="button" class="' + (f.view === 'sourcing' ? 'on' : '') + '" data-view="sourcing">🏭 Sourcing</button>' : '') + '</div>' : '') +
+        (f.sr && f.view === 'jobs' ? '<button class="btn sm" data-weekly>📋 สรุปสำหรับประชุมประจำสัปดาห์</button>' : '') +
+        (f.sales || f.sr ? '<button class="btn sm ghost" data-clear-person>✕ ดูทุกคน</button>' : '') + '</div>';
     html += '<div class="kpis5">' +
       kpi('open', 'งานที่เปิดอยู่', fmtInt(open.length), 'รอลูกค้าตัดสินใจ ' + baht0(open.reduce(function (s, r) { return s + r.monthly_value_thb; }, 0)) + '/เดือน') +
       kpi('update', 'ต้องอัปเดต', fmtInt(upd.length), 'ถึงวันนัด / เกิน ' + data.follow_days + ' วัน', upd.length ? 'danger' : '') +
@@ -7394,6 +7489,8 @@ Pages.deals = (function () {
       '</div>';
     if (f.view === 'team' && teamMode()) {
       html += teamHtml(all);
+    } else if (f.view === 'sourcing' && teamMode()) {
+      html += sourcingHtml(all);
     } else {
       html += '<div class="toolbar"><input type="search" class="search" id="dl-q" placeholder="🔍 ค้นหา ลูกค้า / สินค้า / เลขที่ใบ" value="' + esc(f.q) + '">' +
         '<select id="dl-filter">' + FILTERS.map(function (x) { return '<option value="' + x[0] + '"' + (f.filter === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select>' +
@@ -7411,7 +7508,9 @@ Pages.deals = (function () {
     $all('[data-filter]', view).forEach(function (b) { b.onclick = function () { f.filter = b.getAttribute('data-filter'); f.view = 'jobs'; draw(view); }; });
     $all('[data-view]', view).forEach(function (b) { b.onclick = function () { f.view = b.getAttribute('data-view'); draw(view); }; });
     $all('[data-person]', view).forEach(function (b) { b.onclick = function () { f.sales = b.getAttribute('data-person'); f.view = 'jobs'; f.filter = 'open'; draw(view); }; });
-    $all('[data-clear-person]', view).forEach(function (b) { b.onclick = function () { f.sales = ''; draw(view); }; });
+    $all('[data-clear-person]', view).forEach(function (b) { b.onclick = function () { f.sales = ''; f.sr = ''; draw(view); }; });
+    $all('[data-srperson]', view).forEach(function (b) { b.onclick = function () { f.sr = b.getAttribute('data-srperson'); f.view = 'jobs'; f.filter = 'open'; draw(view); }; });
+    $all('[data-weekly]', view).forEach(function (b) { b.onclick = function () { copyText(weeklyText(base()), 'คัดลอกสรุปแล้ว — วางในแชท / เอกสารประชุมได้เลย'); }; });
     const q = $('#dl-q', view);
     if (q) q.oninput = debounce(function () {
       f.q = q.value.trim(); draw(view);
@@ -7435,7 +7534,10 @@ Pages.deals = (function () {
         o.shelf_life ? 'อายุสินค้า ' + o.shelf_life : ''].filter(Boolean).join(' · '),
       [o.moq != null ? 'MOQ ' + fmtNum(o.moq) + ' ' + r.uom : '', o.lead_time_days != null ? 'ส่งของภายใน ' + o.lead_time_days + ' วัน' : '',
         o.valid_until ? 'ยืนราคาถึง ' + fmtDate(o.valid_until) : ''].filter(Boolean).join(' · ')].filter(function (x, i) { return i < 2 || x; }).join('\n');
-    const done = function () { toast('คัดลอกราคาแล้ว — วางในแชทลูกค้าได้เลย', 'ok'); };
+    copyText(txt, 'คัดลอกราคาแล้ว — วางในแชทลูกค้าได้เลย');
+  }
+  function copyText(txt, msg) {
+    const done = function () { toast(msg, 'ok'); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, function () { fallback(txt, done); });
     else fallback(txt, done);
   }
@@ -7498,6 +7600,7 @@ Pages.deals = (function () {
       api('listDeals').then(function (d) {
         if (!data || user !== who) {
           f.sales = ''; f.q = ''; f.group = '';
+          f.sr = d.default_sr || '';      // SR opens on the prices they made
           f.view = 'jobs';
           f.filter = d.rows.some(function (r) { return r.is_due && r.can_edit; }) ? 'update' : 'open';
         }
@@ -8129,6 +8232,8 @@ Pages.ticket = (function () {
     if (d.me.role === 'sales' && t.requestor_email === d.me.email) buttons.push('<button class="btn" data-copy>📄 สร้างใบใหม่จากใบนี้</button>');
     const srWork = p.actions.indexOf('doc_complete') !== -1 || p.actions.indexOf('submit_quote') !== -1;
     if (srWork) buttons.push('<button class="btn primary" data-nav="pricing">' + (t.stage === 'doc_check' ? '📋 ตรวจเอกสาร' : '💰 กรอกราคา / เทียบราคา') + '</button>');
+    // SR Manager / GM may fix the price in their own approval step, then approve
+    if (p.can_edit_quotes && (t.stage === 'pending_sr_manager' || t.stage === 'pending_gm_price')) buttons.push('<button class="btn" data-nav="pricing">✏️ แก้ไขราคา</button>');
     p.actions.forEach(function (a) {
       const ui = ACTION_UI[a];
       if (ui) buttons.push('<button class="btn ' + ui.cls + '" data-action="' + a + '">' + esc(ui.label) + '</button>');
@@ -9251,6 +9356,11 @@ Pages.pricing = (function () {
     }).join('') + '</ol>';
   }
 
+  /** SR Manager / GM editing prices in their own approval step (server: canEditQuotes_). */
+  function reviewing(d) {
+    return d.permissions.can_edit_quotes && (d.ticket.stage === 'pending_sr_manager' || d.ticket.stage === 'pending_gm_price');
+  }
+
   function headerHtml(d) {
     const t = d.ticket;
     let banner = '';
@@ -9266,7 +9376,10 @@ Pages.pricing = (function () {
     } else if (t.revision_count && t.stage === 'sourcing') {
       banner += '<div class="notice warn">Sales ขอให้ปรับราคา (ครั้งที่ ' + t.revision_count + ') — ดูเหตุผลใน Timeline ของใบ</div>';
     }
-    if (t.stage === 'pending_sr_manager' || t.stage === 'pending_gm_price') banner += '<div class="notice">ส่งราคาแล้ว — ' + esc(t.stage_label) + '</div>';
+    if (reviewing(d)) {
+      banner += '<div class="notice warn"><b>✏️ โหมดแก้ไขราคาโดย' + (state.me.role === 'gm' ? ' GM' : ' SR Manager') + '</b> — แก้ราคา vendor, เลือกผู้ชนะ หรือปรับ GP ได้เลย ' +
+        'กด “บันทึกการแก้ไข” แล้วกลับไปกดอนุมัติที่หน้ารายละเอียดใบ · ทุกการแก้ไขถูกบันทึกใน Timeline และแจ้ง SR ผู้ทำราคาเมื่ออนุมัติ</div>';
+    } else if (t.stage === 'pending_sr_manager' || t.stage === 'pending_gm_price') banner += '<div class="notice">ส่งราคาแล้ว — ' + esc(t.stage_label) + '</div>';
     return '<div class="page-head"><h1>' + esc(t.ticket_no) + ' · ใบเสนอราคา</h1>' + statusBadge(t.status, t.status_label) +
       '<button class="btn sm ghost" data-back>← รายละเอียดใบ</button></div>' +
       '<div class="card"><div class="row" style="gap:6px 24px">' +
@@ -9502,7 +9615,7 @@ Pages.pricing = (function () {
       '<div class="small" style="margin-top:8px">' + (follow ? 'แยกเป็นใบ <a href="#" data-gotk="' + esc(it.follow_up ? it.follow_up.ticket_id : '') + '"><b>' +
         esc(it.follow_up ? it.follow_up.ticket_no : '') + '</b></a> ' + (it.follow_up ? '<span class="muted">(' + esc(it.follow_up.stage_label) + ')</span>' : '') + ' · ' : '') +
       'เหตุผล: ' + esc(it.quote_status_reason || '–') + '</div>' +
-      (!follow && editable ? '<div class="item-tools"><button type="button" class="btn sm" data-restore="' + idx + '">↩ กลับมาเสนอราคารายการนี้</button></div>' : '') +
+      (!follow && editable && ctx.d.ticket.stage === 'sourcing' ? '<div class="item-tools"><button type="button" class="btn sm" data-restore="' + idx + '">↩ กลับมาเสนอราคารายการนี้</button></div>' : '') +
       '</section>';
   }
 
@@ -9524,7 +9637,7 @@ Pages.pricing = (function () {
       ' · Pack ' + esc(it.packing_size || '–') + (it.target_price ? ' · ลูกค้าคาดหวัง ' + fmtMoney(it.target_price) + ' บาท/' + esc(it.uom) : ' · ลูกค้ายังไม่บอกราคา') + '</div></div>' +
       '<span class="istatus"></span></div></summary>' +
       (it.description ? '<p class="small muted" style="white-space:pre-wrap">' + esc(it.description) + '</p>' : '') +
-      (editable ? '<div class="item-tools"><span class="small muted">หาราคารายการนี้ไม่ได้ตอนนี้?</span>' +
+      (editable && ctx.d.ticket.stage === 'sourcing' ? '<div class="item-tools"><span class="small muted">หาราคารายการนี้ไม่ได้ตอนนี้?</span>' +
         '<button type="button" class="btn sm" data-istatus="not_offered" data-idx="' + idx + '">✕ ไม่เสนอรายการนี้</button>' +
         '<button type="button" class="btn sm" data-istatus="follow_up" data-idx="' + idx + '">📌 ส่งตามหลัง (แยกเป็นงานค้าง)</button></div>' : '') +
       '<div class="vgrid">' + cols + '</div>' +
@@ -9544,8 +9657,9 @@ Pages.pricing = (function () {
       '<datalist id="pay-list"><option value="เงินสด"><option value="Credit 30 วัน"><option value="Credit 60 วัน"><option value="T/T 30% deposit"><option value="L/C at sight"></datalist>' +
       '<datalist id="origin-list"><option value="ไทย"><option value="นอร์เวย์"><option value="ชิลี"><option value="เวียดนาม"><option value="อินเดีย"><option value="จีน"><option value="ญี่ปุ่น"><option value="ออสเตรเลีย"></datalist>' +
       (d.permissions.can_edit_quotes ? '<div class="savebar"><div class="sum" id="pp-sum"></div><span class="sep"></span>' +
-        '<button class="btn" id="pp-info">ขอข้อมูลเพิ่ม</button><button class="btn" id="pp-save">บันทึกร่าง</button>' +
-        '<button class="btn primary" id="pp-submit">ส่งราคาให้ SR Manager ตรวจ</button></div>' : '');
+        (reviewing(d) ? '<button class="btn" data-back>← กลับไปหน้าอนุมัติ</button><button class="btn primary" id="pp-save">💾 บันทึกการแก้ไข</button>' :
+          '<button class="btn" id="pp-info">ขอข้อมูลเพิ่ม</button><button class="btn" id="pp-save">บันทึกร่าง</button>' +
+          '<button class="btn primary" id="pp-submit">ส่งราคาให้ SR Manager ตรวจ</button>') + '</div>' : '');
     bind();
     bindPhotos();
     $all('.card.item', view).forEach(function (card) { refreshItem(Number(card.getAttribute('data-item'))); });
@@ -9726,8 +9840,10 @@ Pages.pricing = (function () {
     $all('[data-gotk]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-gotk') }); }; });
 
     if ($('#pp-save', view)) {
-      $('#pp-save', view).onclick = function () { save().then(function () { toast('บันทึกร่างแล้ว', 'ok'); }).catch(function () {}); };
-      $('#pp-submit', view).onclick = submit;
+      $('#pp-save', view).onclick = function () {
+        save().then(function () { toast(reviewing(d) ? 'บันทึกการแก้ไขราคาแล้ว — กลับไปกดอนุมัติได้เลย' : 'บันทึกร่างแล้ว', 'ok'); }).catch(function () {});
+      };
+      if ($('#pp-submit', view)) $('#pp-submit', view).onclick = submit;
     }
   }
 

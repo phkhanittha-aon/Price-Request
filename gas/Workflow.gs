@@ -366,6 +366,7 @@ function doTransition_(ticketId, action, comment, payload) {
       if (t.stage !== 'pending_sr_manager') badState();
       if (action === 'srm_approve') {
         meta = validateQuotesForSubmit_(t);
+        reviewerEdits_(u, t, meta, now, extraRecipients);
         patch.stage = 'pending_gm_price';
         patch.sr_manager_email = u.email;
         patch.sr_manager_approved_at = now;
@@ -383,11 +384,12 @@ function doTransition_(ticketId, action, comment, payload) {
       if (t.stage !== 'pending_gm_price') badState();
       if (action === 'gm_price_approve') {
         meta = validateQuotesForSubmit_(t);
+        reviewerEdits_(u, t, meta, now, extraRecipients);
         patch.stage = 'awaiting_sales_ack';
         patch.gm_price_approved_at = now;
         patch.completed_at = now;
         notifyType = 'quote_ready';
-        extraRecipients = [t.sr_email];
+        extraRecipients.push(t.sr_email);
       } else {
         needComment('กรุณาระบุสิ่งที่ต้องการให้ SR แก้ไขราคา');
         patch.stage = 'sourcing';
@@ -447,7 +449,8 @@ function doTransition_(ticketId, action, comment, payload) {
   if (PRICE_REVIEW_ACTIONS_.indexOf(action) !== -1) {
     // reviewer comments may discuss cost / GP → only cost roles get them; Sales side gets the status line
     const isCost = function (e) { const x = userByEmail_(e); return !!x && COST_ROLES_.indexOf(x.role) !== -1; };
-    enqueueNotifications_(recipients.filter(isCost), saved, notifyType, nTitle, nBody + (note ? '\n' + note : ''), ticketLink_(saved, page));
+    const edited = meta && meta.reviewer_changes ? '\n✏️ ' + u.full_name + ' แก้ไขราคา ' + meta.reviewer_changes + ' ครั้งก่อนอนุมัติ (ดูใน Timeline)' : '';
+    enqueueNotifications_(recipients.filter(isCost), saved, notifyType, nTitle, nBody + edited + (note ? '\n' + note : ''), ticketLink_(saved, page));
     const salesSide = recipients.filter(function (e) { return !isCost(e); });
     // the requesting Sales gets the selling price of THEIR OWN request (winning offer only) in the DM
     const own = action === 'gm_price_approve' ? '\n\n' + sellPriceLines_(saved).join('\n') : '';
@@ -467,6 +470,26 @@ function doTransition_(ticketId, action, comment, payload) {
   }
 
   return { ticket: publicTicket_(saved) };
+}
+
+/**
+ * At approval: if the reviewer edited prices in this step, store the new GP / selling price per item,
+ * record how many changes in the approval log and tell the SR (in-app + Lark, cost roles only).
+ */
+function reviewerEdits_(u, t, meta, now, extraRecipients) {
+  // log timestamps are whole seconds → compare from the start of the second the step began
+  const since = t.stage_entered_at ? Math.floor(new Date(t.stage_entered_at).getTime() / 1000) * 1000 : 0;
+  const changes = findAll_(TAB.LOGS, 'ticket_id', t.ticket_id).filter(function (l) {
+    return String(l.actor_email).toLowerCase() === u.email && COST_LOG_ACTIONS_.indexOf(String(l.action)) !== -1 && new Date(l.ts).getTime() >= since;
+  }).length;
+  meta.winners.forEach(function (w) {
+    updateRow_(TAB.ITEMS, w.item_id, { gp_percent: w.gp_percent, sell_price_thb: w.sell_price_thb, updated_at: now });
+  });
+  if (changes) {
+    meta.reviewer_changes = changes;
+    meta.edited_by = u.email;
+    if (t.sr_email) extraRecipients.push(t.sr_email);
+  }
 }
 
 /** All submit rules for SR quotations. Returns metadata (winners + total) for the log. */

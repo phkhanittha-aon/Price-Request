@@ -167,8 +167,16 @@ function canEditRequest_(u, t) {
     (t.stage === 'pending_manager' || t.stage === 'returned');
 }
 
+/**
+ * Vendor prices / winner / GP: the assigned SR while sourcing, and the reviewer of the current
+ * approval step — SR Manager while "รอ SR Manager ตรวจราคา", GM while "รอ GM อนุมัติฝั่งซื้อ" —
+ * so a reviewer can fix the price and approve, instead of sending it back to the SR.
+ */
 function canEditQuotes_(u, t) {
-  return u.role === 'sr' && t.sr_email === u.email && t.stage === 'sourcing';
+  if (u.role === 'sr') return t.sr_email === u.email && t.stage === 'sourcing';
+  if (u.role === 'sr_manager') return t.stage === 'pending_sr_manager' && t.sr_email !== u.email;
+  if (u.role === 'gm') return t.stage === 'pending_gm_price';
+  return false;
 }
 
 function canEditChecklist_(u, t) {

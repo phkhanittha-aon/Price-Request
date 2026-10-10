@@ -75,6 +75,8 @@ function menuFor_(u) {
   if (['sr', 'sr_manager', 'admin'].indexOf(u.role) !== -1) {
     m.push({ key: 'suppliers', group: MAIN, icon: '🏭', label: 'Supplier', route: { page: 'suppliers' } });
   }
+  // SR: follow up with Sales on the prices they made (weekly meeting) — Sales-side data only, no cost / GP
+  if (u.role === 'sr') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามงานขาย', hint: 'ราคาที่ฉันทำ · ประชุมประจำสัปดาห์', route: { page: 'deals' } });
   if (['manager', 'sr_manager', 'gm', 'admin'].indexOf(u.role) !== -1) {
     m.push({ key: 'reports', group: MAIN, icon: '📊', label: 'รายงาน', route: { page: 'dashboard' } });
   }
