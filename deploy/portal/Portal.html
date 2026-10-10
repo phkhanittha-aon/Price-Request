@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<!--
+  File: portal/Portal.html
+  MGS Price Request Portal — the entry page for management (separate web app, not part of Food or Mech).
+  Overview of both pricing systems, then a button into each one. Data: getPortalData() (Code.gs).
+-->
+<html lang="th">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MGS Price Request — หน้ารวม</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&family=Sora:wght@600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+  <style>
+    :root {
+      --brand: #0A7F6C; --brand-dark: #08695A; --brand-soft: #E2F4EE;
+      --grad: linear-gradient(135deg, #13A889 0%, #0E8E8A 48%, #0B6377 100%);
+      --bg: #F3F8F6; --card: #fff; --surface-2: #EEF5F2; --text: #10231F; --ink-2: #3D524C; --muted: #6B807A; --line: #DCE8E3; --line-2: #C9DAD3;
+      --ok-ink: #1f6e46; --ok-soft: #E4F3EA; --warn: #c98a12; --warn-soft: #FBF1DA; --danger: #bb3b2f; --danger-ink: #a12f25; --danger-soft: #FAE8E5;
+      --blue: #2f6bb0; --blue-soft: #E7F0FA;
+      --shadow: 0 1px 2px rgba(12,40,34,.05), 0 8px 28px rgba(12,40,34,.06);
+      --font: "Inter", "Sarabun", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-head: "Sora", "Sarabun", "Inter", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, "Sarabun", monospace;
+      font-size: 15px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.55; -webkit-font-smoothing: antialiased; }
+    h1, h2, h3 { font-family: var(--font-head); letter-spacing: -.01em; }
+    b, strong, h1, h2, h3, .btn { font-weight: 600; }
+    a { color: var(--brand); }
+    button { font: inherit; color: inherit; }
+    .mono { font-family: var(--font-mono); }
+    .hint { font-size: .8rem; color: var(--muted); }
+    .top { position: sticky; top: 0; z-index: 20; background: rgba(243,248,246,.92); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+    .top-in { max-width: 1180px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 12px; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .logo { display: block; width: 38px; height: 38px; flex: none; border-radius: 50%; box-shadow: 0 2px 6px rgba(120,90,20,.25); }
+    .brand b { display: block; font-family: var(--font-head); line-height: 1.15; } .brand small { color: var(--muted); font-size: .76rem; }
+    .spacer { flex: 1; }
+    .me { text-align: right; font-size: .82rem; line-height: 1.2; } .me small { color: var(--muted); }
+    main { max-width: 1180px; margin: 0 auto; padding: 18px 16px 40px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 8px 16px; border: 1px solid var(--line-2); border-radius: 11px;
+      background: #fff; color: var(--ink-2); cursor: pointer; text-decoration: none; white-space: nowrap; }
+    .btn:hover { background: var(--surface-2); }
+    .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; } .btn.primary:hover { background: var(--brand-dark); }
+    .btn.sm { min-height: 34px; padding: 4px 12px; font-size: .88rem; border-radius: 9px; }
+    .btn:focus-visible, .go-card:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 16px; }
+    .tag { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 20px; font-size: .76rem; font-weight: 600; white-space: nowrap; background: var(--surface-2); color: var(--ink-2); }
+    .tag.amber { background: var(--warn-soft); color: #8a5d05; } .tag.blue { background: var(--blue-soft); color: var(--blue); } .tag.purple { background: #F2EAFB; color: #6a3aa6; } .tag.grey { background: #EDF1EF; color: #5d6e69; }
+    .notice { padding: 12px 14px; border-radius: 12px; background: var(--brand-soft); border: 1px solid rgba(10,127,108,.25); font-size: .9rem; }
+    .notice.danger { background: var(--danger-soft); border-color: rgba(187,59,47,.3); color: var(--danger-ink); }
+    code { font-family: var(--font-mono); font-size: .85em; background: rgba(16,35,31,.06); padding: 1px 5px; border-radius: 5px; }
+    .loading, .center { padding: 60px 16px; text-align: center; color: var(--muted); }
+    .spinner { display: inline-block; width: 18px; height: 18px; border: 3px solid var(--line); border-top-color: var(--brand); border-radius: 50%; animation: spin .9s linear infinite; vertical-align: -3px; margin-right: 8px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* hero */
+    .hero { position: relative; overflow: hidden; border-radius: 20px; padding: 24px 26px 20px; margin-bottom: 16px; color: #fff; background: var(--grad); box-shadow: 0 10px 30px rgba(11,99,119,.22); }
+    .hero::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(0deg, rgba(255,255,255,.035) 0 1px, transparent 1px 4px), radial-gradient(120% 90% at 85% 120%, rgba(6,58,72,.45), transparent 60%); }
+    .hero > * { position: relative; z-index: 1; }
+    .hero h1 { margin: 0 0 4px; font-size: 1.6rem; }
+    .hero-row { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+    .hero-k { font-size: .74rem; letter-spacing: .12em; text-transform: uppercase; opacity: .85; font-weight: 600; margin-bottom: 4px; }
+    .hero .sub { opacity: .92; font-size: .92rem; }
+    .hero-side { display: flex; align-items: center; gap: 10px; } .hint-w { font-size: .78rem; opacity: .85; }
+    .hero-btn { background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.4); color: #fff; } .hero-btn:hover { background: rgba(255,255,255,.26); }
+    .hero-go { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 18px; }
+    .go-card { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border-radius: 14px; border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.14);
+      color: #fff; text-decoration: none; text-align: left; cursor: pointer; transition: background .15s, transform .15s; }
+    .go-card:hover { background: rgba(255,255,255,.24); transform: translateY(-1px); }
+    .go-card.off { opacity: .6; cursor: default; transform: none; }
+    .go-card .gi { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; background: #fff; color: var(--brand-dark); font-size: 1.5rem; flex: none; }
+    .go-card .gt { flex: 1; min-width: 0; } .go-card b { display: block; font-family: var(--font-head); font-size: 1.2rem; } .go-card small { opacity: .92; font-size: .8rem; }
+    .go-card .ga { font-size: 1.5rem; }
+    /* kpis */
+    .pkpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .pk { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; background: #fff; border: 1px solid var(--line); border-radius: 14px; }
+    .pk .v { font-family: var(--font-mono); font-size: 1.8rem; font-weight: 600; line-height: 1.15; } .pk .l { font-weight: 600; font-size: .86rem; } .pk .s { font-size: .76rem; color: var(--muted); }
+    .pk.warn { box-shadow: inset 0 -3px 0 var(--warn); } .pk.warn .v { color: #8a5d05; } .pk.ok .v { color: var(--ok-ink); }
+    @media (max-width: 860px) { .pkpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    /* system cards */
+    .psystems { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr)); gap: 16px; }
+    .psys { display: flex; flex-direction: column; gap: 14px; }
+    .ps-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .ps-ic { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 13px; font-size: 1.5rem; flex: none; }
+    .ps-ic.food { background: var(--brand-soft); } .ps-ic.mech { background: #FFF1DD; }
+    .ps-t { flex: 1; min-width: 160px; } .ps-t h2 { margin: 0; font-size: 1.3rem; }
+    .pflow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+    .pflow li { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 10px 10px 12px; border-radius: 12px; background: var(--surface-2); min-width: 0; }
+    .pflow li:not(:last-child)::after { content: "›"; position: absolute; right: -6px; top: 12px; color: var(--muted); z-index: 1; }
+    .pflow li.hot { background: var(--warn-soft); } .pflow li:last-child { background: var(--ok-soft); }
+    .pf-n { font-family: var(--font-mono); font-size: 1.35rem; font-weight: 600; line-height: 1.1; } .pf-l { font-size: .74rem; color: var(--ink-2); line-height: 1.25; }
+    .pf-bar { height: 4px; border-radius: 2px; background: rgba(16,35,31,.08); margin-top: 6px; overflow: hidden; } .pf-bar i { display: block; height: 100%; background: var(--brand); }
+    @media (max-width: 560px) { .pflow { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pflow li::after { display: none; } .pflow li:last-child { grid-column: span 2; } }
+    .pms { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .pm { padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; } .pm b { display: block; font-family: var(--font-mono); font-size: 1.05rem; font-weight: 600; } .pm span { font-size: .74rem; color: var(--muted); }
+    @media (max-width: 560px) { .pms { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .banner-s { padding: 8px 12px; border-radius: 10px; font-size: .84rem; } .banner-s.red { background: var(--danger-soft); color: var(--danger-ink); } .banner-s.blue { background: var(--blue-soft); color: var(--blue); }
+    .ps-sub h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: .95rem; }
+    .pwait { list-style: none; margin: 0; padding: 0; }
+    .pwait li { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; } .pwait li:last-child { border-bottom: 0; }
+    .pwait .mono { font-size: .78rem; color: var(--muted); }
+    .pw-t { flex: 1; min-width: 120px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ptrend { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; align-items: end; height: 120px; }
+    .pt-col { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; } .pt-col span { font-size: .7rem; color: var(--muted); white-space: nowrap; }
+    .pt-bar { position: relative; flex: 1; width: 60%; max-width: 38px; border-radius: 6px 6px 0 0; background: var(--surface-2); }
+    .pt-bar i { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 6px 6px 0 0; } .pt-bar i.q { background: #A6DDCF; } .pt-bar i.w { background: var(--brand); left: 22%; right: 22%; }
+    .legend { display: flex; gap: 14px; margin-top: 6px; font-size: .8rem; color: var(--muted); }
+    .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; } .lg-q { background: #A6DDCF; } .lg-w { background: var(--brand); }
+    footer { padding: 16px; text-align: center; color: var(--muted); font-size: .78rem; }
+  </style>
+</head>
+<body>
+  <header class="top"><div class="top-in">
+    <div class="brand"><img class="logo" src="data:image/webp;base64,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" width="38" height="38" alt="M Global Sourcing"><div><b>MGS Price Request</b><small>M Global Sourcing Ltd. · หน้ารวม</small></div></div>
+    <span class="spacer"></span><div class="me" id="me"></div>
+  </div></header>
+  <main id="view" aria-live="polite"><div class="loading"><span class="spinner"></span>กำลังรวมข้อมูล Food + Mech...</div></main>
+  <footer>MGS Price Request Portal · เวอร์ชัน <?= version ?> · อ่านข้อมูลอย่างเดียว ไม่แก้ไขระบบ Food / Mech</footer>
+<script>
+(function () {
+  const $ = function (s, r) { return (r || document).querySelector(s); };
+  const $all = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  const esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  const nf0 = new Intl.NumberFormat('th-TH', { maximumFractionDigits: 0 });
+  const int = function (v) { return nf0.format(Math.round(v || 0)); };
+  const baht = function (v) { return v == null ? '–' : '฿' + int(v); };
+  const pct = function (v) { return v == null ? '–' : (Math.round(v * 10) / 10).toFixed(1) + '%'; };
+  const TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+  const month = function (ym) { const m = /^(\d{4})-(\d{2})$/.exec(ym || ''); return m ? TH[Number(m[2]) - 1] + ' ' + String(Number(m[1]) + 543).slice(-2) : ym; };
+  const dt = function (iso) { return new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok' }).format(new Date(iso)); };
+  const hours = function (h) { return h < 1 ? Math.round(h * 60) + ' นาที' : h < 48 ? Math.round(h) + ' ชม.' : Math.round(h / 24) + ' วัน'; };
+  const FLOW = [['req', 'คำขอราคา'], ['wip', 'กำลังทำราคา'], ['approval', 'รอผู้บริหารอนุมัติ'], ['ready', 'ราคาถึง Sales'], ['won', 'ปิดการขายได้']];
+
+  function call(force) {
+    return new Promise(function (resolve, reject) {
+      google.script.run.withSuccessHandler(function (r) { r && r.ok ? resolve(r.data) : reject(r || { error: 'ไม่มีคำตอบจากระบบ' }); })
+        .withFailureHandler(function (e) { reject({ error: (e && e.message) || 'เชื่อมต่อไม่สำเร็จ' }); }).getPortalData(!!force);
+    });
+  }
+  function flow(st) {
+    const max = Math.max.apply(null, FLOW.map(function (f) { return st[f[0]] || 0; }).concat([1]));
+    return '<ol class="pflow">' + FLOW.map(function (f) {
+      const n = st[f[0]] || 0;
+      return '<li class="' + (f[0] === 'approval' && n ? 'hot' : '') + '"><span class="pf-n">' + int(n) + '</span><span class="pf-l">' + esc(f[1]) + '</span>' +
+        '<span class="pf-bar"><i style="width:' + (n / max * 100) + '%"></i></span></li>';
+    }).join('') + '</ol>';
+  }
+  function trend(t) {
+    const max = Math.max.apply(null, t.map(function (x) { return x.quoted; }).concat([1]));
+    return '<div class="ptrend" role="img" aria-label="จำนวนที่เสนอราคาและปิดได้ 6 เดือนล่าสุด">' + t.map(function (x) {
+      return '<div class="pt-col" title="' + esc(month(x.month) + ' · เสนอ ' + x.quoted + ' · ปิดได้ ' + x.won) + '"><div class="pt-bar">' +
+        '<i class="q" style="height:' + (x.quoted / max * 100) + '%"></i><i class="w" style="height:' + (x.won / max * 100) + '%"></i></div><span>' + esc(month(x.month)) + '</span></div>';
+    }).join('') + '</div><div class="legend"><span><i class="lg-q"></i>เสนอราคา</span><span><i class="lg-w"></i>ปิดได้</span></div>';
+  }
+  const mini = function (v, l) { return '<div class="pm"><b>' + v + '</b><span>' + esc(l) + '</span></div>'; };
+  function head(kind, d) {
+    const food = kind === 'food';
+    const url = food ? d.links.food : d.links.mech;
+    return '<div class="ps-head"><span class="ps-ic ' + kind + '" aria-hidden="true">' + (food ? '🐟' : '⚡') + '</span><div class="ps-t"><h2>' + (food ? 'Food' : 'Mech') + '</h2>' +
+      '<div class="hint">' + (food ? 'อาหารแช่แข็ง · อาหารทะเล · สินค้าอาหารนำเข้า' : 'Solar · Inverter Sungrow · Mounting · Cable · EV Charger') + '</div></div>' +
+      (url ? '<a class="btn primary" href="' + esc(url) + '" target="_top" data-go="' + kind + '">เข้าระบบทำราคา ' + (food ? 'Food' : 'Mech') + ' →</a>' : '') + '</div>';
+  }
+  function notReady(kind, d, s) {
+    const prop = kind === 'food' ? 'FOOD_SHEET_ID' : 'MECH_SHEET_ID';
+    return '<section class="card psys">' + head(kind, d) + (s.error ? '<div class="notice danger">' + esc(s.error) + '</div>' :
+      '<div class="notice">ยังไม่ได้เชื่อมข้อมูล — ผู้ดูแลระบบตั้ง Script Property <code>' + prop + '</code> ของโปรเจกต์หน้ารวม แล้วกดรีเฟรช</div>') + '</section>';
+  }
+  function waitList(list, total, kind) {
+    return '<div class="ps-sub"><h3>รอผู้บริหารอนุมัติ <span class="tag ' + (total ? 'amber' : 'grey') + '">' + total + '</span></h3>' +
+      (list.length ? '<ul class="pwait">' + list.map(function (w) {
+        return '<li><span class="mono">' + esc(w.doc_no) + '</span><span class="pw-t">' + esc(w.title) + (w.customer && w.customer !== w.title ? ' · ' + esc(w.customer) : '') + '</span>' +
+          (kind === 'food' ? '<span class="tag ' + (w.stage === 'pending_gm' ? 'blue' : 'purple') + '">' + esc(w.label) + '</span><span class="hint">' + hours(w.age_hours) + '</span>'
+            : '<span class="tag amber">' + esc(w.label) + '</span><span class="mono" style="font-size:.84rem">' + baht(w.value_thb) + '</span>' + (w.gp != null ? '<span class="hint">GP ' + pct(w.gp) + '</span>' : '')) + '</li>';
+      }).join('') + '</ul>' : '<p class="hint">ไม่มีงานรออนุมัติ 🎉</p>') + '</div>';
+  }
+  function foodCard(d) {
+    const f = d.food;
+    if (!f.configured || f.error) return notReady('food', d, f);
+    return '<section class="card psys">' + head('food', d) +
+      flow({ req: f.stages.req, wip: f.stages.wip, approval: f.stages.approval, ready: f.open, won: f.won }) +
+      '<div class="pms">' + mini(baht(f.open_value), 'รอลูกค้าตัดสินใจ /เดือน') + mini(baht(f.won_value), 'ปิดได้แล้ว /เดือน') + mini(pct(f.gp_percent), 'GP % ที่เสนอ') + mini(pct(f.close_rate), 'อัตราปิดการขาย') + '</div>' +
+      (f.breach ? '<div class="banner-s red">⛔ เกิน SLA ' + f.breach + ' ใบ — ค้างในขั้นตอนนานเกินกำหนด</div>' : '') +
+      waitList(f.waiting, f.waiting_total, 'food') + '<div class="ps-sub"><h3>แนวโน้ม 6 เดือน</h3>' + trend(f.trend) + '</div></section>';
+  }
+  function mechCard(d) {
+    const m = d.mech;
+    if (!m.configured || m.error) return notReady('mech', d, m);
+    return '<section class="card psys">' + head('mech', d) +
+      flow({ req: m.stages.req, wip: m.stages.wip, approval: m.stages.approval + m.stages.approved, ready: m.stages.ready, won: m.stages.won }) +
+      '<div class="pms">' + mini(baht(m.ready_value), 'ราคาถึง Sales รอปิด') + mini(baht(m.won_value), 'ปิดได้แล้ว') + mini(pct(m.gp_percent), 'GP % ที่เสนอ') + mini(pct(m.close_rate), 'อัตราปิดการขาย') + '</div>' +
+      (m.stages.approved ? '<div class="banner-s blue">🔓 อนุมัติแล้ว รอปล่อยราคาให้ Sales ' + m.stages.approved + ' ใบ</div>' : '') +
+      (m.unconverted ? '<div class="hint">* ' + m.unconverted + ' ใบเป็นสกุลเงินอื่น ไม่ได้รวมในมูลค่า ฿</div>' : '') +
+      waitList(m.waiting, m.waiting_total, 'mech') + '<div class="ps-sub"><h3>แนวโน้ม 6 เดือน</h3>' + trend(m.trend) + '</div></section>';
+  }
+  function draw(d) {
+    $('#me').innerHTML = '<div>' + esc(d.me.name) + '</div><small>' + esc(d.me.email) + '</small>';
+    const f = d.food.configured && !d.food.error ? d.food : null, m = d.mech.configured && !d.mech.error ? d.mech : null;
+    const n = function (x) { return x || 0; };
+    const fOpen = f ? n(f.stages.req) + n(f.stages.wip) + n(f.stages.approval) : 0;
+    const mOpen = m ? n(m.stages.req) + n(m.stages.wip) + n(m.stages.approval) + n(m.stages.approved) : 0;
+    const both = function (a, b) { return (f ? 'Food ' + a : '') + (f && m ? ' · ' : '') + (m ? 'Mech ' + b : ''); };
+    const kpi = function (v, l, s, cls) { return '<div class="pk ' + (cls || '') + '"><span class="v">' + int(v) + '</span><span class="l">' + esc(l) + '</span><span class="s">' + esc(s) + '</span></div>'; };
+    const go = function (kind, url, title, sub, icon) {
+      return url ? '<a class="go-card" href="' + esc(url) + '" target="_top" data-go="' + kind + '"><span class="gi">' + icon + '</span><span class="gt"><b>' + title + '</b><small>' + esc(sub) + '</small></span><span class="ga">→</span></a>'
+        : '<span class="go-card off"><span class="gi">' + icon + '</span><span class="gt"><b>' + title + '</b><small>ยังไม่ได้ตั้งลิงก์ ' + (kind === 'food' ? 'FOOD' : 'MECH') + '_WEBAPP_URL</small></span></span>';
+    };
+    const waitF = f ? n(f.waiting_total) : 0, waitM = m ? n(m.waiting_total) : 0;
+    $('#view').innerHTML =
+      '<header class="hero"><div class="hero-row"><div><div class="hero-k">MGS · M Global Sourcing</div><h1>หน้ารวมการทำราคา</h1>' +
+        '<div class="sub">ภาพรวมงานทำราคาทั้ง 2 ระบบ — เลือก Food หรือ Mech เพื่อเข้าไปทำงานในระบบนั้น</div></div>' +
+        '<div class="hero-side"><span class="hint-w">อัปเดต ' + esc(dt(d.generated_at)) + '</span><button class="btn sm hero-btn" id="refresh">↻ รีเฟรช</button></div></div>' +
+        '<div class="hero-go">' + go('food', d.links.food, 'Food', 'MGS Food Price Request', '🐟') + go('mech', d.links.mech, 'Mech', 'MGS Project Pricing · Solar & Mechanical', '⚡') + '</div></header>' +
+      '<div class="pkpis">' + kpi(fOpen + mOpen, 'งานทำราคาที่เปิดอยู่', both(fOpen, mOpen)) +
+        kpi(waitF + waitM, 'รอผู้บริหารอนุมัติ', both(waitF, waitM), waitF + waitM ? 'warn' : '') +
+        kpi((f ? n(f.open) : 0) + (m ? n(m.stages.ready) : 0), 'ราคาถึง Sales · รอลูกค้า', both(f ? f.open : 0, m ? m.stages.ready : 0)) +
+        kpi((f ? n(f.won) : 0) + (m ? n(m.stages.won) : 0), 'ปิดการขายได้', both(f ? f.won : 0, m ? m.stages.won : 0), 'ok') + '</div>' +
+      '<div class="psystems">' + foodCard(d) + mechCard(d) + '</div>' +
+      '<p class="hint" style="text-align:center;margin-top:16px">มูลค่า Food = ราคาขาย × ปริมาณที่ลูกค้าใช้ต่อเดือน · มูลค่า Mech = ยอดรวมใบเสนอราคา (บาท) · ข้อมูลต้นทุน / GP เห็นเฉพาะผู้บริหาร · ข้อมูลอัปเดตทุก 5 นาที</p>';
+    $('#refresh').onclick = function () { load(true); };
+  }
+  function load(force) {
+    if (force) $('#refresh').disabled = true;
+    call(force).then(draw).catch(function (e) {
+      $('#view').innerHTML = '<div class="card center" style="max-width:560px;margin:40px auto"><h2>' + (e.code === 'FORBIDDEN' ? 'ไม่มีสิทธิ์เปิดหน้ารวม' : 'เปิดหน้ารวมไม่สำเร็จ') + '</h2>' +
+        '<p>' + esc(e.error) + '</p><button class="btn primary" onclick="location.reload()">ลองใหม่</button></div>';
+    });
+  }
+  load(false);
+})();
+</script>
+</body>
+</html>

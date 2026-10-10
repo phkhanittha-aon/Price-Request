@@ -56,3 +56,6 @@ docs/                     # เอกสารแต่ละ phase
 3. Deploy เป็น Web app (Execute as Me, Anyone within domain) → Run `installTriggers` — ดู [docs/phase2-webapp.md §4](docs/phase2-webapp.md)
 
 นักพัฒนา: `node dev/gas-local-runner.js tests` · `node dev/preview-server.js` แล้วเปิด http://localhost:8787/?as=mgr.food@example.co.th
+
+## วางขึ้น Apps Script
+ไฟล์พร้อมวางอยู่ใน [`deploy/`](deploy/README.md): ระบบ Food = `Code.gs` + `Index.html` + `appsscript.json` · หน้ารวม = `Code.gs` + `Portal.html` + `appsscript.json` (สร้างใหม่ด้วย `node dev/build-deploy.js`)
