@@ -14,7 +14,7 @@
 2. ลบโค้ดเดิมใน `Code.gs` → วางไฟล์ `Code.gs` · กด **+ › HTML** ตั้งชื่อ `Index` → วาง `Index.html` · เปิด manifest แล้ววาง `appsscript.json` · **Save**
 3. เลือกฟังก์ชัน **`setupDatabase`** → **Run** → อนุญาตสิทธิ์ (ระบบสร้าง Google Sheets ฐานข้อมูล + โฟลเดอร์ไฟล์แนบใน Drive ให้อัตโนมัติ)
 4. แท็บ **Users** ในไฟล์ Sheets ที่สร้าง: ใส่อีเมล + role (sales / manager / gm / sr / sr_manager / admin) + แผนก · แท็บ **Departments**: ใส่ manager_email
-5. (ไม่บังคับ) Run **`runAcceptanceTests`** → ต้องได้ ✅ 514/514 (ทดสอบในไฟล์ชั่วคราว ไม่แตะข้อมูลจริง)
+5. (ไม่บังคับ) Run **`runAcceptanceTests`** → ต้องได้ ✅ 518/518 (ทดสอบในไฟล์ชั่วคราว ไม่แตะข้อมูลจริง)
 6. **Lark FPR Bot + FPR Reminder** (Custom Bot 2 ตัวในกลุ่มเดียว เปิด signature verification) → Project Settings → **Script properties**:
    `FPR_BOT_URL`, `FPR_BOT_SECRET`, `FPR_REMINDER_URL`, `FPR_REMINDER_SECRET` (หรือใส่ทีหลังผ่านหน้าเว็บ เมนู **⚙️ ตั้งค่า Lark Bot** ของ Admin) → Run **`setup`** (ตรวจว่าครบ ✓) → Run **`testBots`** → Run **`installTriggers`**
    (DM รายคนผ่าน Lark App — ไม่บังคับ: `LARK_APP_ID`, `LARK_APP_SECRET` → `testLarkConnection`)

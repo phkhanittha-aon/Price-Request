@@ -171,7 +171,7 @@ function cardFacts_(t) {
   const priced = ['pending_sr_manager', 'pending_gm_price', 'awaiting_sales_ack', 'closed'].indexOf(t.stage) !== -1;
   return {
     no: String(t.ticket_no), customer: (t.customer_name || '-') + (t.customer_group ? ' · ' + t.customer_group : ''),
-    requester: req ? req.full_name : t.requestor_email, status: STAGE_LABEL_TH[t.stage] || t.stage,
+    requester: req ? req.full_name : t.requestor_email, requester_email: String(t.requestor_email || '').toLowerCase(), status: STAGE_LABEL_TH[t.stage] || t.stage,
     owner: owners.length ? owners.join(', ') : '-', deadline: sla ? fmtDate_(sla.due, 'dd/MM/yyyy HH:mm') : '',
     items: lines, priced: priced
   };
@@ -188,9 +188,15 @@ function buildCard_(opt) {
   if (f.items.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '**สินค้า**\n' + f.items.join('\n') } });
   if (f.priced) els.push({ tag: 'div', text: { tag: 'lark_md', content: '💰 **มีราคาแล้ว** — ดูราคาบนเว็บ (ต้นทุน / GP เฉพาะ Sourcing · Sourcing Manager · GM)' } });
   (opt.extra || []).filter(String).forEach(function (x) { els.push({ tag: 'div', text: { tag: 'lark_md', content: x } }); });
-  const mentions = (opt.mentions || []).map(function (e) { return String(e || '').trim().toLowerCase(); })
-    .filter(function (e, i, a) { return e && a.indexOf(e) === i; }).map(buildMention).filter(String);
-  if (mentions.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '👉 ' + mentions.join(' ') } });
+  // the requester is the owner of the request: tagged on every card (Settings › fpr_mention_owner), once only
+  const owner = toBool_(setting_('fpr_mention_owner', true)) ? String(f.requester_email || '').trim().toLowerCase() : '';
+  const actors = (opt.mentions || []).map(function (e) { return String(e || '').trim().toLowerCase(); })
+    .filter(function (e, i, a) { return e && a.indexOf(e) === i; });
+  const mentions = actors.filter(function (e) { return e !== owner; }).map(buildMention).filter(String);
+  const ownerTag = owner ? buildMention(owner) : '';
+  if (ownerTag) els.push({ tag: 'div', text: { tag: 'lark_md', content: '👤 **เจ้าของคำขอ:** ' + ownerTag } });
+  if (mentions.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '👉 ' + (ownerTag ? '**ผู้ต้องดำเนินการ:** ' : '') + mentions.join(' ') } });
+  else if (ownerTag && actors.indexOf(owner) !== -1) els.push({ tag: 'div', text: { tag: 'lark_md', content: '👉 **ผู้ต้องดำเนินการ:** เจ้าของคำขอ' } });
   if (/^https:\/\//.test(opt.link || '')) {
     els.push({ tag: 'action', actions: [{ tag: 'button', type: 'primary', text: { tag: 'plain_text', content: 'เปิดรายการ ' + f.no }, url: opt.link }] });
   }
@@ -401,7 +407,7 @@ function testBotSend(bot) {
     requireAdmin_(u);
     const c = BOT_PROPS_[bot];
     if (!c) throw appError_('VALIDATION', 'ไม่รู้จักบอท');
-    const facts = { no: 'FPR-TEST-0001', customer: 'ทดสอบการเชื่อมต่อ', requester: u.full_name, status: 'ทดสอบ', owner: u.full_name,
+    const facts = { no: 'FPR-TEST-0001', customer: 'ทดสอบการเชื่อมต่อ', requester: u.full_name, requester_email: '', status: 'ทดสอบ', owner: u.full_name,
       deadline: fmtDate_(new Date(), 'dd/MM/yyyy HH:mm'), items: ['• ทดสอบจากหน้า ⚙️ ตั้งค่า Lark Bot'], priced: false };
     const card = buildCard_({ color: bot === 'reminder' ? 'yellow' : 'blue', title: '[ทดสอบ] ' + c.name + ' เชื่อมต่อสำเร็จ', facts: facts,
       mentions: [u.email], link: fprLink_({ ticket_no: 'FPR-TEST-0001' }), extra: ['ถ้าชื่อคุณด้านล่างเป็นสีฟ้า = mention ทำงาน'] });
@@ -456,7 +462,7 @@ function installReminderTrigger() {
 function testBots() {
   requireAdminOrOwner_();
   const me = String(Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail() || '').toLowerCase();
-  const facts = { no: 'FPR-TEST-0001', customer: 'ลูกค้าทดสอบ · ร้านอาหาร', requester: me, status: 'ทดสอบ', owner: me,
+  const facts = { no: 'FPR-TEST-0001', customer: 'ลูกค้าทดสอบ · ร้านอาหาร', requester: me, requester_email: me, status: 'ทดสอบ', owner: me,
     deadline: fmtDate_(new Date(Date.now() + 4 * 3600000), 'dd/MM/yyyy HH:mm'),
     items: ['• #1 **กุ้งขาว Vannamei HLSO** (31/40 · NW 80% · 1 kg/pack) — 500 กก./เดือน', '• #2 **หมึกกล้วย IQF** (U/10) — 300 กก./เดือน'], priced: false };
   const link = fprLink_({ ticket_no: 'FPR-TEST-0001' });

@@ -17,16 +17,19 @@
  * Deployment settings: Execute as = Me (owner), Who has access = Anyone within <company domain>.
  */
 
-const PAGES_ = ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
+const PAGES_ = ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers', 'admin'];
 const PARTIALS_ = ['App', 'PageHome', 'PageDashboard', 'PageGp', 'PageDeals', 'PageTickets', 'PageTicket', 'PageForm', 'PageSuppliers', 'PagePricing', 'PageAdmin'];
 
 function doGet(e) {
   const t = HtmlService.createTemplateFromFile('Index');
   t.appVersion = APP_VERSION;
-  return t.evaluate()
+  const out = t.evaluate()
     .setTitle(CFG.APP_NAME)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+  // name of the icon when added to the phone's home screen ("Add to Home Screen")
+  try { out.addMetaTag('apple-mobile-web-app-title', 'MGS FPR'); } catch (err) { /* tag not allowed on this runtime */ }
+  return out;
 }
 
 /** Template helper: <?!= include_('App') ?> — whitelisted file names only. */

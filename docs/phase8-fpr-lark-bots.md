@@ -38,6 +38,7 @@ GP ต่ำกว่า 10% → แถบแดงในหน้าทำร�
 | **FPR Bot** | `FPR_BOT_URL`, `FPR_BOT_SECRET` | ทุกขั้นตอน workflow |
 | **FPR Reminder** | `FPR_REMINDER_URL`, `FPR_REMINDER_SECRET` | เกิน SLA เท่านั้น (trigger รายชั่วโมง) |
 
+- **ทุกการ์ด (FPR Bot + Reminder) แท็กเจ้าของคำขอ** (Sales ผู้ขอราคา) ในบรรทัด “👤 เจ้าของคำขอ” แยกจาก “👉 ผู้ต้องดำเนินการ” · ถ้าเจ้าของคำขอเป็นคนที่ต้องทำต่อ จะแท็กครั้งเดียว · ปิดได้ที่ Settings `fpr_mention_owner=false`
 - การ์ด interactive สีตามเหตุการณ์ · ปุ่มเปิดเว็บ `?page=ticket&id=FPR-yymm-nnnn` · mention `<at email=…>` (ถ้าแท็บ Users มี `lark_open_id` จะใช้ open_id แทน)
 - ลายเซ็น: `timestamp` + `sign = base64(HmacSHA256(key = timestamp + "\n" + secret, ""))`
 - ส่งหลังบันทึกข้อมูลสำเร็จเท่านั้น · ลอง 3 ครั้ง (1 วิ, 2 วิ) · ผลทุกครั้งเก็บในแท็บ **NotifLog** · ส่งไม่ได้ ≠ การอนุมัติล้มเหลว

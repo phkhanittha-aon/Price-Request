@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.10-5
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.10-6
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.10-5';
+const APP_VERSION = '2026.10.10-6';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -299,6 +299,7 @@ const DEFAULT_SETTINGS = [
   ['fpr_sla', JSON.stringify({ GM_REVIEW: { hours: 4 }, PRICING: { days: 2 }, SM_REVIEW: { hours: 4 }, GM_FINAL_REVIEW: { hours: 4 } }),
     'SLA ของ FPR นับเฉพาะเวลาทำงาน (work_hours) ไม่นับเสาร์-อาทิตย์และวันในแท็บ Holidays · hours = ชั่วโมงทำงาน, days = วันทำการ'],
   ['work_hours', JSON.stringify({ start: '08:30', end: '17:30', days: [1, 2, 3, 4, 5] }), 'เวลาทำงานสำหรับนับ SLA (days: 1 = จันทร์ … 6 = เสาร์, 7 = อาทิตย์)'],
+  ['fpr_mention_owner', 'true', 'การ์ด Lark ทุกใบ (FPR Bot + Reminder) แท็กเจ้าของคำขอ (Sales ผู้ขอราคา) ด้วย — false = แท็กเฉพาะผู้ต้องดำเนินการ'],
   ['reminder_repeat_work_hours', '8', 'FPR Reminder แจ้งซ้ำรายการเดิมได้ไม่เกิน 1 ครั้งต่อกี่ชั่วโมงทำงาน'],
   ['max_photos_per_quote', '10', 'จำนวนรูปสินค้าสูงสุดต่อ Supplier 1 เจ้า (ต่อใบเสนอราคา 1 รายการ)'],
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
@@ -5022,7 +5023,7 @@ function cardFacts_(t) {
   const priced = ['pending_sr_manager', 'pending_gm_price', 'awaiting_sales_ack', 'closed'].indexOf(t.stage) !== -1;
   return {
     no: String(t.ticket_no), customer: (t.customer_name || '-') + (t.customer_group ? ' · ' + t.customer_group : ''),
-    requester: req ? req.full_name : t.requestor_email, status: STAGE_LABEL_TH[t.stage] || t.stage,
+    requester: req ? req.full_name : t.requestor_email, requester_email: String(t.requestor_email || '').toLowerCase(), status: STAGE_LABEL_TH[t.stage] || t.stage,
     owner: owners.length ? owners.join(', ') : '-', deadline: sla ? fmtDate_(sla.due, 'dd/MM/yyyy HH:mm') : '',
     items: lines, priced: priced
   };
@@ -5039,9 +5040,15 @@ function buildCard_(opt) {
   if (f.items.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '**สินค้า**\n' + f.items.join('\n') } });
   if (f.priced) els.push({ tag: 'div', text: { tag: 'lark_md', content: '💰 **มีราคาแล้ว** — ดูราคาบนเว็บ (ต้นทุน / GP เฉพาะ Sourcing · Sourcing Manager · GM)' } });
   (opt.extra || []).filter(String).forEach(function (x) { els.push({ tag: 'div', text: { tag: 'lark_md', content: x } }); });
-  const mentions = (opt.mentions || []).map(function (e) { return String(e || '').trim().toLowerCase(); })
-    .filter(function (e, i, a) { return e && a.indexOf(e) === i; }).map(buildMention).filter(String);
-  if (mentions.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '👉 ' + mentions.join(' ') } });
+  // the requester is the owner of the request: tagged on every card (Settings › fpr_mention_owner), once only
+  const owner = toBool_(setting_('fpr_mention_owner', true)) ? String(f.requester_email || '').trim().toLowerCase() : '';
+  const actors = (opt.mentions || []).map(function (e) { return String(e || '').trim().toLowerCase(); })
+    .filter(function (e, i, a) { return e && a.indexOf(e) === i; });
+  const mentions = actors.filter(function (e) { return e !== owner; }).map(buildMention).filter(String);
+  const ownerTag = owner ? buildMention(owner) : '';
+  if (ownerTag) els.push({ tag: 'div', text: { tag: 'lark_md', content: '👤 **เจ้าของคำขอ:** ' + ownerTag } });
+  if (mentions.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '👉 ' + (ownerTag ? '**ผู้ต้องดำเนินการ:** ' : '') + mentions.join(' ') } });
+  else if (ownerTag && actors.indexOf(owner) !== -1) els.push({ tag: 'div', text: { tag: 'lark_md', content: '👉 **ผู้ต้องดำเนินการ:** เจ้าของคำขอ' } });
   if (/^https:\/\//.test(opt.link || '')) {
     els.push({ tag: 'action', actions: [{ tag: 'button', type: 'primary', text: { tag: 'plain_text', content: 'เปิดรายการ ' + f.no }, url: opt.link }] });
   }
@@ -5252,7 +5259,7 @@ function testBotSend(bot) {
     requireAdmin_(u);
     const c = BOT_PROPS_[bot];
     if (!c) throw appError_('VALIDATION', 'ไม่รู้จักบอท');
-    const facts = { no: 'FPR-TEST-0001', customer: 'ทดสอบการเชื่อมต่อ', requester: u.full_name, status: 'ทดสอบ', owner: u.full_name,
+    const facts = { no: 'FPR-TEST-0001', customer: 'ทดสอบการเชื่อมต่อ', requester: u.full_name, requester_email: '', status: 'ทดสอบ', owner: u.full_name,
       deadline: fmtDate_(new Date(), 'dd/MM/yyyy HH:mm'), items: ['• ทดสอบจากหน้า ⚙️ ตั้งค่า Lark Bot'], priced: false };
     const card = buildCard_({ color: bot === 'reminder' ? 'yellow' : 'blue', title: '[ทดสอบ] ' + c.name + ' เชื่อมต่อสำเร็จ', facts: facts,
       mentions: [u.email], link: fprLink_({ ticket_no: 'FPR-TEST-0001' }), extra: ['ถ้าชื่อคุณด้านล่างเป็นสีฟ้า = mention ทำงาน'] });
@@ -5307,7 +5314,7 @@ function installReminderTrigger() {
 function testBots() {
   requireAdminOrOwner_();
   const me = String(Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail() || '').toLowerCase();
-  const facts = { no: 'FPR-TEST-0001', customer: 'ลูกค้าทดสอบ · ร้านอาหาร', requester: me, status: 'ทดสอบ', owner: me,
+  const facts = { no: 'FPR-TEST-0001', customer: 'ลูกค้าทดสอบ · ร้านอาหาร', requester: me, requester_email: me, status: 'ทดสอบ', owner: me,
     deadline: fmtDate_(new Date(Date.now() + 4 * 3600000), 'dd/MM/yyyy HH:mm'),
     items: ['• #1 **กุ้งขาว Vannamei HLSO** (31/40 · NW 80% · 1 kg/pack) — 500 กก./เดือน', '• #2 **หมึกกล้วย IQF** (U/10) — 300 กก./เดือน'], priced: false };
   const link = fprLink_({ ticket_no: 'FPR-TEST-0001' });
@@ -5538,16 +5545,19 @@ function runSelfTest() {
  * Deployment settings: Execute as = Me (owner), Who has access = Anyone within <company domain>.
  */
 
-const PAGES_ = ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
+const PAGES_ = ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers', 'admin'];
 const PARTIALS_ = ['App', 'PageHome', 'PageDashboard', 'PageGp', 'PageDeals', 'PageTickets', 'PageTicket', 'PageForm', 'PageSuppliers', 'PagePricing', 'PageAdmin'];
 
 function doGet(e) {
   const t = HtmlService.createTemplateFromFile('Index');
   t.appVersion = APP_VERSION;
-  return t.evaluate()
+  const out = t.evaluate()
     .setTitle(CFG.APP_NAME)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+  // name of the icon when added to the phone's home screen ("Add to Home Screen")
+  try { out.addMetaTag('apple-mobile-web-app-title', 'MGS FPR'); } catch (err) { /* tag not allowed on this runtime */ }
+  return out;
 }
 
 /** Template helper: <?!= include_('App') ?> — whitelisted file names only. */
@@ -8012,6 +8022,22 @@ function runFprCases_(results) {
         'testBots: one sample card per event + one reminder, all sent');
       expectErr(as(U.salesFood1, function () { try { testBots(); return { ok: true }; } catch (e) { return { ok: false, code: e.code, error: e.message }; } }), 'FORBIDDEN',
         'testBots: Admin / owner only');
+      const own = newReq(U.salesFood2, 'ลูกค้าเจ้าของคำขอ');
+      const sub = botLog_(own.ticket_id, 'submitted')[0].summary;
+      ok(/👤 เจ้าของคำขอ: <at email=sales\.food2@/.test(sub) && /ผู้ต้องดำเนินการ: <at email=gm@/.test(sub), 'Owner tag: every card tags the requester as owner + who must act');
+      must(go(U.gm, own.ticket_id, 'gm_return', 'ขอรายละเอียดเพิ่ม'));
+      const ret = botLog_(own.ticket_id, 'returned')[0].summary;
+      ok((ret.match(/<at email=sales\.food2@/g) || []).length === 1 && /ผู้ต้องดำเนินการ: เจ้าของคำขอ/.test(ret), 'Owner tag: requester tagged once when they are also the one to act');
+      withLock_(function () { updateRow_(TAB.TICKETS, own.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000), last_reminded_at: '' }); });
+      must(go(U.salesFood2, own.ticket_id, 'resubmit'));
+      withLock_(function () { updateRow_(TAB.TICKETS, own.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000), last_reminded_at: '' }); });
+      as(U.admin, function () { return sendSlaReminders(); });
+      const rm = botLog_(own.ticket_id).filter(function (n) { return n.bot === 'FPR Reminder'; }).pop();
+      ok(rm && /เจ้าของคำขอ: <at email=sales\.food2@/.test(rm.summary), 'Owner tag: SLA reminder tags the owner too');
+      setTestSettings_({ fpr_mention_owner: 'false' });
+      const off = newReq(U.salesFood2, 'ลูกค้าปิดแท็ก');
+      ok(!/เจ้าของคำขอ/.test(botLog_(off.ticket_id, 'submitted')[0].summary), 'Owner tag: Settings fpr_mention_owner=false turns it off');
+      setTestSettings_({ fpr_mention_owner: 'true' });
       ok(buildMention(U.gm) === '<at email=' + U.gm + '></at>', 'Mention: <at email=…> by default');
       withLock_(function () { updateRow_(TAB.USERS, U.gm, { lark_open_id: 'ou_gm123' }); });
       ok(buildMention(U.gm) === '<at id=ou_gm123></at>', 'Mention: falls back to open_id when set on the user (mention not showing fix)');

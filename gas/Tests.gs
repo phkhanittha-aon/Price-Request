@@ -1915,6 +1915,22 @@ function runFprCases_(results) {
         'testBots: one sample card per event + one reminder, all sent');
       expectErr(as(U.salesFood1, function () { try { testBots(); return { ok: true }; } catch (e) { return { ok: false, code: e.code, error: e.message }; } }), 'FORBIDDEN',
         'testBots: Admin / owner only');
+      const own = newReq(U.salesFood2, 'ลูกค้าเจ้าของคำขอ');
+      const sub = botLog_(own.ticket_id, 'submitted')[0].summary;
+      ok(/👤 เจ้าของคำขอ: <at email=sales\.food2@/.test(sub) && /ผู้ต้องดำเนินการ: <at email=gm@/.test(sub), 'Owner tag: every card tags the requester as owner + who must act');
+      must(go(U.gm, own.ticket_id, 'gm_return', 'ขอรายละเอียดเพิ่ม'));
+      const ret = botLog_(own.ticket_id, 'returned')[0].summary;
+      ok((ret.match(/<at email=sales\.food2@/g) || []).length === 1 && /ผู้ต้องดำเนินการ: เจ้าของคำขอ/.test(ret), 'Owner tag: requester tagged once when they are also the one to act');
+      withLock_(function () { updateRow_(TAB.TICKETS, own.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000), last_reminded_at: '' }); });
+      must(go(U.salesFood2, own.ticket_id, 'resubmit'));
+      withLock_(function () { updateRow_(TAB.TICKETS, own.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000), last_reminded_at: '' }); });
+      as(U.admin, function () { return sendSlaReminders(); });
+      const rm = botLog_(own.ticket_id).filter(function (n) { return n.bot === 'FPR Reminder'; }).pop();
+      ok(rm && /เจ้าของคำขอ: <at email=sales\.food2@/.test(rm.summary), 'Owner tag: SLA reminder tags the owner too');
+      setTestSettings_({ fpr_mention_owner: 'false' });
+      const off = newReq(U.salesFood2, 'ลูกค้าปิดแท็ก');
+      ok(!/เจ้าของคำขอ/.test(botLog_(off.ticket_id, 'submitted')[0].summary), 'Owner tag: Settings fpr_mention_owner=false turns it off');
+      setTestSettings_({ fpr_mention_owner: 'true' });
       ok(buildMention(U.gm) === '<at email=' + U.gm + '></at>', 'Mention: <at email=…> by default');
       withLock_(function () { updateRow_(TAB.USERS, U.gm, { lark_open_id: 'ou_gm123' }); });
       ok(buildMention(U.gm) === '<at id=ou_gm123></at>', 'Mention: falls back to open_id when set on the user (mention not showing fix)');
