@@ -1,0 +1,78 @@
+<!--
+  File: PageAdmin.html
+  ⚙️ ตั้งค่า Lark Bot (?page=admin) — Admin only (server refuses everyone else).
+  FPR Bot (every workflow step) + FPR Reminder (SLA breaches): Webhook URL + Secret are saved to
+  Script Properties by the server; the browser never receives them back (URL shown masked, Secret as ✓).
+-->
+<script>
+Pages.admin = (function () {
+  function badge(ok, yes, no) { return '<span class="sla ' + (ok ? 'ok">✓ ' + yes : 'breach">✗ ' + no) + '</span>'; }
+  function lastHtml(l) {
+    if (!l) return '<span class="muted">ยังไม่เคยส่ง</span>';
+    const st = l.status === 'sent' ? '<span class="sla ok">ส่งสำเร็จ</span>' : l.status === 'not_configured' ? '<span class="sla warning">ยังไม่ได้ตั้งค่า</span>' : '<span class="sla breach">ส่งไม่สำเร็จ</span>';
+    return esc(l.ts) + ' · ' + esc(l.event) + ' · ' + st + (l.status === 'failed' ? '<div class="small muted">' + esc(l.http_code) + ' ' + esc(l.response) + '</div>' : '');
+  }
+  function botCard(b) {
+    return '<section class="card" data-bot="' + esc(b.key) + '"><h3>' + (b.key === 'fpr' ? '🤖 ' : '⏰ ') + esc(b.name) +
+      ' <span class="small muted">' + (b.key === 'fpr' ? 'แจ้งทุกขั้นตอน workflow' : 'แจ้งเฉพาะงานที่เกิน SLA (ทุกชั่วโมง)') + '</span></h3>' +
+      '<dl class="kv small"><dt>Webhook URL</dt><dd>' + badge(b.url_set, 'ตั้งแล้ว', 'ยังไม่ได้ตั้ง') + ' <code>' + esc(b.url_masked) + '</code>' +
+      (b.url_valid ? '' : ' <span class="sla breach">⚠ ไม่ใช่ลิงก์ Lark webhook</span>') + '</dd>' +
+      '<dt>Secret</dt><dd>' + badge(b.secret_set, 'ตั้งแล้ว (ซ่อนไว้)', 'ยังไม่ได้ตั้ง') + '</dd>' +
+      '<dt>ส่งล่าสุด</dt><dd>' + lastHtml(b.last) + '</dd></dl>' +
+      '<div class="fgrid two" style="margin-top:8px">' +
+      '<label class="field"><span>Webhook URL ใหม่</span><input type="url" data-k="url" style="width:100%" autocomplete="off" placeholder="https://open.larksuite.com/open-apis/bot/v2/hook/…"></label>' +
+      '<label class="field"><span>Secret ใหม่</span><input type="password" data-k="secret" style="width:100%" autocomplete="new-password" placeholder="จาก Security settings → Signature verification"></label></div>' +
+      '<div class="small muted">เว้นว่างช่องที่ไม่ต้องการเปลี่ยน · ค่าที่บันทึกเก็บใน Script Properties (<code>' + esc(b.url_prop) + '</code>, <code>' + esc(b.secret_prop) + '</code>) ไม่อยู่ใน Sheet</div>' +
+      '<div class="actions" style="margin-top:8px"><button class="btn primary" data-save>💾 บันทึก</button><button class="btn" data-test>📨 ส่งการ์ดทดสอบ</button>' +
+      (b.url_set || b.secret_set ? '<button class="btn danger ghost" data-clear>ลบค่า</button>' : '') + '</div><div class="small" data-out></div></section>';
+  }
+  function draw(view, d) {
+    view.innerHTML = '<div class="page-head"><h1>⚙️ ตั้งค่า Lark Bot</h1></div>' +
+      '<div class="card small"><b>วิธีสร้างบอท (ทำ 2 ตัวในกลุ่มเดียวกัน):</b> กลุ่ม Lark → ⚙️ Settings → <b>Bots → Add Bot → Custom Bot</b> → ตั้งชื่อ “FPR Bot” / “FPR Reminder” → ' +
+      '<b>Security settings: ✅ Set signature verification</b> (ไม่ต้องตั้ง keywords / IP) → คัดลอก Webhook URL และ Secret มาวางด้านล่าง → บันทึก → กด “ส่งการ์ดทดสอบ”' +
+      (d.failed_24h ? '<div class="notice warn" style="margin-top:8px">มีการ์ดส่งไม่สำเร็จ ' + d.failed_24h + ' ครั้งใน 24 ชม. — ดูรายละเอียดในแท็บ NotifLog</div>' : '') + '</div>' +
+      d.bots.map(botCard).join('') +
+      '<section class="card"><h3>🔗 ลิงก์เว็บแอป (ปุ่ม “เปิดใบขอราคา” ในการ์ด)</h3><div class="small">ปัจจุบัน: ' + (d.webapp_url ? '<code>' + esc(d.webapp_url) + '</code>' : '<span class="sla warning">ยังไม่ได้ตั้ง — ใช้ลิงก์ของ deployment ปัจจุบันแทน</span>') + '</div>' +
+      '<div class="fgrid two" style="margin-top:8px"><label class="field"><span>Web app URL (/exec)</span><input type="url" id="ad-webapp" style="width:100%" placeholder="https://script.google.com/a/macros/mglobalsourcing.net/s/…/exec" value="' + esc(d.webapp_url) + '"></label></div>' +
+      '<div class="actions"><button class="btn" id="ad-webapp-save">💾 บันทึกลิงก์</button></div></section>';
+    $all('[data-bot]', view).forEach(function (card) {
+      const bot = card.getAttribute('data-bot');
+      const out = $('[data-out]', card);
+      $('[data-save]', card).onclick = function () {
+        out.textContent = 'กำลังบันทึก...';
+        api('saveBotSettings', bot, { url: $('[data-k="url"]', card).value, secret: $('[data-k="secret"]', card).value }).then(function (r) {
+          toast('บันทึก ' + r.saved.join(' + ') + ' แล้ว', 'ok');
+          load(view);
+        }).catch(function (e) { out.innerHTML = '<span class="sla breach">' + esc(e.error) + '</span>'; });
+      };
+      $('[data-test]', card).onclick = function () {
+        out.textContent = 'กำลังส่งการ์ดทดสอบ...';
+        api('testBotSend', bot).then(function (r) {
+          out.innerHTML = r.status === 'sent' ? '<span class="sla ok">✓ ส่งสำเร็จ — ตรวจในกลุ่ม Lark ว่าเห็นการ์ดและชื่อคุณเป็นสีฟ้า</span>'
+            : '<span class="sla breach">✗ ' + esc(r.hint || r.status) + '</span>';
+        }).catch(function (e) { out.innerHTML = '<span class="sla breach">' + esc(e.error) + '</span>'; });
+      };
+      const clr = $('[data-clear]', card);
+      if (clr) clr.onclick = function () {
+        dialog({ title: 'ลบค่าของบอทนี้?', message: 'ลบ Webhook URL และ Secret — บอทนี้จะหยุดส่งการ์ดจนกว่าจะตั้งค่าใหม่', danger: true, confirmText: 'ลบค่า' }).then(function (ok) {
+          if (!ok) return;
+          api('saveBotSettings', bot, { clear: true }).then(function () { toast('ลบค่าแล้ว', 'ok'); load(view); }).catch(function (e) { toast(e.error, 'err'); });
+        });
+      };
+    });
+    $('#ad-webapp-save', view).onclick = function () {
+      api('saveWebappUrl', $('#ad-webapp', view).value).then(function () { toast('บันทึกลิงก์แล้ว', 'ok'); load(view); }).catch(function (e) { toast(e.error, 'err', 9000); });
+    };
+  }
+  function load(view) {
+    api('getBotSettings').then(function (d) { draw(view, d); }).catch(function (e) { view.innerHTML = errorHtml(e, 'App.reload()'); });
+  }
+  return {
+    render: function (view) {
+      if (state.me.role !== 'admin') { go({ page: 'home' }, true); return; }
+      view.innerHTML = loadingHtml();
+      load(view);
+    }
+  };
+})();
+</script>

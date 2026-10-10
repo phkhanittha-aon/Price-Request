@@ -522,7 +522,7 @@ function setItemQuoteStatus(ticketId, itemId, status, reason, expectedVersion) {
     return withLock_(function () {
       const u = currentUser_();
       const t = ticketForUser_(u, ticketId);
-      if (!(u.role === 'sr' && t.sr_email === u.email && (t.stage === 'sourcing' || t.stage === 'doc_check'))) {
+      if (!((u.role === 'admin' || (u.role === 'sr' && t.sr_email === u.email)) && (t.stage === 'sourcing' || t.stage === 'doc_check'))) {
         throw appError_('FORBIDDEN', 'ตั้งสถานะรายการได้เฉพาะ SR ผู้รับงาน ในขั้นตอนตรวจเอกสาร / หาราคา');
       }
       requireVersion_(t, expectedVersion);

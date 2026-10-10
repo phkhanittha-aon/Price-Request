@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.10-4
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.10-5
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.10-4';
+const APP_VERSION = '2026.10.10-5';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -208,9 +208,9 @@ const SCHEMA = {
 const ROLES = ['sales', 'manager', 'gm', 'sr', 'sr_manager', 'admin'];
 const ROLE_LABEL_TH = { sales: 'Sales', manager: 'Sales Manager', gm: 'GM', sr: 'SR (Sourcing)', sr_manager: 'SR Manager', admin: 'Admin' };
 
-const STATUS = ['requested', 'on_process', 'completed', 'closed', 'rejected'];
+const STATUS = ['requested', 'on_process', 'completed', 'closed', 'rejected', 'deleted'];
 const STATUS_LABEL_TH = {
-  requested: 'Requested', on_process: 'On Process', completed: 'Completed', closed: 'Closed', rejected: 'Rejected'
+  requested: 'Requested', on_process: 'On Process', completed: 'Completed', closed: 'Closed', rejected: 'Rejected', deleted: 'Deleted'
 };
 
 /** stage → main status. Stage tells WHO the ticket is waiting for. */
@@ -227,7 +227,8 @@ const STAGE_STATUS = {
   awaiting_sales_ack: 'completed',
   closed: 'closed',
   rejected: 'rejected',
-  cancelled: 'rejected'
+  cancelled: 'rejected',
+  deleted: 'deleted'      // removed by Admin (soft delete — only Admin sees it, can restore)
 };
 
 const STAGE_LABEL_TH = {
@@ -243,7 +244,8 @@ const STAGE_LABEL_TH = {
   awaiting_sales_ack: 'รอ Sales รับทราบราคา',
   closed: 'ปิดงาน',
   rejected: 'ไม่อนุมัติ',
-  cancelled: 'ยกเลิก'
+  cancelled: 'ยกเลิก',
+  deleted: 'ถูกลบ (Admin)'
 };
 
 const OPEN_STATUSES = ['requested', 'on_process', 'completed'];
@@ -1015,6 +1017,7 @@ function departmentByCode_(code) {
 // ---------------------------------------------------------------- Ticket-level permissions
 
 function canSeeTicket_(u, t) {
+  if (t.stage === 'deleted') return u.role === 'admin';   // deleted by Admin: hidden from everyone else
   switch (u.role) {
     case 'admin':
     case 'gm':
@@ -1050,6 +1053,7 @@ function canViewSellPrice_(u, t) {
 
 /** Sales may edit header/items only before Manager approval (or after Manager returned it). */
 function canEditRequest_(u, t) {
+  if (u.role === 'admin') return ['pending_manager', 'returned', 'pending_gm'].indexOf(t.stage) !== -1;   // Admin fixes it for Sales until GM approves
   return u.role === 'sales' && t.requestor_email === u.email &&
     (t.stage === 'pending_manager' || t.stage === 'returned');
 }
@@ -1060,6 +1064,7 @@ function canEditRequest_(u, t) {
  * so a reviewer can fix the price and approve, instead of sending it back to the SR.
  */
 function canEditQuotes_(u, t) {
+  if (u.role === 'admin') return ['sourcing', 'pending_sr_manager', 'pending_gm_price'].indexOf(t.stage) !== -1;
   if (u.role === 'sr') return t.sr_email === u.email && t.stage === 'sourcing';
   if (u.role === 'sr_manager') return t.stage === 'pending_sr_manager' && t.sr_email !== u.email;
   if (u.role === 'gm') return t.stage === 'pending_gm_price';
@@ -1067,15 +1072,69 @@ function canEditQuotes_(u, t) {
 }
 
 function canEditChecklist_(u, t) {
+  if (u.role === 'admin') return t.stage === 'doc_check';
   return u.role === 'sr' && t.sr_email === u.email && t.stage === 'doc_check';
 }
 
 function canUpload_(u, t) {
+  if (u.role === 'admin') return OPEN_STATUSES.indexOf(t.status) !== -1;
   if (u.role === 'sales' && t.requestor_email === u.email) {
     // until GM approves (pending_gm included: the Sales Manager step may be skipped right after submit)
     return ['pending_manager', 'returned', 'pending_gm', 'need_info'].indexOf(t.stage) !== -1;
   }
   return u.role === 'sr' && t.sr_email === u.email && t.status === 'on_process';
+}
+
+// ---------------------------------------------------------------- Admin acting on behalf of others
+
+/** Actions Admin does as Admin (not on behalf of anyone). */
+const ADMIN_OWN_ACTIONS_ = ['assign', 'admin_cancel', 'admin_delete', 'admin_restore'];
+const SALES_ACTIONS_ = ['resubmit', 'cancel', 'respond_info', 'accept', 'request_revision'];
+const SR_ACTIONS_ = ['request_info', 'doc_complete', 'submit_quote'];
+
+function asUser_(email, role) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return null;
+  const x = userByEmail_(e);
+  if (x) return x;
+  return { email: e, full_name: e, role: role, department_code: '', is_active: false };
+}
+function firstActive_(role, notEmail) {
+  return activeUsersByRole_(role).filter(function (x) { return x.email !== notEmail; })[0] || null;
+}
+
+/**
+ * Admin may do every step of the workflow. The step runs with the identity of the person who is
+ * responsible for it (requester, Sales Manager, GM, assigned SR, SR Manager) so every business rule
+ * still applies; the log records Admin as the actor and that person as "on behalf of".
+ * Returns null when no such person exists.
+ */
+function proxyUserFor_(t, action, payload) {
+  if (SALES_ACTIONS_.indexOf(action) !== -1) return asUser_(t.requestor_email, 'sales');
+  if (/^manager_/.test(action)) {
+    const d = departmentByCode_(t.department_code);
+    return asUser_((d && d.manager_email) || t.manager_email, 'manager');
+  }
+  if (/^gm_/.test(action)) {
+    const g = t.gm_email ? userByEmail_(t.gm_email) : null;
+    return g && g.is_active && g.role === 'gm' ? g : firstActive_('gm', '');
+  }
+  if (action === 'claim') {
+    const s = userByEmail_(payload && payload.sr_email);
+    return s && s.is_active && s.role === 'sr' ? s : null;
+  }
+  if (action === 'queue_return') return firstActive_('sr_manager', '') || firstActive_('sr', '');
+  if (/^srm_/.test(action)) return firstActive_('sr_manager', t.sr_email);
+  if (SR_ACTIONS_.indexOf(action) !== -1) return asUser_(t.sr_email, 'sr');
+  return null;
+}
+
+/** Everyone whose buttons Admin also gets on this ticket (UI hint; doTransition_ re-checks). */
+function proxyCandidates_(t) {
+  const d = departmentByCode_(t.department_code);
+  return [asUser_(t.requestor_email, 'sales'), asUser_((d && d.manager_email) || t.manager_email, 'manager'),
+    firstActive_('gm', ''), asUser_(t.sr_email, 'sr'), firstActive_('sr_manager', t.sr_email), firstActive_('sr', '')]
+    .filter(function (x) { return x && x.role !== 'admin'; });
 }
 
 // ---------------------------------------------------------------- Ticket loading
@@ -1522,12 +1581,12 @@ function itemStatusLine_(it) {
 const TRANSITION_ACTIONS = ['resubmit', 'cancel', 'manager_approve', 'manager_reject', 'manager_return',
   'gm_approve', 'gm_reject', 'claim', 'queue_return', 'assign', 'request_info', 'respond_info', 'doc_complete',
   'submit_quote', 'srm_approve', 'srm_return', 'gm_price_approve', 'gm_price_return', 'accept', 'request_revision',
-  'gm_price_reject', 'admin_cancel', 'srm_reject', 'gm_return'];
+  'gm_price_reject', 'admin_cancel', 'srm_reject', 'gm_return', 'admin_delete', 'admin_restore'];
 
 const ACTION_LABEL_TH = {
   create: 'สร้างใบขอราคา', resubmit: 'ส่งใบขอราคาอีกครั้ง', cancel: 'ยกเลิกใบขอราคา',
   manager_approve: 'Sales Manager อนุมัติ', manager_reject: 'Sales Manager ไม่อนุมัติ', manager_return: 'Sales Manager ส่งกลับแก้ไข',
-  deal_update: 'อัปเดตผลการขาย', gm_price_reject: 'GM ปฏิเสธราคา', srm_reject: 'SR Manager ปฏิเสธ', gm_return: 'GM ตีกลับให้ผู้ขอแก้ไข', admin_cancel: 'ผู้ดูแลระบบยกเลิกใบ', gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
+  deal_update: 'อัปเดตผลการขาย', gm_price_reject: 'GM ปฏิเสธราคา', srm_reject: 'SR Manager ปฏิเสธ', gm_return: 'GM ตีกลับให้ผู้ขอแก้ไข', admin_cancel: 'ผู้ดูแลระบบยกเลิกใบ', admin_delete: 'ผู้ดูแลระบบลบใบขอราคา', admin_restore: 'ผู้ดูแลระบบกู้คืนใบขอราคา', gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
   request_info: 'SR ขอข้อมูลเพิ่ม', respond_info: 'Sales ส่งข้อมูลเพิ่ม', doc_complete: 'SR ตรวจเอกสารครบ',
   submit_quote: 'SR ส่งราคาให้ SR Manager ตรวจ', srm_approve: 'SR Manager อนุมัติราคา', srm_return: 'SR Manager ส่งกลับให้แก้ราคา',
   gm_price_approve: 'GM อนุมัติฝั่งซื้อ (ราคา → ส่งถึง Sales)', gm_price_return: 'GM ฝั่งซื้อ ส่งกลับให้แก้ราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
@@ -1548,7 +1607,14 @@ function createTicket(payload) {
   return api_('createTicket', function () {
     const p = payload || {};
     return withLock_(function () {
-      const u = currentUser_();
+      const actor = currentUser_();
+      let u = actor;
+      if (actor.role === 'admin') {
+        // Admin creates the request for a Sales person (the request belongs to that Sales)
+        const s = userByEmail_(p.requestor_email);
+        if (!s || !s.is_active || s.role !== 'sales') throw appError_('VALIDATION', 'กรุณาเลือก Sales ผู้ขอราคา (Admin สร้างใบแทน Sales)');
+        u = s;
+      }
       requireRole_(u, ['sales'], 'เฉพาะ Sales เท่านั้นที่สร้างใบขอราคาได้');
 
       const clientKey = cleanText_(p.client_key, 64);
@@ -1628,15 +1694,15 @@ function createTicket(payload) {
       insertRows_(TAB.ITEMS, cleanItems);
       appendLog_({
         ticket_id: ticketId, log_type: 'transition', action: 'create',
-        actor_email: u.email, actor_role: u.role,
+        actor_email: actor.email, actor_role: actor.role,
         to_status: 'requested', to_stage: firstStage,
-        metadata: { ticket_no: ticket.ticket_no, item_count: cleanItems.length,
-          sales_manager_skipped: firstStage === 'pending_gm' }
+        metadata: Object.assign({ ticket_no: ticket.ticket_no, item_count: cleanItems.length,
+          sales_manager_skipped: firstStage === 'pending_gm' }, actor !== u ? { on_behalf_of: u.email, on_behalf_role: u.role } : {})
       });
 
       const t = normTicket_(ticket);
       enqueueNotifications_(stageAssignees_(t), t, 'approval_required',
-        '[' + t.ticket_no + '] ใบขอราคาใหม่รออนุมัติ', t.title + ' — ' + u.full_name, ticketLink_(t));
+        '[' + t.ticket_no + '] ใบขอราคาใหม่รออนุมัติ', t.title + ' — ' + u.full_name + (actor !== u ? ' (Admin สร้างแทน)' : ''), ticketLink_(t));
       if (t.stage === 'pending_gm') queueFprCard_('submitted', t, {});
       return { ticket: publicTicket_(t), duplicate: false };
     });
@@ -1656,13 +1722,24 @@ function transitionTicket(ticketId, action, comment, payload) {
 }
 
 function doTransition_(ticketId, action, comment, payload) {
-  const u = currentUser_();
-  const t = ticketForUser_(u, ticketId);
+  const actor = currentUser_();
+  const t = ticketForUser_(actor, ticketId);
   requireVersion_(t, payload.expected_version);
   const note = cleanText_(comment, CFG.MAX_COMMENT);
   if (TRANSITION_ACTIONS.indexOf(action) === -1) {
     throw appError_('INVALID_ACTION', 'ไม่รู้จักคำสั่ง "' + cleanText_(action, 50) + '"');
   }
+  // Admin may do any step: it runs as the responsible person (all rules apply), logged as Admin
+  let u = actor;
+  if (actor.role === 'admin' && ADMIN_OWN_ACTIONS_.indexOf(action) === -1) {
+    if (t.stage === 'deleted') throw appError_('INVALID_STATE', 'ใบนี้ถูกลบแล้ว — กู้คืนก่อนจึงจะทำรายการต่อได้');
+    u = proxyUserFor_(t, action, payload);
+    if (!u) {
+      throw appError_(action === 'claim' ? 'INVALID_ASSIGNEE' : 'NO_PROXY', action === 'claim'
+        ? 'กรุณาเลือก SR ที่จะรับงานนี้' : 'ไม่พบผู้รับผิดชอบขั้นนี้ที่ใช้งานอยู่ (ตรวจแท็บ Users)');
+    }
+  }
+  const onBehalf = u !== actor ? u : null;
 
   const now = new Date();
   const patch = {};
@@ -1871,7 +1948,7 @@ function doTransition_(ticketId, action, comment, payload) {
       if (t.stage !== 'pending_sr_manager') badState();
       if (action === 'srm_approve') {
         meta = validateQuotesForSubmit_(t);
-        reviewerEdits_(u, t, meta, now, extraRecipients);
+        reviewerEdits_(u, t, meta, now, extraRecipients, actor);
         patch.stage = 'pending_gm_price';
         patch.sr_manager_email = u.email;
         patch.sr_manager_approved_at = now;
@@ -1916,6 +1993,25 @@ function doTransition_(ticketId, action, comment, payload) {
       extraRecipients = [t.requestor_email, t.sr_email];
       break;
     }
+    case 'admin_delete': {
+      // soft delete: hidden from everyone except Admin, all rows kept (audit), reversible with admin_restore
+      if (u.role !== 'admin') forbid('เฉพาะผู้ดูแลระบบเท่านั้นที่ลบใบขอราคาได้');
+      if (t.stage === 'deleted') badState('ใบนี้ถูกลบไปแล้ว');
+      needComment('กรุณาระบุเหตุผลที่ลบ');
+      patch.stage = 'deleted';
+      meta = { stage_before: t.stage };
+      notifyType = 'none';
+      break;
+    }
+    case 'admin_restore': {
+      if (u.role !== 'admin') forbid('เฉพาะผู้ดูแลระบบเท่านั้น');
+      if (t.stage !== 'deleted') badState('ใบนี้ไม่ได้ถูกลบ');
+      const del = findAll_(TAB.LOGS, 'ticket_id', t.ticket_id).filter(function (l) { return l.action === 'admin_delete'; }).pop();
+      const back = del ? String(del.from_stage || '') : '';
+      patch.stage = STAGE_STATUS[back] && back !== 'deleted' ? back : 'cancelled';
+      notifyType = 'none';
+      break;
+    }
     case 'admin_cancel': {
       if (u.role !== 'admin') forbid('เฉพาะผู้ดูแลระบบเท่านั้น');
       if (OPEN_STATUSES.indexOf(t.status) === -1) badState('ใบนี้ปิดไปแล้ว');
@@ -1932,7 +2028,7 @@ function doTransition_(ticketId, action, comment, payload) {
       if (t.stage !== 'pending_gm_price') badState();
       if (action === 'gm_price_approve') {
         meta = validateQuotesForSubmit_(t);
-        reviewerEdits_(u, t, meta, now, extraRecipients);
+        reviewerEdits_(u, t, meta, now, extraRecipients, actor);
         patch.stage = 'awaiting_sales_ack';
         patch.gm_price_approved_at = now;
         patch.completed_at = now;
@@ -1979,25 +2075,27 @@ function doTransition_(ticketId, action, comment, payload) {
     generateChecklist_(saved.ticket_id);
   }
 
+  if (onBehalf) meta = Object.assign({}, meta, { on_behalf_of: onBehalf.email, on_behalf_role: onBehalf.role });
   appendLog_({
     ticket_id: t.ticket_id, log_type: 'transition', action: action,
-    actor_email: u.email, actor_role: u.role,
+    actor_email: actor.email, actor_role: actor.role,
     from_status: t.status, to_status: saved.status,
     from_stage: t.stage, to_stage: saved.stage,
     comment: note, metadata: meta,
     stage_duration_sec: stageChanged && t.stage_entered_at ? (now.getTime() - new Date(t.stage_entered_at).getTime()) / 1000 : null
   });
 
+  if (notifyType === 'none') return { ticket: publicTicket_(saved) };   // delete / restore: no notifications, no group card
   let recipients = stageAssignees_(saved).concat(extraRecipients);
   if (saved.stage === 'rejected' || saved.stage === 'closed') recipients.push(saved.requestor_email);
   const page = ['doc_check', 'sourcing'].indexOf(saved.stage) !== -1 ? 'pricing' : 'ticket';
   if (saved.stage === 'sourcing' && (action === 'srm_return' || action === 'gm_price_return')) recipients.push(saved.sr_email);
   const nTitle = '[' + saved.ticket_no + '] ' + STAGE_LABEL_TH[saved.stage];
-  const nBody = ACTION_LABEL_TH[action] + ' โดย ' + u.full_name + ' — ' + saved.title;
+  const nBody = ACTION_LABEL_TH[action] + ' โดย ' + actor.full_name + (onBehalf ? ' (แทน ' + onBehalf.full_name + ')' : '') + ' — ' + saved.title;
   if (PRICE_REVIEW_ACTIONS_.indexOf(action) !== -1) {
     // reviewer comments may discuss cost / GP → only cost roles get them; Sales side gets the status line
     const isCost = function (e) { const x = userByEmail_(e); return !!x && COST_ROLES_.indexOf(x.role) !== -1; };
-    const edited = meta && meta.reviewer_changes ? '\n✏️ ' + u.full_name + ' แก้ไขราคา ' + meta.reviewer_changes + ' ครั้งก่อนอนุมัติ (ดูใน Timeline)' : '';
+    const edited = meta && meta.reviewer_changes ? '\n✏️ ' + actor.full_name + ' แก้ไขราคา ' + meta.reviewer_changes + ' ครั้งก่อนอนุมัติ (ดูใน Timeline)' : '';
     enqueueNotifications_(recipients.filter(isCost), saved, notifyType, nTitle, nBody + edited + (note ? '\n' + note : ''), ticketLink_(saved, page));
     const salesSide = recipients.filter(function (e) { return !isCost(e); });
     // the requesting Sales gets the selling price of THEIR OWN request (winning offer only) in the DM
@@ -2017,18 +2115,19 @@ function doTransition_(ticketId, action, comment, payload) {
  * At approval: if the reviewer edited prices in this step, store the new GP / selling price per item,
  * record how many changes in the approval log and tell the SR (in-app + Lark, cost roles only).
  */
-function reviewerEdits_(u, t, meta, now, extraRecipients) {
+function reviewerEdits_(u, t, meta, now, extraRecipients, actor) {
+  const editors = [u.email, (actor || u).email];
   // log timestamps are whole seconds → compare from the start of the second the step began
   const since = t.stage_entered_at ? Math.floor(new Date(t.stage_entered_at).getTime() / 1000) * 1000 : 0;
   const changes = findAll_(TAB.LOGS, 'ticket_id', t.ticket_id).filter(function (l) {
-    return String(l.actor_email).toLowerCase() === u.email && COST_LOG_ACTIONS_.indexOf(String(l.action)) !== -1 && new Date(l.ts).getTime() >= since;
+    return editors.indexOf(String(l.actor_email).toLowerCase()) !== -1 && COST_LOG_ACTIONS_.indexOf(String(l.action)) !== -1 && new Date(l.ts).getTime() >= since;
   }).length;
   meta.winners.forEach(function (w) {
     updateRow_(TAB.ITEMS, w.item_id, { gp_percent: w.gp_percent, sell_price_thb: w.sell_price_thb, updated_at: now });
   });
   if (changes) {
     meta.reviewer_changes = changes;
-    meta.edited_by = u.email;
+    meta.edited_by = (actor || u).email;
     if (t.sr_email) extraRecipients.push(t.sr_email);
   }
 }
@@ -2179,6 +2278,18 @@ function fprSlaInfo_(t) {
 
 /** Actions to show as buttons (UI hint only — doTransition_ re-checks everything). */
 function allowedActions_(u, t) {
+  if (u.role === 'admin') {
+    // Admin: every button of every person responsible for this step + Admin's own
+    if (t.stage === 'deleted') return ['admin_restore'];
+    const all = [];
+    proxyCandidates_(t).forEach(function (p) {
+      allowedActions_(p, t).forEach(function (x) { if (all.indexOf(x) === -1 && ADMIN_OWN_ACTIONS_.indexOf(x) === -1) all.push(x); });
+    });
+    if (OPEN_STATUSES.indexOf(t.status) !== -1) all.push('admin_cancel');
+    if (['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1) all.push('assign');
+    all.push('admin_delete');
+    return all;
+  }
   const a = [];
   const owner = u.role === 'sales' && t.requestor_email === u.email;
   const assigned = u.role === 'sr' && t.sr_email === u.email;
@@ -2345,6 +2456,10 @@ function timelineOf_(ticketId) {
         from_stage: String(l.from_stage), to_stage: String(l.to_stage), comment: String(l.comment || ''),
         metadata: parseJson_(l.metadata_json, {}), stage_duration_sec: l.stage_duration_sec === '' ? null : Number(l.stage_duration_sec)
       };
+    }).map(function (x) {
+      // Admin acting for someone: "Admin (แทน คุณสมชาย GM)"
+      if (x.metadata && x.metadata.on_behalf_of) x.on_behalf_name = names[String(x.metadata.on_behalf_of).toLowerCase()] || x.metadata.on_behalf_of;
+      return x;
     });
 }
 
@@ -2958,7 +3073,7 @@ function setItemQuoteStatus(ticketId, itemId, status, reason, expectedVersion) {
     return withLock_(function () {
       const u = currentUser_();
       const t = ticketForUser_(u, ticketId);
-      if (!(u.role === 'sr' && t.sr_email === u.email && (t.stage === 'sourcing' || t.stage === 'doc_check'))) {
+      if (!((u.role === 'admin' || (u.role === 'sr' && t.sr_email === u.email)) && (t.stage === 'sourcing' || t.stage === 'doc_check'))) {
         throw appError_('FORBIDDEN', 'ตั้งสถานะรายการได้เฉพาะ SR ผู้รับงาน ในขั้นตอนตรวจเอกสาร / หาราคา');
       }
       requireVersion_(t, expectedVersion);
@@ -3953,6 +4068,7 @@ const STAGE_ORDER_ = ['pending_manager', 'returned', 'pending_gm', 'pending_assi
   'pending_sr_manager', 'pending_gm_price', 'awaiting_sales_ack', 'closed', 'rejected', 'cancelled'];
 
 function outcome_(t) {
+  if (t.status === 'deleted') return 'deleted';
   if (DONE_STATUSES_.indexOf(t.status) !== -1) return 'done';
   if (t.status === 'rejected') return 'rejected';
   return 'open';
@@ -3970,7 +4086,7 @@ function getDashboard(range) {
     const now = new Date();
     const ctx = listContext_();
 
-    let tickets = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return canSeeTicket_(u, t); });
+    let tickets = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return t.stage !== 'deleted' && canSeeTicket_(u, t); });
     let scope = 'ทุกคน';
     if (u.role === 'sales') { tickets = tickets.filter(function (t) { return t.requestor_email === u.email; }); scope = 'ใบขอราคาของคุณ'; }
     if (u.role === 'sr') { tickets = tickets.filter(function (t) { return t.sr_email === u.email; }); scope = 'งานที่คุณรับผิดชอบ'; }
@@ -4193,7 +4309,7 @@ function beginUpload(meta) {
     if (!canUpload_(u, t)) throw appError_('FORBIDDEN', 'แนบไฟล์ไม่ได้ในสถานะนี้ หรือคุณไม่ใช่ผู้รับผิดชอบใบนี้');
 
     const category = oneOf_(m.category || 'request', ATTACHMENT_CATEGORIES, 'ประเภทไฟล์');
-    if (COST_FILE_CATEGORIES_.indexOf(category) !== -1 && u.role !== 'sr') throw appError_('FORBIDDEN', 'ไฟล์ใบเสนอราคา / รูปสินค้าของ Supplier แนบได้เฉพาะ SR');
+    if (COST_FILE_CATEGORIES_.indexOf(category) !== -1 && u.role !== 'sr' && u.role !== 'admin') throw appError_('FORBIDDEN', 'ไฟล์ใบเสนอราคา / รูปสินค้าของ Supplier แนบได้เฉพาะ SR');
     const name = sanitizeFileName_(m.file_name);
     const ext = (name.split('.').pop() || '').toLowerCase();
     const mime = cleanText_(m.mime_type, 150) || EXT_MIME_[ext] || '';
@@ -4322,7 +4438,7 @@ function deleteAttachment(attachmentId) {
       const a = findOne_(TAB.ATTACHMENTS, 'attachment_id', cleanText_(attachmentId));
       if (!a || toBool_(a.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบไฟล์แนบ');
       const t = ticketForUser_(u, a.ticket_id);
-      if (String(a.uploaded_by).toLowerCase() !== u.email || !canUpload_(u, t)) {
+      if (u.role !== 'admin' && (String(a.uploaded_by).toLowerCase() !== u.email || !canUpload_(u, t))) {   // Admin may remove any file
         throw appError_('FORBIDDEN', 'ลบได้เฉพาะไฟล์ที่คุณแนบเอง และยังอยู่ในขั้นตอนที่แนบไฟล์ได้');
       }
       const inUse = rows_(TAB.QUOTATIONS).some(function (q) {
@@ -5005,7 +5121,7 @@ function sendBot_(bot, card, meta) {
         event: m.event || '', status: status, http_code: code, attempts: attempts, response: response, summary: String(m.summary || '').slice(0, 1000) });
     });
   } catch (e) { console.error('NotifLog write failed', e); }
-  return { status: status, attempts: attempts, http_code: code };
+  return { status: status, attempts: attempts, http_code: code, response: response };
 }
 
 // ---------------------------------------------------------------- Bot B: SLA reminders
@@ -5040,6 +5156,117 @@ function sendSlaReminders() {
   });
   flushBotQueue_();
   return { reminded: sent };
+}
+
+// ---------------------------------------------------------------- Admin web screen: bot settings
+// Webhook URL + Secret are written to Script Properties only (never to the Sheet, never sent back to the browser).
+
+const LARK_HOOK_RE_ = /^https:\/\/open\.(larksuite\.com|feishu\.cn)\/open-apis\/bot\/v2\/hook\/[A-Za-z0-9_-]{8,}$/;
+
+function requireAdmin_(u) {
+  if (u.role !== 'admin') throw appError_('FORBIDDEN', 'เฉพาะผู้ดูแลระบบ (Admin) เท่านั้น');
+}
+function maskUrl_(url) {
+  const m = /^(https:\/\/[^/]+)\/.*?([A-Za-z0-9_-]{4})$/.exec(String(url || ''));
+  return m ? m[1] + '/…/hook/••••' + m[2] : '';
+}
+
+/** Status of both bots for the Admin screen (no secret, URL masked) + the last send of each. */
+function getBotSettings() {
+  return api_('getBotSettings', function () {
+    const u = currentUser_();
+    requireAdmin_(u);
+    const p = PropertiesService.getScriptProperties();
+    const log = rows_(TAB.NOTIF_LOG);
+    const bots = Object.keys(BOT_PROPS_).map(function (k) {
+      const c = BOT_PROPS_[k];
+      const url = p.getProperty(c.url) || '';
+      const last = log.filter(function (n) { return String(n.bot) === c.name && String(n.event) !== 'config_changed'; }).pop();
+      return { key: k, name: c.name, url_prop: c.url, secret_prop: c.secret, url_set: !!url, url_masked: maskUrl_(url), url_valid: !url || LARK_HOOK_RE_.test(url),
+        secret_set: !!p.getProperty(c.secret),
+        last: last ? { ts: fmtDate_(last.ts, 'dd/MM/yyyy HH:mm'), event: String(last.event), status: String(last.status), http_code: String(last.http_code), response: String(last.response).slice(0, 200) } : null };
+    });
+    const failed24 = log.filter(function (n) { return String(n.status) === 'failed' && new Date(n.ts).getTime() > Date.now() - 86400000; }).length;
+    return { bots: bots, webapp_url: p.getProperty(CFG.PROP.WEBAPP_URL) || '', failed_24h: failed24 };
+  });
+}
+
+/**
+ * Save one bot's Webhook URL / Secret into Script Properties.
+ * p: { url?, secret?, clear? } — blank field = keep the current value · clear = remove both.
+ */
+function saveBotSettings(bot, p) {
+  return api_('saveBotSettings', function () {
+    const u = currentUser_();
+    requireAdmin_(u);
+    const c = BOT_PROPS_[bot];
+    if (!c) throw appError_('VALIDATION', 'ไม่รู้จักบอท');
+    const o = p || {};
+    const props = PropertiesService.getScriptProperties();
+    const changed = [];
+    if (o.clear) {
+      props.deleteProperty(c.url);
+      props.deleteProperty(c.secret);
+      changed.push('ลบ URL + Secret');
+    } else {
+      const url = String(o.url || '').trim();
+      const secret = String(o.secret || '').trim();
+      if (url) {
+        if (!LARK_HOOK_RE_.test(url)) throw appError_('VALIDATION', 'Webhook URL ต้องเป็นลิงก์ Lark รูปแบบ https://open.larksuite.com/open-apis/bot/v2/hook/…');
+        props.setProperty(c.url, url);
+        changed.push('URL');
+      }
+      if (secret) {
+        if (secret.length > 200 || /\s/.test(secret)) throw appError_('VALIDATION', 'Secret ไม่ถูกต้อง (คัดลอกจากหน้า Security settings ของบอท)');
+        props.setProperty(c.secret, secret);
+        changed.push('Secret');
+      }
+      if (!changed.length) throw appError_('VALIDATION', 'กรอก Webhook URL และ/หรือ Secret ที่ต้องการเปลี่ยน');
+    }
+    withLock_(function () {
+      insertRow_(TAB.NOTIF_LOG, { log_id: uuid_(), ts: new Date(), ticket_id: '', ticket_no: '', bot: c.name, event: 'config_changed', status: 'ok',
+        http_code: '', attempts: 0, response: '', summary: 'ตั้งค่า ' + changed.join(' + ') + ' โดย ' + u.email });
+    });
+    return { saved: changed };
+  });
+}
+
+/** Web-app link used by the card button (?page=ticket&id=FPR-…). */
+function saveWebappUrl(url) {
+  return api_('saveWebappUrl', function () {
+    const u = currentUser_();
+    requireAdmin_(u);
+    const v = String(url || '').trim();
+    if (!/^https:\/\/script\.google\.com\/(a\/macros\/[^/]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/.test(v)) {
+      throw appError_('VALIDATION', 'ลิงก์ต้องเป็น https://script.google.com/…/macros/s/…/exec (Deploy → Manage deployments → Web app URL)');
+    }
+    PropertiesService.getScriptProperties().setProperty(CFG.PROP.WEBAPP_URL, v);
+    return { webapp_url: v };
+  });
+}
+
+/** Send one test card through a bot, mentioning the Admin. */
+function testBotSend(bot) {
+  return api_('testBotSend', function () {
+    const u = currentUser_();
+    requireAdmin_(u);
+    const c = BOT_PROPS_[bot];
+    if (!c) throw appError_('VALIDATION', 'ไม่รู้จักบอท');
+    const facts = { no: 'FPR-TEST-0001', customer: 'ทดสอบการเชื่อมต่อ', requester: u.full_name, status: 'ทดสอบ', owner: u.full_name,
+      deadline: fmtDate_(new Date(), 'dd/MM/yyyy HH:mm'), items: ['• ทดสอบจากหน้า ⚙️ ตั้งค่า Lark Bot'], priced: false };
+    const card = buildCard_({ color: bot === 'reminder' ? 'yellow' : 'blue', title: '[ทดสอบ] ' + c.name + ' เชื่อมต่อสำเร็จ', facts: facts,
+      mentions: [u.email], link: fprLink_({ ticket_no: 'FPR-TEST-0001' }), extra: ['ถ้าชื่อคุณด้านล่างเป็นสีฟ้า = mention ทำงาน'] });
+    const r = sendBot_(bot, card, { event: 'test', ticket_no: 'FPR-TEST-0001', summary: 'ทดสอบโดย ' + u.email });
+    let hint = '';
+    if (r.status === 'not_configured') hint = 'ยังไม่ได้ใส่ Webhook URL';
+    else if (r.status === 'failed') {
+      const j = parseJson_(r.response, {});
+      hint = /sign/i.test(String(j.msg || '')) ? 'Secret ไม่ตรงกับบอท (หรือเวลาเครื่องคลาดเคลื่อน) — คัดลอก Secret ใหม่จาก Security settings'
+        : /keyword/i.test(String(j.msg || '')) ? 'บอทตั้ง Custom keywords ไว้ — ปิด keywords หรือใช้ signature verification อย่างเดียว'
+        : /ip/i.test(String(j.msg || '')) ? 'บอทจำกัด IP — ปิด IP whitelist' : 'ส่งไม่สำเร็จ: ' + String(j.msg || r.response || r.http_code).slice(0, 150);
+    }
+    return { status: r.status, attempts: r.attempts, http_code: r.http_code, hint: hint };
+  });
 }
 
 /**
@@ -5312,7 +5539,7 @@ function runSelfTest() {
  */
 
 const PAGES_ = ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
-const PARTIALS_ = ['App', 'PageHome', 'PageDashboard', 'PageGp', 'PageDeals', 'PageTickets', 'PageTicket', 'PageForm', 'PageSuppliers', 'PagePricing'];
+const PARTIALS_ = ['App', 'PageHome', 'PageDashboard', 'PageGp', 'PageDeals', 'PageTickets', 'PageTicket', 'PageForm', 'PageSuppliers', 'PagePricing', 'PageAdmin'];
 
 function doGet(e) {
   const t = HtmlService.createTemplateFromFile('Index');
@@ -5358,6 +5585,7 @@ function menuFor_(u) {
   const m = [{ key: 'home', group: MAIN, icon: '🏠', label: 'หน้าแรก', route: { page: 'home' } }];
   m.push({ key: 'tickets', group: MAIN, icon: '📄', label: 'ใบเสนอราคา', route: { page: 'tickets' }, badge: 'inbox' });
   if (u.role === 'sales') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+  if (u.role === 'admin') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', hint: 'แทน Sales', route: { page: 'new' } });
   if (u.role === 'sales') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามการขาย', hint: 'ลูกค้าซื้อหรือยัง', route: { page: 'deals' }, badge: 'deals_due' });
   if (u.role === 'gm') {
     // two separate GM approvals: sales side (the request) and purchasing side (vendor price + selling price)
@@ -5371,9 +5599,11 @@ function menuFor_(u) {
   }
   // SR: follow up with Sales on the prices they made (weekly meeting) — Sales-side data only, no cost / GP
   if (u.role === 'sr') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามงานขาย', hint: 'ราคาที่ฉันทำ · ประชุมประจำสัปดาห์', route: { page: 'deals' } });
+  if (u.role === 'admin') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามการขาย', route: { page: 'deals' } });
   if (['manager', 'sr_manager', 'gm', 'admin'].indexOf(u.role) !== -1) {
     m.push({ key: 'reports', group: MAIN, icon: '📊', label: 'รายงาน', route: { page: 'dashboard' } });
   }
+  if (u.role === 'admin') m.push({ key: 'admin', group: MAIN, icon: '⚙️', label: 'ตั้งค่า Lark Bot', route: { page: 'admin' } });
   return m;
 }
 
@@ -5903,6 +6133,7 @@ function runAcceptanceTests() {
     runFollowUpV2Cases_(results);
     runReviewerEditCases_(results);
     runFprCases_(results);
+    runAdminCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -6361,7 +6592,8 @@ function runPhase2Cases_(results) {
     ['admin', 'gm', 'manager', 'salesFood1', 'sr1', 'srManager'].forEach(function (k) {
       const key = { manager: 'mgrFood' }[k] || k;
       const menu = menuFor_(userByEmail_(U[key]));
-      ok(menu.length <= 5 && menu[0].key === 'home' && menu.some(function (m) { return m.key === 'tickets'; }), 'Menu for ' + k + ': ' + menu.length + ' items (≤ 5), homepage first');
+      const maxM = k === 'admin' ? 7 : 5;   // Admin can act for everyone → a few more entries
+      ok(menu.length <= maxM && menu[0].key === 'home' && menu.some(function (m) { return m.key === 'tickets'; }), 'Menu for ' + k + ': ' + menu.length + ' items (≤ ' + maxM + '), homepage first');
     });
     ok(!menuFor_(userByEmail_(U.salesFood1)).some(function (m) { return m.key === 'reports' || m.key === 'suppliers'; }) &&
       menuFor_(userByEmail_(U.gm)).some(function (m) { return m.key === 'reports'; }), 'Reports for managers only; Supplier not for Sales');
@@ -7705,7 +7937,7 @@ function runFprCases_(results) {
       const id = newReq(U.salesFood1, 'ลูกค้าสิทธิ์').ticket_id;
       expectErr(as('outsider@' + DEMO_DOMAIN, function () { return getTicket(id); }), 'NOT_REGISTERED', 'FPR: unregistered user cannot open a request');
       expectErr(go(U.salesFood2, id, 'cancel', 'x'), 'NOT_FOUND', 'FPR: another Sales cannot cancel the request');
-      expectErr(go(U.admin, id, 'gm_approve', '', { sr_email: U.sr1 }), 'FORBIDDEN', 'FPR: Admin cannot approve on behalf of GM');
+      expectErr(go(U.mgrFood, id, 'gm_approve', '', { sr_email: U.sr1 }), 'FORBIDDEN', 'FPR: Sales Manager cannot approve GM_REVIEW');
       expectErr(as(U.salesFood2, function () { return getTicket(id); }), 'NOT_FOUND', 'FPR: another Sales cannot open the request');
       toPricing(id); price3(id);
       expectErr(as(U.sr2, function () { return saveSourcingDraft(id, []); }), 'FORBIDDEN', 'FPR: another SR cannot price it');
@@ -7785,6 +8017,139 @@ function runFprCases_(results) {
       ok(buildMention(U.gm) === '<at id=ou_gm123></at>', 'Mention: falls back to open_id when set on the user (mention not showing fix)');
       withLock_(function () { updateRow_(TAB.USERS, U.gm, { lark_open_id: '' }); });
       ok(larkSign_(1700000000, 'sec-a') === Utilities.base64Encode(Utilities.computeHmacSha256Signature('', '1700000000\nsec-a')), 'Signature: HmacSHA256(timestamp + \\n + secret) base64');
+    });
+  } finally {
+    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1' });
+    TEST_BOTS_ = null;
+  }
+}
+
+// ===================================================================== Admin: every step, delete / restore, bot settings
+function runAdminCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const A = function (fn) { return as(U.admin, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  const wrap = function (name, fn) {
+    try { fn(); } catch (e) { results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: ' + name + ' — ' + e.message + '\n' + e.stack); }
+  };
+  const form = function (extra) {
+    return Object.assign({ customer_group: 'ร้านอาหาร', customer_name: 'ลูกค้า Admin', due_date: inDays(3), items: [
+      { product_name: 'ปลาแซลมอน Fillet', net_weight: '100%', size: '1-2 kg', packing_size: '1 kg', qty: 100, uom: 'กก.', target_price: 0 }] }, extra || {});
+  };
+  const lastLog = function (id, action) { return findAll_(TAB.LOGS, 'ticket_id', id).filter(function (l) { return l.action === action; }).pop(); };
+  TEST_HTTP_ = fakeHttp_();
+  TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' }, reminder: { url: '', secret: '' } };
+  setTestSettings_({ sales_manager_step: 'false', gm_assigns_sr: 'true', min_suppliers: '3' });
+  try {
+    wrap('ADMIN_FLOW', function () {
+      expectErr(A(function () { return createTicket(form()); }), 'VALIDATION', 'Admin: creating a request needs the Sales it is for');
+      expectErr(A(function () { return createTicket(form({ requestor_email: U.sr1 })); }), 'VALIDATION', 'Admin: the requester must be an active Sales');
+      const t = must(A(function () { return createTicket(form({ requestor_email: U.salesFood2 })); })).ticket;
+      const id = t.ticket_id;
+      const c = lastLog(id, 'create');
+      ok(t.requestor_email === U.salesFood2 && c.actor_email === U.admin && parseJson_(c.metadata_json, {}).on_behalf_of === U.salesFood2,
+        'Admin: creates a request for Sales (owned by that Sales, log says Admin on behalf of)');
+      ok(as(U.salesFood2, function () { return getTicket(id).ok; }), 'Admin: the Sales sees the request created for them');
+      const acts = must(A(function () { return getTicket(id); })).permissions.actions;
+      ok(['gm_approve', 'gm_return', 'gm_reject', 'cancel', 'admin_cancel', 'admin_delete'].every(function (a) { return acts.indexOf(a) !== -1; }),
+        'Admin: gets GM + Sales + Admin buttons at GM_REVIEW (' + acts.join(', ') + ')');
+      ok(must(A(function () { return getTicket(id); })).permissions.can_edit_request, 'Admin: can edit the request before GM approval');
+      must(A(function () { return updateTicketRequest(id, { customer_name: 'ลูกค้า Admin (แก้)' }, ticketById_(id).version); }));
+      ok(ticketById_(id).customer_name === 'ลูกค้า Admin (แก้)', 'Admin: edit saved');
+      expectErr(go(U.admin, id, 'gm_approve'), 'INVALID_ASSIGNEE', 'Admin approving for GM still has to pick the Sourcing person');
+      must(go(U.admin, id, 'gm_approve', '', { sr_email: U.sr2 }));
+      const g = lastLog(id, 'gm_approve');
+      ok(ticketById_(id).stage === 'doc_check' && g.actor_email === U.admin && parseJson_(g.metadata_json, {}).on_behalf_of === U.gm,
+        'Admin: approves for GM → ASSIGNED, log = Admin on behalf of GM');
+      ok(must(A(function () { return getTicket(id); })).timeline.some(function (l) { return l.action === 'gm_approve' && /GM/.test(l.on_behalf_name || ''); }),
+        'Admin: timeline shows “(แทน GM)”');
+      A(function () { checklistOf_(id).filter(function (x) { return x.is_required; }).forEach(function (x) { must(updateChecklist(x.check_id, true, '')); }); });
+      must(go(U.admin, id, 'doc_complete'));
+      ok(ticketById_(id).stage === 'sourcing' && ticketById_(id).sr_email === U.sr2, 'Admin: confirms documents for the SR (SR stays the owner)');
+      const it = activeItemsOf_(id)[0];
+      const qs = ['A', 'B', 'C'].map(function (n, i) { return { quote_id: Utilities.getUuid(), vendor_name: 'Admin Supplier ' + n, unit_price: 300 + i, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }; });
+      must(A(function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: qs, winner_quote_id: qs[0].quote_id }]); }));
+      ok(activeQuotesOfItem_(it.item_id).length === 3, 'Admin: enters supplier prices for the SR');
+      must(go(U.admin, id, 'submit_quote'));
+      must(go(U.admin, id, 'srm_approve'));
+      must(go(U.admin, id, 'gm_price_approve'));
+      ok(ticketById_(id).stage === 'awaiting_sales_ack', 'Admin: submits, approves for SR Manager and GM → APPROVED');
+      must(go(U.admin, id, 'accept'));
+      ok(ticketById_(id).stage === 'closed' && parseJson_(lastLog(id, 'accept').metadata_json, {}).on_behalf_of === U.salesFood2, 'Admin: accepts the price for Sales → closed');
+      ok(botLog_(id).some(function (n) { return n.event === 'approved'; }), 'Admin actions still post the group cards');
+    });
+
+    wrap('ADMIN_DELETE', function () {
+      const id = must(as(U.salesFood1, function () { return createTicket(form({ customer_name: 'ลูกค้าจะลบ' })); })).ticket.ticket_id;
+      expectErr(go(U.gm, id, 'admin_delete', 'x'), 'FORBIDDEN', 'Delete: GM cannot delete');
+      expectErr(go(U.salesFood1, id, 'admin_delete', 'x'), 'FORBIDDEN', 'Delete: Sales cannot delete');
+      expectErr(go(U.admin, id, 'admin_delete'), 'COMMENT_REQUIRED', 'Delete: reason required');
+      const n0 = botLog_(id).length;
+      must(go(U.admin, id, 'admin_delete', 'ใบทดสอบ'));
+      ok(ticketById_(id).stage === 'deleted' && ticketById_(id).status === 'deleted', 'Delete: Admin deletes (soft delete, rows kept)');
+      ok(activeItemsOf_(id).length === 1, 'Delete: items are kept for audit / restore');
+      ok(botLog_(id).length === n0, 'Delete: no group card');
+      expectErr(as(U.salesFood1, function () { return getTicket(id); }), 'NOT_FOUND', 'Delete: the Sales no longer sees it');
+      expectErr(as(U.gm, function () { return getTicket(id); }), 'NOT_FOUND', 'Delete: GM no longer sees it');
+      ok(!as(U.gm, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id; }), 'Delete: gone from GM list');
+      const ad = must(A(function () { return getTicket(id); }));
+      ok(ad.permissions.actions.join() === 'admin_restore', 'Delete: Admin still opens it, only “กู้คืน” is offered');
+      expectErr(go(U.admin, id, 'gm_approve', '', { sr_email: U.sr1 }), 'INVALID_STATE', 'Delete: no workflow step on a deleted request');
+      ok(A(function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id && r.stage === 'deleted'; }), 'Delete: Admin list has it (tab “🗑 ถูกลบ”)');
+      const dash = A(function () { return must(getDashboard({})); });
+      ok(!JSON.stringify(dash.by_stage).match(/"deleted"/), 'Delete: not counted in reports');
+      must(go(U.admin, id, 'admin_restore'));
+      ok(ticketById_(id).stage === 'pending_gm' && as(U.salesFood1, function () { return getTicket(id).ok; }), 'Restore: back to the step it was in, visible again');
+    });
+
+    wrap('ADMIN_BOT_SETTINGS', function () {
+      const P = PropertiesService.getScriptProperties();
+      const keys = ['FPR_BOT_URL', 'FPR_BOT_SECRET', 'FPR_REMINDER_URL', 'FPR_REMINDER_SECRET', 'WEBAPP_URL'];
+      const snap = {};
+      keys.forEach(function (k) { snap[k] = P.getProperty(k); });
+      TEST_BOTS_ = null;   // read the real Script Properties in this block (restored below)
+      try {
+        expectErr(as(U.gm, function () { return getBotSettings(); }), 'FORBIDDEN', 'Bot settings: Admin only (GM refused)');
+        expectErr(as(U.salesFood1, function () { return saveBotSettings('fpr', { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/abcdefgh12' }); }), 'FORBIDDEN', 'Bot settings: Sales cannot save');
+        expectErr(A(function () { return saveBotSettings('fpr', { url: 'https://evil.example.com/hook/abcdefgh12' }); }), 'VALIDATION', 'Bot settings: only a Lark webhook URL is accepted');
+        const url = 'https://open.larksuite.com/open-apis/bot/v2/hook/0a1b2c3d-4e5f-6789-abcd-ef0123456789';
+        must(A(function () { return saveBotSettings('fpr', { url: url, secret: 'TopSecret123' }); }));
+        ok(P.getProperty('FPR_BOT_URL') === url && P.getProperty('FPR_BOT_SECRET') === 'TopSecret123', 'Bot settings: saved to Script Properties');
+        const g = must(A(function () { return getBotSettings(); }));
+        const fpr = g.bots.filter(function (b) { return b.key === 'fpr'; })[0];
+        ok(fpr.url_set && fpr.secret_set && JSON.stringify(g).indexOf('TopSecret123') === -1 && JSON.stringify(g).indexOf('0a1b2c3d') === -1,
+          'Bot settings: page shows ✓ only — Secret and full URL never sent to the browser (' + fpr.url_masked + ')');
+        ok(!rows_(TAB.SETTINGS).some(function (r) { return /TopSecret123|0a1b2c3d/.test(String(r.value)); }) &&
+          !rows_(TAB.NOTIF_LOG).some(function (r) { return /TopSecret123|0a1b2c3d/.test(String(r.summary) + String(r.response)); }), 'Bot settings: nothing secret written to the Sheet');
+        must(A(function () { return saveBotSettings('fpr', { secret: 'NewSecret456' }); }));
+        ok(P.getProperty('FPR_BOT_URL') === url && P.getProperty('FPR_BOT_SECRET') === 'NewSecret456', 'Bot settings: blank URL keeps the current one');
+        const t = must(A(function () { return testBotSend('fpr'); }));
+        ok(t.status === 'sent', 'Bot settings: “ส่งการ์ดทดสอบ” goes out through the saved webhook');
+        const tr = must(A(function () { return testBotSend('reminder'); }));
+        ok(tr.status === 'not_configured' && /ยังไม่ได้ใส่/.test(tr.hint), 'Bot settings: test on an unset bot explains what is missing');
+        expectErr(A(function () { return saveWebappUrl('https://example.com/x'); }), 'VALIDATION', 'Web app URL: must be a script.google.com /exec link');
+        must(A(function () { return saveWebappUrl('https://script.google.com/a/macros/mglobalsourcing.net/s/AKfycbx123/exec'); }));
+        ok(fprLink_({ ticket_no: 'FPR-2610-0001' }) === 'https://script.google.com/a/macros/mglobalsourcing.net/s/AKfycbx123/exec?page=ticket&id=FPR-2610-0001', 'Web app URL: card button uses it');
+        must(A(function () { return saveBotSettings('fpr', { clear: true }); }));
+        ok(!P.getProperty('FPR_BOT_URL') && !P.getProperty('FPR_BOT_SECRET'), 'Bot settings: “ลบค่า” removes URL + Secret');
+        ok(menuFor_(userByEmail_(U.admin)).some(function (m) { return m.key === 'admin'; }) && !menuFor_(userByEmail_(U.gm)).some(function (m) { return m.key === 'admin'; }),
+          'Menu: “⚙️ ตั้งค่า Lark Bot” for Admin only');
+      } finally {
+        keys.forEach(function (k) { if (snap[k] === null || snap[k] === undefined) P.deleteProperty(k); else P.setProperty(k, snap[k]); });
+      }
     });
   } finally {
     setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1' });

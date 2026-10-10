@@ -13,7 +13,7 @@ Pages.tickets = (function () {
 
   /* ---------- tabs (one click) ---------- */
   const TABS = [
-    { id: 'all', label: 'ทั้งหมด', test: function () { return true; } },
+    { id: 'all', label: 'ทั้งหมด', test: function (r) { return r.stage !== 'deleted'; } },
     { id: 'inbox', label: 'รอฉัน', test: function (r) { return r.is_inbox; } },
     { id: 'mine', label: 'ของฉัน', roles: ['sales', 'sr'], test: function (r) { return r.is_mine; } },
     { id: 'queue', label: 'คิวรอรับงาน', roles: ['sr', 'sr_manager', 'admin'], test: function (r) { return r.stage === 'pending_assign'; } },
@@ -23,7 +23,8 @@ Pages.tickets = (function () {
     { id: 'ack', label: 'ส่งถึง Sales', test: function (r) { return r.stage === 'awaiting_sales_ack'; } },
     { id: 'follow', label: '📌 ส่งตามหลัง', test: function (r) { return r.is_follow_up && r.outcome === 'open'; } },
     { id: 'closed', label: 'ปิดงาน', test: function (r) { return r.stage === 'closed'; } },
-    { id: 'rejected', label: 'ไม่อนุมัติ / ยกเลิก', test: function (r) { return r.outcome === 'rejected'; } }
+    { id: 'rejected', label: 'ไม่อนุมัติ / ยกเลิก', test: function (r) { return r.outcome === 'rejected'; } },
+    { id: 'deleted', label: '🗑 ถูกลบ', roles: ['admin'], test: function (r) { return r.stage === 'deleted'; } }
   ];
   function tabsFor() {
     return TABS.filter(function (t) { return !t.roles || t.roles.indexOf(state.me.role) !== -1; });

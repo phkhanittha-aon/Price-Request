@@ -48,13 +48,21 @@ GP ต่ำกว่า 10% → แถบแดงในหน้าทำร�
 1. **สร้างบอทใน Lark** (ทำ 2 ครั้ง: “FPR Bot” และ “FPR Reminder”)
    กลุ่ม Lark → ⚙️ Settings → **Bots → Add Bot → Custom Bot** → ตั้งชื่อ → **Security settings: ✅ Set signature verification** → คัดลอก **Webhook URL** และ **Secret** → Save
 2. **Apps Script** → วาง `deploy/food/Code.gs`, `Index.html`, `appsscript.json` → Save
-3. Project Settings → **Script properties** → Add 4 รายการ: `FPR_BOT_URL`, `FPR_BOT_SECRET`, `FPR_REMINDER_URL`, `FPR_REMINDER_SECRET` (ห้ามใส่ในโค้ดหรือ Sheet)
+3. **ใส่ Webhook URL + Secret** (เลือกวิธีใดวิธีหนึ่ง — ทั้งสองวิธีเก็บใน Script Properties ไม่อยู่ในโค้ดหรือ Sheet)
+   - **วิธีง่าย (หน้าเว็บ):** Deploy เว็บก่อน (ข้อ 8) → เข้าเว็บด้วยบัญชี Admin → เมนู **⚙️ ตั้งค่า Lark Bot** → วาง URL + Secret ของแต่ละบอท → **บันทึก** → **ส่งการ์ดทดสอบ** (ถ้าไม่ผ่าน หน้าจอจะบอกสาเหตุ เช่น Secret ไม่ตรง)
+   - **วิธีใน Apps Script:** ⚙️ Project Settings → เลื่อนลงล่างสุด **Script properties** → **Add script property** 4 รายการ: `FPR_BOT_URL`, `FPR_BOT_SECRET`, `FPR_REMINDER_URL`, `FPR_REMINDER_SECRET` → **Save script properties**
 4. Run **`setup`** → อนุญาตสิทธิ์ → ดู log ว่าทั้ง 4 ค่า ✓ (สร้าง/อัปเกรดฐานข้อมูล + โฟลเดอร์ Drive “FPR Attachments”)
 5. แท็บ **Users**: อีเมล @mglobalsourcing.net + role (`sales`=Requester, `gm`, `sr`=Sourcing, `sr_manager`=Sourcing Manager, `admin`) · แท็บ **Holidays**: วันหยุดบริษัท (date, name)
 6. Run **`testBots`** → ในกลุ่มต้องเห็นการ์ดทดสอบทุกแบบ + การ์ดเตือน 1 ใบ และชื่อคุณเป็นสีฟ้า (mention ทำงาน)
 7. Run **`installTriggers`** (รวม `sendSlaReminders` ทุกชั่วโมง) — หรือ `installReminderTrigger` ถ้าต้องการเฉพาะตัวเตือน
 8. **Deploy → New deployment → Web app** · Execute as **Me** · Who has access **Anyone within mglobalsourcing.net** → ตั้ง Script property `WEBAPP_URL` = ลิงก์ /exec (ปุ่มในการ์ดใช้ลิงก์นี้)
 9. (แนะนำ) Run **`runAcceptanceTests`** → ✅ ผ่านทั้งหมด (ใช้ชีตชั่วคราว ไม่แตะข้อมูลจริง)
+
+## 4.1 Admin ทำแทนได้ทุกขั้นตอน
+- ปุ่มของทุกคนที่รับผิดชอบขั้นนั้นจะแสดงให้ Admin (Sales, Sales Manager, GM, SR, SR Manager) — ระบบทำรายการ **ในนามผู้รับผิดชอบ** กฎทุกข้อยังบังคับ (เช่น GM ต้องเลือก Sourcing, Supplier ≥ 3 ราย, ปฏิเสธต้องมีเหตุผล) และ Timeline บันทึกว่า “Admin (แทน …)”
+- **สร้างใบขอราคาแทน Sales:** เมนู ➕ สร้างใบขอราคา → เลือก “Sales ผู้ขอราคา” (ใบเป็นของ Sales คนนั้น)
+- แก้ใบขอราคาได้จนก่อน GM อนุมัติ · ติ๊กเอกสาร / กรอกราคา supplier / แนบรูป / ไม่เสนอ-ส่งตามหลัง ได้แทน SR · แก้ราคาในขั้น SM / GM ได้ · ลบไฟล์แนบได้ทุกไฟล์ · อัปเดตผลการขายแทน Sales
+- **ลบใบขอราคา:** ปุ่ม 🗑 ลบใบขอราคา (ต้องใส่เหตุผล) → ใบหายจากทุกคน รายงาน และหน้ารวมผู้บริหาร แต่ข้อมูลยังเก็บไว้ครบ (audit) · กู้คืนได้ที่หน้าใบเสนอราคา → แท็บ **🗑 ถูกลบ** → เปิดใบ → ♻️ กู้คืน (กลับไปขั้นเดิม)
 
 ## 5. Test checklist (UAT)
 | # | กรณี | วิธีทดสอบ | ผลที่ต้องได้ |
@@ -73,3 +81,6 @@ GP ต่ำกว่า 10% → แถบแดงในหน้าทำร�
 | 12 | Mention ไม่ขึ้น | ชื่อในการ์ดเป็นข้อความธรรมดาไม่ใช่สีฟ้า | ตรวจอีเมลใน Users ตรงกับอีเมลบัญชี Lark · ถ้ายังไม่ขึ้น ใส่ `lark_open_id` (ou_…) ในแท็บ Users → การ์ดถัดไปจะ mention ด้วย open_id |
 | 13 | SLA Reminder | ตั้ง `fpr_sla` GM_REVIEW = `{"hours":0.1}` ชั่วคราว แล้ว Run `sendSlaReminders` 2 ครั้ง | ครั้งแรก การ์ด ⏰ สีเหลืองจาก FPR Reminder @GM · ครั้งที่สองไม่ส่งซ้ำ (8 ชม.ทำงาน) · คืนค่า SLA |
 | 14 | วันหยุด | ใส่วันพรุ่งนี้ในแท็บ Holidays | เวลาครบกำหนด (SLA) ในหน้าใบเลื่อนข้ามวันนั้น |
+| 15 | Admin ทำแทน | Admin สร้างใบแทน Sales → อนุมัติแทน GM (เลือก SR) → กรอกราคาแทน SR → อนุมัติแทน SM / GM | ทำได้ทุกขั้น · Timeline ขึ้น “(แทน …)” · การ์ด Lark ออกตามปกติ |
+| 16 | ลบ / กู้คืน | Admin ลบใบ (ไม่ใส่เหตุผล แล้วใส่) → Sales / GM เปิดลิงก์ → Admin กู้คืน | ไม่ใส่เหตุผล = ลบไม่ได้ · ลบแล้วคนอื่นไม่เห็น · กู้คืนกลับขั้นเดิม |
+| 17 | หน้าตั้งค่าบอท | Admin เมนู ⚙️ ตั้งค่า Lark Bot → ใส่ URL ผิด / ถูก → ส่งการ์ดทดสอบ · GM เปิด `?page=admin` | URL ผิดถูกปฏิเสธ · Secret แสดงเป็น ✓ เท่านั้น · GM เข้าไม่ได้ |

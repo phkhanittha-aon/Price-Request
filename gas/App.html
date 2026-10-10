@@ -199,7 +199,7 @@ const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome'
 function cleanRoute(p) {
   const r = {};
   ROUTE_KEYS.forEach(function (k) { if (p && p[k]) r[k] = String(p[k]); });
-  if (!r.page || ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'].indexOf(r.page) === -1) r.page = 'home';
+  if (!r.page || ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers', 'admin'].indexOf(r.page) === -1) r.page = 'home';
   return r;
 }
 function go(route, replace) {
@@ -225,7 +225,7 @@ function render(route) {
   }
 }
 function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || '') + (r.follow || ''); }
-const PAGE_TITLE = { home: 'หน้าแรก', dashboard: 'รายงาน', gp: 'สรุป GP & การปิดการขาย', deals: 'ติดตามการขาย', suppliers: 'Supplier', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
+const PAGE_TITLE = { home: 'หน้าแรก', dashboard: 'รายงาน', gp: 'สรุป GP & การปิดการขาย', deals: 'ติดตามการขาย', suppliers: 'Supplier', admin: 'ตั้งค่า Lark Bot', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
 /** Tabs on top of the report pages: ภาพรวม · ติดตามการขาย · สรุป GP (only the ones this role may open). */
 function reportTabs(active) {
   const role = state.me.role;

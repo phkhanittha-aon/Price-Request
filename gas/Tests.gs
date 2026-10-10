@@ -36,6 +36,7 @@ function runAcceptanceTests() {
     runFollowUpV2Cases_(results);
     runReviewerEditCases_(results);
     runFprCases_(results);
+    runAdminCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -494,7 +495,8 @@ function runPhase2Cases_(results) {
     ['admin', 'gm', 'manager', 'salesFood1', 'sr1', 'srManager'].forEach(function (k) {
       const key = { manager: 'mgrFood' }[k] || k;
       const menu = menuFor_(userByEmail_(U[key]));
-      ok(menu.length <= 5 && menu[0].key === 'home' && menu.some(function (m) { return m.key === 'tickets'; }), 'Menu for ' + k + ': ' + menu.length + ' items (≤ 5), homepage first');
+      const maxM = k === 'admin' ? 7 : 5;   // Admin can act for everyone → a few more entries
+      ok(menu.length <= maxM && menu[0].key === 'home' && menu.some(function (m) { return m.key === 'tickets'; }), 'Menu for ' + k + ': ' + menu.length + ' items (≤ ' + maxM + '), homepage first');
     });
     ok(!menuFor_(userByEmail_(U.salesFood1)).some(function (m) { return m.key === 'reports' || m.key === 'suppliers'; }) &&
       menuFor_(userByEmail_(U.gm)).some(function (m) { return m.key === 'reports'; }), 'Reports for managers only; Supplier not for Sales');
@@ -1838,7 +1840,7 @@ function runFprCases_(results) {
       const id = newReq(U.salesFood1, 'ลูกค้าสิทธิ์').ticket_id;
       expectErr(as('outsider@' + DEMO_DOMAIN, function () { return getTicket(id); }), 'NOT_REGISTERED', 'FPR: unregistered user cannot open a request');
       expectErr(go(U.salesFood2, id, 'cancel', 'x'), 'NOT_FOUND', 'FPR: another Sales cannot cancel the request');
-      expectErr(go(U.admin, id, 'gm_approve', '', { sr_email: U.sr1 }), 'FORBIDDEN', 'FPR: Admin cannot approve on behalf of GM');
+      expectErr(go(U.mgrFood, id, 'gm_approve', '', { sr_email: U.sr1 }), 'FORBIDDEN', 'FPR: Sales Manager cannot approve GM_REVIEW');
       expectErr(as(U.salesFood2, function () { return getTicket(id); }), 'NOT_FOUND', 'FPR: another Sales cannot open the request');
       toPricing(id); price3(id);
       expectErr(as(U.sr2, function () { return saveSourcingDraft(id, []); }), 'FORBIDDEN', 'FPR: another SR cannot price it');
@@ -1918,6 +1920,139 @@ function runFprCases_(results) {
       ok(buildMention(U.gm) === '<at id=ou_gm123></at>', 'Mention: falls back to open_id when set on the user (mention not showing fix)');
       withLock_(function () { updateRow_(TAB.USERS, U.gm, { lark_open_id: '' }); });
       ok(larkSign_(1700000000, 'sec-a') === Utilities.base64Encode(Utilities.computeHmacSha256Signature('', '1700000000\nsec-a')), 'Signature: HmacSHA256(timestamp + \\n + secret) base64');
+    });
+  } finally {
+    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1' });
+    TEST_BOTS_ = null;
+  }
+}
+
+// ===================================================================== Admin: every step, delete / restore, bot settings
+function runAdminCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const A = function (fn) { return as(U.admin, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  const wrap = function (name, fn) {
+    try { fn(); } catch (e) { results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: ' + name + ' — ' + e.message + '\n' + e.stack); }
+  };
+  const form = function (extra) {
+    return Object.assign({ customer_group: 'ร้านอาหาร', customer_name: 'ลูกค้า Admin', due_date: inDays(3), items: [
+      { product_name: 'ปลาแซลมอน Fillet', net_weight: '100%', size: '1-2 kg', packing_size: '1 kg', qty: 100, uom: 'กก.', target_price: 0 }] }, extra || {});
+  };
+  const lastLog = function (id, action) { return findAll_(TAB.LOGS, 'ticket_id', id).filter(function (l) { return l.action === action; }).pop(); };
+  TEST_HTTP_ = fakeHttp_();
+  TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' }, reminder: { url: '', secret: '' } };
+  setTestSettings_({ sales_manager_step: 'false', gm_assigns_sr: 'true', min_suppliers: '3' });
+  try {
+    wrap('ADMIN_FLOW', function () {
+      expectErr(A(function () { return createTicket(form()); }), 'VALIDATION', 'Admin: creating a request needs the Sales it is for');
+      expectErr(A(function () { return createTicket(form({ requestor_email: U.sr1 })); }), 'VALIDATION', 'Admin: the requester must be an active Sales');
+      const t = must(A(function () { return createTicket(form({ requestor_email: U.salesFood2 })); })).ticket;
+      const id = t.ticket_id;
+      const c = lastLog(id, 'create');
+      ok(t.requestor_email === U.salesFood2 && c.actor_email === U.admin && parseJson_(c.metadata_json, {}).on_behalf_of === U.salesFood2,
+        'Admin: creates a request for Sales (owned by that Sales, log says Admin on behalf of)');
+      ok(as(U.salesFood2, function () { return getTicket(id).ok; }), 'Admin: the Sales sees the request created for them');
+      const acts = must(A(function () { return getTicket(id); })).permissions.actions;
+      ok(['gm_approve', 'gm_return', 'gm_reject', 'cancel', 'admin_cancel', 'admin_delete'].every(function (a) { return acts.indexOf(a) !== -1; }),
+        'Admin: gets GM + Sales + Admin buttons at GM_REVIEW (' + acts.join(', ') + ')');
+      ok(must(A(function () { return getTicket(id); })).permissions.can_edit_request, 'Admin: can edit the request before GM approval');
+      must(A(function () { return updateTicketRequest(id, { customer_name: 'ลูกค้า Admin (แก้)' }, ticketById_(id).version); }));
+      ok(ticketById_(id).customer_name === 'ลูกค้า Admin (แก้)', 'Admin: edit saved');
+      expectErr(go(U.admin, id, 'gm_approve'), 'INVALID_ASSIGNEE', 'Admin approving for GM still has to pick the Sourcing person');
+      must(go(U.admin, id, 'gm_approve', '', { sr_email: U.sr2 }));
+      const g = lastLog(id, 'gm_approve');
+      ok(ticketById_(id).stage === 'doc_check' && g.actor_email === U.admin && parseJson_(g.metadata_json, {}).on_behalf_of === U.gm,
+        'Admin: approves for GM → ASSIGNED, log = Admin on behalf of GM');
+      ok(must(A(function () { return getTicket(id); })).timeline.some(function (l) { return l.action === 'gm_approve' && /GM/.test(l.on_behalf_name || ''); }),
+        'Admin: timeline shows “(แทน GM)”');
+      A(function () { checklistOf_(id).filter(function (x) { return x.is_required; }).forEach(function (x) { must(updateChecklist(x.check_id, true, '')); }); });
+      must(go(U.admin, id, 'doc_complete'));
+      ok(ticketById_(id).stage === 'sourcing' && ticketById_(id).sr_email === U.sr2, 'Admin: confirms documents for the SR (SR stays the owner)');
+      const it = activeItemsOf_(id)[0];
+      const qs = ['A', 'B', 'C'].map(function (n, i) { return { quote_id: Utilities.getUuid(), vendor_name: 'Admin Supplier ' + n, unit_price: 300 + i, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }; });
+      must(A(function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: qs, winner_quote_id: qs[0].quote_id }]); }));
+      ok(activeQuotesOfItem_(it.item_id).length === 3, 'Admin: enters supplier prices for the SR');
+      must(go(U.admin, id, 'submit_quote'));
+      must(go(U.admin, id, 'srm_approve'));
+      must(go(U.admin, id, 'gm_price_approve'));
+      ok(ticketById_(id).stage === 'awaiting_sales_ack', 'Admin: submits, approves for SR Manager and GM → APPROVED');
+      must(go(U.admin, id, 'accept'));
+      ok(ticketById_(id).stage === 'closed' && parseJson_(lastLog(id, 'accept').metadata_json, {}).on_behalf_of === U.salesFood2, 'Admin: accepts the price for Sales → closed');
+      ok(botLog_(id).some(function (n) { return n.event === 'approved'; }), 'Admin actions still post the group cards');
+    });
+
+    wrap('ADMIN_DELETE', function () {
+      const id = must(as(U.salesFood1, function () { return createTicket(form({ customer_name: 'ลูกค้าจะลบ' })); })).ticket.ticket_id;
+      expectErr(go(U.gm, id, 'admin_delete', 'x'), 'FORBIDDEN', 'Delete: GM cannot delete');
+      expectErr(go(U.salesFood1, id, 'admin_delete', 'x'), 'FORBIDDEN', 'Delete: Sales cannot delete');
+      expectErr(go(U.admin, id, 'admin_delete'), 'COMMENT_REQUIRED', 'Delete: reason required');
+      const n0 = botLog_(id).length;
+      must(go(U.admin, id, 'admin_delete', 'ใบทดสอบ'));
+      ok(ticketById_(id).stage === 'deleted' && ticketById_(id).status === 'deleted', 'Delete: Admin deletes (soft delete, rows kept)');
+      ok(activeItemsOf_(id).length === 1, 'Delete: items are kept for audit / restore');
+      ok(botLog_(id).length === n0, 'Delete: no group card');
+      expectErr(as(U.salesFood1, function () { return getTicket(id); }), 'NOT_FOUND', 'Delete: the Sales no longer sees it');
+      expectErr(as(U.gm, function () { return getTicket(id); }), 'NOT_FOUND', 'Delete: GM no longer sees it');
+      ok(!as(U.gm, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id; }), 'Delete: gone from GM list');
+      const ad = must(A(function () { return getTicket(id); }));
+      ok(ad.permissions.actions.join() === 'admin_restore', 'Delete: Admin still opens it, only “กู้คืน” is offered');
+      expectErr(go(U.admin, id, 'gm_approve', '', { sr_email: U.sr1 }), 'INVALID_STATE', 'Delete: no workflow step on a deleted request');
+      ok(A(function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id && r.stage === 'deleted'; }), 'Delete: Admin list has it (tab “🗑 ถูกลบ”)');
+      const dash = A(function () { return must(getDashboard({})); });
+      ok(!JSON.stringify(dash.by_stage).match(/"deleted"/), 'Delete: not counted in reports');
+      must(go(U.admin, id, 'admin_restore'));
+      ok(ticketById_(id).stage === 'pending_gm' && as(U.salesFood1, function () { return getTicket(id).ok; }), 'Restore: back to the step it was in, visible again');
+    });
+
+    wrap('ADMIN_BOT_SETTINGS', function () {
+      const P = PropertiesService.getScriptProperties();
+      const keys = ['FPR_BOT_URL', 'FPR_BOT_SECRET', 'FPR_REMINDER_URL', 'FPR_REMINDER_SECRET', 'WEBAPP_URL'];
+      const snap = {};
+      keys.forEach(function (k) { snap[k] = P.getProperty(k); });
+      TEST_BOTS_ = null;   // read the real Script Properties in this block (restored below)
+      try {
+        expectErr(as(U.gm, function () { return getBotSettings(); }), 'FORBIDDEN', 'Bot settings: Admin only (GM refused)');
+        expectErr(as(U.salesFood1, function () { return saveBotSettings('fpr', { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/abcdefgh12' }); }), 'FORBIDDEN', 'Bot settings: Sales cannot save');
+        expectErr(A(function () { return saveBotSettings('fpr', { url: 'https://evil.example.com/hook/abcdefgh12' }); }), 'VALIDATION', 'Bot settings: only a Lark webhook URL is accepted');
+        const url = 'https://open.larksuite.com/open-apis/bot/v2/hook/0a1b2c3d-4e5f-6789-abcd-ef0123456789';
+        must(A(function () { return saveBotSettings('fpr', { url: url, secret: 'TopSecret123' }); }));
+        ok(P.getProperty('FPR_BOT_URL') === url && P.getProperty('FPR_BOT_SECRET') === 'TopSecret123', 'Bot settings: saved to Script Properties');
+        const g = must(A(function () { return getBotSettings(); }));
+        const fpr = g.bots.filter(function (b) { return b.key === 'fpr'; })[0];
+        ok(fpr.url_set && fpr.secret_set && JSON.stringify(g).indexOf('TopSecret123') === -1 && JSON.stringify(g).indexOf('0a1b2c3d') === -1,
+          'Bot settings: page shows ✓ only — Secret and full URL never sent to the browser (' + fpr.url_masked + ')');
+        ok(!rows_(TAB.SETTINGS).some(function (r) { return /TopSecret123|0a1b2c3d/.test(String(r.value)); }) &&
+          !rows_(TAB.NOTIF_LOG).some(function (r) { return /TopSecret123|0a1b2c3d/.test(String(r.summary) + String(r.response)); }), 'Bot settings: nothing secret written to the Sheet');
+        must(A(function () { return saveBotSettings('fpr', { secret: 'NewSecret456' }); }));
+        ok(P.getProperty('FPR_BOT_URL') === url && P.getProperty('FPR_BOT_SECRET') === 'NewSecret456', 'Bot settings: blank URL keeps the current one');
+        const t = must(A(function () { return testBotSend('fpr'); }));
+        ok(t.status === 'sent', 'Bot settings: “ส่งการ์ดทดสอบ” goes out through the saved webhook');
+        const tr = must(A(function () { return testBotSend('reminder'); }));
+        ok(tr.status === 'not_configured' && /ยังไม่ได้ใส่/.test(tr.hint), 'Bot settings: test on an unset bot explains what is missing');
+        expectErr(A(function () { return saveWebappUrl('https://example.com/x'); }), 'VALIDATION', 'Web app URL: must be a script.google.com /exec link');
+        must(A(function () { return saveWebappUrl('https://script.google.com/a/macros/mglobalsourcing.net/s/AKfycbx123/exec'); }));
+        ok(fprLink_({ ticket_no: 'FPR-2610-0001' }) === 'https://script.google.com/a/macros/mglobalsourcing.net/s/AKfycbx123/exec?page=ticket&id=FPR-2610-0001', 'Web app URL: card button uses it');
+        must(A(function () { return saveBotSettings('fpr', { clear: true }); }));
+        ok(!P.getProperty('FPR_BOT_URL') && !P.getProperty('FPR_BOT_SECRET'), 'Bot settings: “ลบค่า” removes URL + Secret');
+        ok(menuFor_(userByEmail_(U.admin)).some(function (m) { return m.key === 'admin'; }) && !menuFor_(userByEmail_(U.gm)).some(function (m) { return m.key === 'admin'; }),
+          'Menu: “⚙️ ตั้งค่า Lark Bot” for Admin only');
+      } finally {
+        keys.forEach(function (k) { if (snap[k] === null || snap[k] === undefined) P.deleteProperty(k); else P.setProperty(k, snap[k]); });
+      }
     });
   } finally {
     setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1' });

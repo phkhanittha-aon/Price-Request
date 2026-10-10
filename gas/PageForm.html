@@ -97,6 +97,9 @@ Pages.new = Pages.edit = (function () {
       (mode === 'edit' && ticket.stage === 'returned' ? '<div class="notice warn">Sales Manager ส่งกลับให้แก้ไข — แก้แล้วกด “บันทึกและส่งอีกครั้ง”</div>' : '') +
       '<form id="pr-form" novalidate>' +
       '<section class="card fsec"><h2><span class="sn">1</span>ข้อมูลลูกค้า</h2><div class="fgrid">' +
+      (mode !== 'edit' && state.me.role === 'admin' ? field('Sales ผู้ขอราคา', 'Requester (Admin สร้างแทน)', '<select id="f-req"><option value="">— เลือก Sales —</option>' +
+        (state.ref.sales_users || []).map(function (u) { return '<option value="' + esc(u.email) + '"' + (d.requestor_email === u.email ? ' selected' : '') + '>' + esc(u.full_name) + '</option>'; }).join('') +
+        '</select>', { req: true }) : '') +
       field('ชื่อลูกค้า', 'Customer', '<input type="text" id="f-customer" list="cust-list" maxlength="200" placeholder="พิมพ์หรือเลือกลูกค้าที่เคยขอ" value="' + esc(d.customer_name) + '">', { req: true }) +
       field('กลุ่มลูกค้า', 'Customer Group', '<select id="f-cgroup"><option value="">— เลือก —</option>' + (state.ref.customer_groups || []).map(function (g) {
         return '<option' + (d.customer_group === g ? ' selected' : '') + '>' + esc(g) + '</option>'; }).join('') + '</select>', { req: true }) +
@@ -123,6 +126,7 @@ Pages.new = Pages.edit = (function () {
   }
 
   function collect(view, d) {
+    if ($('#f-req', view)) d.requestor_email = $('#f-req', view).value;
     d.customer_name = $('#f-customer', view).value;
     d.customer_group = $('#f-cgroup', view).value;
     d.destination_country = $('#f-dest', view).value;
@@ -150,6 +154,7 @@ Pages.new = Pages.edit = (function () {
       m.textContent = msg;
       el.parentNode.appendChild(m);
     };
+    if ($('#f-req', view) && !d.requestor_email) mark($('#f-req', view), 'กรุณาเลือก Sales ผู้ขอราคา');
     if (!d.customer_name.trim()) mark($('#f-customer', view), 'กรุณากรอกชื่อลูกค้า');
     if (!d.customer_group) mark($('#f-cgroup', view), 'กรุณาเลือกกลุ่มลูกค้า');
     else if (/ส่งออก/.test(d.customer_group) && /^(ไทย|thailand|th)?$/i.test(String(d.destination_country || '').trim())) mark($('#f-dest', view), 'ส่งออก — ระบุประเทศปลายทาง');
@@ -213,7 +218,7 @@ Pages.new = Pages.edit = (function () {
     setBusy(view, true, 'กำลังส่ง...');
     api('createTicket', {
       client_key: d.client_key, title: autoTitle(d), customer_name: d.customer_name.trim(), documents_needed: d.documents_needed,
-      customer_group: d.customer_group, destination_country: d.destination_country,
+      customer_group: d.customer_group, destination_country: d.destination_country, requestor_email: d.requestor_email || '',
       due_date: d.due_date, description: d.description, items: d.items.map(payloadItem)
     }).then(function (res) {
       const t = res.ticket;
@@ -404,7 +409,7 @@ Pages.new = Pages.edit = (function () {
   return {
     render: function (view, route, isCurrent) {
       if (route.page === 'new') {
-        if (state.me.role !== 'sales') { view.innerHTML = errorHtml({ error: 'เฉพาะ Sales เท่านั้นที่สร้างใบขอราคาได้' }); return; }
+        if (state.me.role !== 'sales' && state.me.role !== 'admin') { view.innerHTML = errorHtml({ error: 'เฉพาะ Sales (หรือ Admin สร้างแทน) เท่านั้นที่สร้างใบขอราคาได้' }); return; }
         if (route.copy) {
           // "สร้างใบใหม่จากใบนี้": customer + documents + remark + products (no pictures, new dates)
           view.innerHTML = loadingHtml('กำลังคัดลอกจากใบเดิม...');

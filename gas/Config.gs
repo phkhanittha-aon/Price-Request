@@ -7,7 +7,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.10-4';
+const APP_VERSION = '2026.10.10-5';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -197,9 +197,9 @@ const SCHEMA = {
 const ROLES = ['sales', 'manager', 'gm', 'sr', 'sr_manager', 'admin'];
 const ROLE_LABEL_TH = { sales: 'Sales', manager: 'Sales Manager', gm: 'GM', sr: 'SR (Sourcing)', sr_manager: 'SR Manager', admin: 'Admin' };
 
-const STATUS = ['requested', 'on_process', 'completed', 'closed', 'rejected'];
+const STATUS = ['requested', 'on_process', 'completed', 'closed', 'rejected', 'deleted'];
 const STATUS_LABEL_TH = {
-  requested: 'Requested', on_process: 'On Process', completed: 'Completed', closed: 'Closed', rejected: 'Rejected'
+  requested: 'Requested', on_process: 'On Process', completed: 'Completed', closed: 'Closed', rejected: 'Rejected', deleted: 'Deleted'
 };
 
 /** stage → main status. Stage tells WHO the ticket is waiting for. */
@@ -216,7 +216,8 @@ const STAGE_STATUS = {
   awaiting_sales_ack: 'completed',
   closed: 'closed',
   rejected: 'rejected',
-  cancelled: 'rejected'
+  cancelled: 'rejected',
+  deleted: 'deleted'      // removed by Admin (soft delete — only Admin sees it, can restore)
 };
 
 const STAGE_LABEL_TH = {
@@ -232,7 +233,8 @@ const STAGE_LABEL_TH = {
   awaiting_sales_ack: 'รอ Sales รับทราบราคา',
   closed: 'ปิดงาน',
   rejected: 'ไม่อนุมัติ',
-  cancelled: 'ยกเลิก'
+  cancelled: 'ยกเลิก',
+  deleted: 'ถูกลบ (Admin)'
 };
 
 const OPEN_STATUSES = ['requested', 'on_process', 'completed'];

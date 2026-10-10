@@ -40,7 +40,7 @@ gas/                      # วางทุกไฟล์ลงโปรเจ�
   Bots.gs                 # FPR Bot / FPR Reminder (Lark Custom Bot webhook, ลายเซ็น, retry, NotifLog, SLA เวลาทำงาน, setup, testBots)
   Jobs.gs                 # triggers: ส่งแจ้งเตือน, SLA, self-test, backup
   Setup.gs                # setupDatabase, seedMasterData, seedDemoData
-  Tests.gs                # runAcceptanceTests (ใช้ชีตชั่วคราว, 472 ข้อ)
+  Tests.gs                # runAcceptanceTests (ใช้ชีตชั่วคราว, 514 ข้อ)
   Index.html, App.html    # โครงหน้าเว็บ + แกน JS (router, api, dialog, upload)
   Page*.html              # Dashboard, รายการ, รายละเอียด, ฟอร์ม, ใบเสนอราคา (Pricing)
 dev/gas-local-runner.js   # รันโค้ด gas/ + tests บน Node ด้วย mock (ไม่ได้ deploy)
@@ -54,7 +54,7 @@ docs/                     # เอกสารแต่ละ phase
 
 ดูขั้นตอนเต็มใน [docs/phase1-database.md §7](docs/phase1-database.md)
 1. script.google.com → New project → วางไฟล์ทั้งหมดใน `gas/`
-2. Run `setupDatabase` → Run `runAcceptanceTests` (ต้องได้ 472/472) → Run `seedDemoData` (UAT)
+2. Run `setupDatabase` → Run `runAcceptanceTests` (ต้องได้ 514/514) → Run `seedDemoData` (UAT)
 3. Deploy เป็น Web app (Execute as Me, Anyone within domain) → Run `installTriggers` — ดู [docs/phase2-webapp.md §4](docs/phase2-webapp.md)
 
 นักพัฒนา: `node dev/gas-local-runner.js tests` · `node dev/preview-server.js` แล้วเปิด http://localhost:8787/?as=mgr.food@example.co.th

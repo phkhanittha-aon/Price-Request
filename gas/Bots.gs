@@ -270,7 +270,7 @@ function sendBot_(bot, card, meta) {
         event: m.event || '', status: status, http_code: code, attempts: attempts, response: response, summary: String(m.summary || '').slice(0, 1000) });
     });
   } catch (e) { console.error('NotifLog write failed', e); }
-  return { status: status, attempts: attempts, http_code: code };
+  return { status: status, attempts: attempts, http_code: code, response: response };
 }
 
 // ---------------------------------------------------------------- Bot B: SLA reminders
@@ -305,6 +305,117 @@ function sendSlaReminders() {
   });
   flushBotQueue_();
   return { reminded: sent };
+}
+
+// ---------------------------------------------------------------- Admin web screen: bot settings
+// Webhook URL + Secret are written to Script Properties only (never to the Sheet, never sent back to the browser).
+
+const LARK_HOOK_RE_ = /^https:\/\/open\.(larksuite\.com|feishu\.cn)\/open-apis\/bot\/v2\/hook\/[A-Za-z0-9_-]{8,}$/;
+
+function requireAdmin_(u) {
+  if (u.role !== 'admin') throw appError_('FORBIDDEN', 'เฉพาะผู้ดูแลระบบ (Admin) เท่านั้น');
+}
+function maskUrl_(url) {
+  const m = /^(https:\/\/[^/]+)\/.*?([A-Za-z0-9_-]{4})$/.exec(String(url || ''));
+  return m ? m[1] + '/…/hook/••••' + m[2] : '';
+}
+
+/** Status of both bots for the Admin screen (no secret, URL masked) + the last send of each. */
+function getBotSettings() {
+  return api_('getBotSettings', function () {
+    const u = currentUser_();
+    requireAdmin_(u);
+    const p = PropertiesService.getScriptProperties();
+    const log = rows_(TAB.NOTIF_LOG);
+    const bots = Object.keys(BOT_PROPS_).map(function (k) {
+      const c = BOT_PROPS_[k];
+      const url = p.getProperty(c.url) || '';
+      const last = log.filter(function (n) { return String(n.bot) === c.name && String(n.event) !== 'config_changed'; }).pop();
+      return { key: k, name: c.name, url_prop: c.url, secret_prop: c.secret, url_set: !!url, url_masked: maskUrl_(url), url_valid: !url || LARK_HOOK_RE_.test(url),
+        secret_set: !!p.getProperty(c.secret),
+        last: last ? { ts: fmtDate_(last.ts, 'dd/MM/yyyy HH:mm'), event: String(last.event), status: String(last.status), http_code: String(last.http_code), response: String(last.response).slice(0, 200) } : null };
+    });
+    const failed24 = log.filter(function (n) { return String(n.status) === 'failed' && new Date(n.ts).getTime() > Date.now() - 86400000; }).length;
+    return { bots: bots, webapp_url: p.getProperty(CFG.PROP.WEBAPP_URL) || '', failed_24h: failed24 };
+  });
+}
+
+/**
+ * Save one bot's Webhook URL / Secret into Script Properties.
+ * p: { url?, secret?, clear? } — blank field = keep the current value · clear = remove both.
+ */
+function saveBotSettings(bot, p) {
+  return api_('saveBotSettings', function () {
+    const u = currentUser_();
+    requireAdmin_(u);
+    const c = BOT_PROPS_[bot];
+    if (!c) throw appError_('VALIDATION', 'ไม่รู้จักบอท');
+    const o = p || {};
+    const props = PropertiesService.getScriptProperties();
+    const changed = [];
+    if (o.clear) {
+      props.deleteProperty(c.url);
+      props.deleteProperty(c.secret);
+      changed.push('ลบ URL + Secret');
+    } else {
+      const url = String(o.url || '').trim();
+      const secret = String(o.secret || '').trim();
+      if (url) {
+        if (!LARK_HOOK_RE_.test(url)) throw appError_('VALIDATION', 'Webhook URL ต้องเป็นลิงก์ Lark รูปแบบ https://open.larksuite.com/open-apis/bot/v2/hook/…');
+        props.setProperty(c.url, url);
+        changed.push('URL');
+      }
+      if (secret) {
+        if (secret.length > 200 || /\s/.test(secret)) throw appError_('VALIDATION', 'Secret ไม่ถูกต้อง (คัดลอกจากหน้า Security settings ของบอท)');
+        props.setProperty(c.secret, secret);
+        changed.push('Secret');
+      }
+      if (!changed.length) throw appError_('VALIDATION', 'กรอก Webhook URL และ/หรือ Secret ที่ต้องการเปลี่ยน');
+    }
+    withLock_(function () {
+      insertRow_(TAB.NOTIF_LOG, { log_id: uuid_(), ts: new Date(), ticket_id: '', ticket_no: '', bot: c.name, event: 'config_changed', status: 'ok',
+        http_code: '', attempts: 0, response: '', summary: 'ตั้งค่า ' + changed.join(' + ') + ' โดย ' + u.email });
+    });
+    return { saved: changed };
+  });
+}
+
+/** Web-app link used by the card button (?page=ticket&id=FPR-…). */
+function saveWebappUrl(url) {
+  return api_('saveWebappUrl', function () {
+    const u = currentUser_();
+    requireAdmin_(u);
+    const v = String(url || '').trim();
+    if (!/^https:\/\/script\.google\.com\/(a\/macros\/[^/]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/.test(v)) {
+      throw appError_('VALIDATION', 'ลิงก์ต้องเป็น https://script.google.com/…/macros/s/…/exec (Deploy → Manage deployments → Web app URL)');
+    }
+    PropertiesService.getScriptProperties().setProperty(CFG.PROP.WEBAPP_URL, v);
+    return { webapp_url: v };
+  });
+}
+
+/** Send one test card through a bot, mentioning the Admin. */
+function testBotSend(bot) {
+  return api_('testBotSend', function () {
+    const u = currentUser_();
+    requireAdmin_(u);
+    const c = BOT_PROPS_[bot];
+    if (!c) throw appError_('VALIDATION', 'ไม่รู้จักบอท');
+    const facts = { no: 'FPR-TEST-0001', customer: 'ทดสอบการเชื่อมต่อ', requester: u.full_name, status: 'ทดสอบ', owner: u.full_name,
+      deadline: fmtDate_(new Date(), 'dd/MM/yyyy HH:mm'), items: ['• ทดสอบจากหน้า ⚙️ ตั้งค่า Lark Bot'], priced: false };
+    const card = buildCard_({ color: bot === 'reminder' ? 'yellow' : 'blue', title: '[ทดสอบ] ' + c.name + ' เชื่อมต่อสำเร็จ', facts: facts,
+      mentions: [u.email], link: fprLink_({ ticket_no: 'FPR-TEST-0001' }), extra: ['ถ้าชื่อคุณด้านล่างเป็นสีฟ้า = mention ทำงาน'] });
+    const r = sendBot_(bot, card, { event: 'test', ticket_no: 'FPR-TEST-0001', summary: 'ทดสอบโดย ' + u.email });
+    let hint = '';
+    if (r.status === 'not_configured') hint = 'ยังไม่ได้ใส่ Webhook URL';
+    else if (r.status === 'failed') {
+      const j = parseJson_(r.response, {});
+      hint = /sign/i.test(String(j.msg || '')) ? 'Secret ไม่ตรงกับบอท (หรือเวลาเครื่องคลาดเคลื่อน) — คัดลอก Secret ใหม่จาก Security settings'
+        : /keyword/i.test(String(j.msg || '')) ? 'บอทตั้ง Custom keywords ไว้ — ปิด keywords หรือใช้ signature verification อย่างเดียว'
+        : /ip/i.test(String(j.msg || '')) ? 'บอทจำกัด IP — ปิด IP whitelist' : 'ส่งไม่สำเร็จ: ' + String(j.msg || r.response || r.http_code).slice(0, 150);
+    }
+    return { status: r.status, attempts: r.attempts, http_code: r.http_code, hint: hint };
+  });
 }
 
 /**

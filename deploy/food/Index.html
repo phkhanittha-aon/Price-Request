@@ -945,7 +945,7 @@ const ROUTE_KEYS = ['page', 'id', 'scope', 'stage', 'requestor', 'sr', 'outcome'
 function cleanRoute(p) {
   const r = {};
   ROUTE_KEYS.forEach(function (k) { if (p && p[k]) r[k] = String(p[k]); });
-  if (!r.page || ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'].indexOf(r.page) === -1) r.page = 'home';
+  if (!r.page || ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers', 'admin'].indexOf(r.page) === -1) r.page = 'home';
   return r;
 }
 function go(route, replace) {
@@ -971,7 +971,7 @@ function render(route) {
   }
 }
 function routeKey(r) { return r.page + '|' + (r.scope || '') + '|' + (r.stage || '') + (r.requestor || '') + (r.sr || '') + (r.outcome || '') + (r.follow || ''); }
-const PAGE_TITLE = { home: 'หน้าแรก', dashboard: 'รายงาน', gp: 'สรุป GP & การปิดการขาย', deals: 'ติดตามการขาย', suppliers: 'Supplier', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
+const PAGE_TITLE = { home: 'หน้าแรก', dashboard: 'รายงาน', gp: 'สรุป GP & การปิดการขาย', deals: 'ติดตามการขาย', suppliers: 'Supplier', admin: 'ตั้งค่า Lark Bot', ticket: 'รายละเอียดใบขอราคา', pricing: 'ใบเสนอราคา (SR)', edit: 'แก้ไขใบขอราคา', 'new': 'สร้างใบขอราคา' };
 /** Tabs on top of the report pages: ภาพรวม · ติดตามการขาย · สรุป GP (only the ones this role may open). */
 function reportTabs(active) {
   const role = state.me.role;
@@ -2213,7 +2213,7 @@ Pages.tickets = (function () {
 
   /* ---------- tabs (one click) ---------- */
   const TABS = [
-    { id: 'all', label: 'ทั้งหมด', test: function () { return true; } },
+    { id: 'all', label: 'ทั้งหมด', test: function (r) { return r.stage !== 'deleted'; } },
     { id: 'inbox', label: 'รอฉัน', test: function (r) { return r.is_inbox; } },
     { id: 'mine', label: 'ของฉัน', roles: ['sales', 'sr'], test: function (r) { return r.is_mine; } },
     { id: 'queue', label: 'คิวรอรับงาน', roles: ['sr', 'sr_manager', 'admin'], test: function (r) { return r.stage === 'pending_assign'; } },
@@ -2223,7 +2223,8 @@ Pages.tickets = (function () {
     { id: 'ack', label: 'ส่งถึง Sales', test: function (r) { return r.stage === 'awaiting_sales_ack'; } },
     { id: 'follow', label: '📌 ส่งตามหลัง', test: function (r) { return r.is_follow_up && r.outcome === 'open'; } },
     { id: 'closed', label: 'ปิดงาน', test: function (r) { return r.stage === 'closed'; } },
-    { id: 'rejected', label: 'ไม่อนุมัติ / ยกเลิก', test: function (r) { return r.outcome === 'rejected'; } }
+    { id: 'rejected', label: 'ไม่อนุมัติ / ยกเลิก', test: function (r) { return r.outcome === 'rejected'; } },
+    { id: 'deleted', label: '🗑 ถูกลบ', roles: ['admin'], test: function (r) { return r.stage === 'deleted'; } }
   ];
   function tabsFor() {
     return TABS.filter(function (t) { return !t.roles || t.roles.indexOf(state.me.role) !== -1; });
@@ -2521,6 +2522,8 @@ Pages.ticket = (function () {
     gm_price_approve: { label: '✅ อนุมัติฝั่งซื้อ', cls: 'primary', comment: 'optional', confirm: 'อนุมัติฝั่งซื้อ: อนุมัติราคาซื้อและราคาขายใบ {no} แล้วส่งราคาขายถึง Sales?' },
     gm_price_return: { label: 'ส่งกลับให้ SR แก้ราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ SR แก้ไข' },
     gm_price_reject: { label: 'ปฏิเสธราคา (ปิดใบ)', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ปฏิเสธ', confirm: 'ปฏิเสธราคาใบ {no}? ใบจะถูกปิดและแก้ไขต่อไม่ได้' },
+    admin_delete: { label: '🗑 ลบใบขอราคา', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ลบ', confirm: 'ลบใบ {no}? ใบจะถูกซ่อนจากทุกคน (ข้อมูลยังเก็บไว้ Admin กู้คืนได้ที่แท็บ “🗑 ถูกลบ”)' },
+    admin_restore: { label: '♻️ กู้คืนใบขอราคา', cls: 'primary', comment: 'optional', confirm: 'กู้คืนใบ {no} กลับไปขั้นตอนเดิมก่อนถูกลบ?' },
     admin_cancel: { label: '⛔ ยกเลิก (Admin)', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ยกเลิก', confirm: 'Admin ยกเลิกใบ {no}? ยกเลิกแล้วเปิดใหม่ไม่ได้' },
     request_info: { label: 'ขอข้อมูลเพิ่มจาก Sales', cls: '', comment: 'required', commentLabel: 'ข้อมูล/เอกสารที่ต้องการ', checklist: true },
     respond_info: { label: 'ส่งข้อมูลเพิ่มให้ SR', cls: 'primary', comment: 'required', commentLabel: 'คำตอบ / รายละเอียดที่ส่งเพิ่ม (แนบไฟล์ด้านล่างก่อนกดส่ง)' },
@@ -2624,7 +2627,9 @@ Pages.ticket = (function () {
       if (ui) buttons.push('<button class="btn ' + ui.cls + '" data-action="' + a + '">' + esc(ui.label) + '</button>');
     });
     if (!buttons.length) return '';
-    return '<div class="card"><div class="actions">' + buttons.join('') + '</div></div>';
+    const adminNote = d.me.role === 'admin' ? (t.stage === 'deleted' ? '<div class="notice warn">🗑 ใบนี้ถูกลบแล้ว — เห็นเฉพาะ Admin · กด “กู้คืน” เพื่อนำกลับมาที่ขั้นตอนเดิม</div>' :
+      '<div class="small muted" style="margin-bottom:6px">🛡 โหมด Admin — ปุ่มด้านล่างทำแทนผู้รับผิดชอบขั้นนี้ได้ทุกขั้น (บันทึกใน Timeline ว่า Admin ทำแทนใคร)</div>') : '';
+    return '<div class="card">' + adminNote + '<div class="actions">' + buttons.join('') + '</div></div>';
   }
 
   function itemsHtml(d) {
@@ -2829,6 +2834,7 @@ Pages.ticket = (function () {
           if (m.reason) detail += '<div>เหตุผล: ' + esc(m.reason) + '</div>';
         }
         return '<li class="' + (isTransition ? '' : 'data') + '"' + (isTransition ? '' : ' data-kind="data" hidden') + '><div><b>' + esc(l.action_label) + '</b> · ' + esc(l.actor_name) +
+          (l.on_behalf_name ? ' <span class="small muted">(แทน ' + esc(l.on_behalf_name) + ')</span>' : '') +
           ' <span class="muted small">(' + esc(l.actor_role) + ')</span></div><div class="meta">' + esc(l.ts_bkk) +
           (l.stage_duration_sec != null && isTransition && l.from_stage ? ' · อยู่ในขั้นตอนก่อนหน้า ' + esc(fmtHours(l.stage_duration_sec / 3600)) : '') + '</div>' +
           (detail ? '<div class="small">' + detail + '</div>' : '') +
@@ -2840,7 +2846,7 @@ Pages.ticket = (function () {
     const t = d.ticket;
     const ui = ACTION_UI[action];
     let html = '';
-    const pickSr = ui.select === 'sr' || (ui.select === 'sr_gm' && state.ref.gm_assigns_sr);
+    const pickSr = ui.select === 'sr' || (ui.select === 'sr_gm' && state.ref.gm_assigns_sr) || (action === 'claim' && d.me.role === 'admin');
     if (pickSr) {
       html = '<label class="field"><span>' + (ui.select === 'sr_gm' ? 'Sourcing ผู้ทำราคา' : 'มอบหมายให้ SR') + ' <span class="req">*</span></span><select id="dlg-sr"><option value="">— เลือก SR —</option>' +
         state.ref.sr_users.filter(function (u) { return u.email !== t.sr_email; })
@@ -3051,6 +3057,9 @@ Pages.new = Pages.edit = (function () {
       (mode === 'edit' && ticket.stage === 'returned' ? '<div class="notice warn">Sales Manager ส่งกลับให้แก้ไข — แก้แล้วกด “บันทึกและส่งอีกครั้ง”</div>' : '') +
       '<form id="pr-form" novalidate>' +
       '<section class="card fsec"><h2><span class="sn">1</span>ข้อมูลลูกค้า</h2><div class="fgrid">' +
+      (mode !== 'edit' && state.me.role === 'admin' ? field('Sales ผู้ขอราคา', 'Requester (Admin สร้างแทน)', '<select id="f-req"><option value="">— เลือก Sales —</option>' +
+        (state.ref.sales_users || []).map(function (u) { return '<option value="' + esc(u.email) + '"' + (d.requestor_email === u.email ? ' selected' : '') + '>' + esc(u.full_name) + '</option>'; }).join('') +
+        '</select>', { req: true }) : '') +
       field('ชื่อลูกค้า', 'Customer', '<input type="text" id="f-customer" list="cust-list" maxlength="200" placeholder="พิมพ์หรือเลือกลูกค้าที่เคยขอ" value="' + esc(d.customer_name) + '">', { req: true }) +
       field('กลุ่มลูกค้า', 'Customer Group', '<select id="f-cgroup"><option value="">— เลือก —</option>' + (state.ref.customer_groups || []).map(function (g) {
         return '<option' + (d.customer_group === g ? ' selected' : '') + '>' + esc(g) + '</option>'; }).join('') + '</select>', { req: true }) +
@@ -3077,6 +3086,7 @@ Pages.new = Pages.edit = (function () {
   }
 
   function collect(view, d) {
+    if ($('#f-req', view)) d.requestor_email = $('#f-req', view).value;
     d.customer_name = $('#f-customer', view).value;
     d.customer_group = $('#f-cgroup', view).value;
     d.destination_country = $('#f-dest', view).value;
@@ -3104,6 +3114,7 @@ Pages.new = Pages.edit = (function () {
       m.textContent = msg;
       el.parentNode.appendChild(m);
     };
+    if ($('#f-req', view) && !d.requestor_email) mark($('#f-req', view), 'กรุณาเลือก Sales ผู้ขอราคา');
     if (!d.customer_name.trim()) mark($('#f-customer', view), 'กรุณากรอกชื่อลูกค้า');
     if (!d.customer_group) mark($('#f-cgroup', view), 'กรุณาเลือกกลุ่มลูกค้า');
     else if (/ส่งออก/.test(d.customer_group) && /^(ไทย|thailand|th)?$/i.test(String(d.destination_country || '').trim())) mark($('#f-dest', view), 'ส่งออก — ระบุประเทศปลายทาง');
@@ -3167,7 +3178,7 @@ Pages.new = Pages.edit = (function () {
     setBusy(view, true, 'กำลังส่ง...');
     api('createTicket', {
       client_key: d.client_key, title: autoTitle(d), customer_name: d.customer_name.trim(), documents_needed: d.documents_needed,
-      customer_group: d.customer_group, destination_country: d.destination_country,
+      customer_group: d.customer_group, destination_country: d.destination_country, requestor_email: d.requestor_email || '',
       due_date: d.due_date, description: d.description, items: d.items.map(payloadItem)
     }).then(function (res) {
       const t = res.ticket;
@@ -3358,7 +3369,7 @@ Pages.new = Pages.edit = (function () {
   return {
     render: function (view, route, isCurrent) {
       if (route.page === 'new') {
-        if (state.me.role !== 'sales') { view.innerHTML = errorHtml({ error: 'เฉพาะ Sales เท่านั้นที่สร้างใบขอราคาได้' }); return; }
+        if (state.me.role !== 'sales' && state.me.role !== 'admin') { view.innerHTML = errorHtml({ error: 'เฉพาะ Sales (หรือ Admin สร้างแทน) เท่านั้นที่สร้างใบขอราคาได้' }); return; }
         if (route.copy) {
           // "สร้างใบใหม่จากใบนี้": customer + documents + remark + products (no pictures, new dates)
           view.innerHTML = loadingHtml('กำลังคัดลอกจากใบเดิม...');
@@ -4651,6 +4662,86 @@ Pages.pricing = (function () {
           }).catch(function () { /* hints are optional */ });
         }
       }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+    }
+  };
+})();
+</script>
+
+  <!-- ===== PageAdmin.html ===== -->
+<!--
+  File: PageAdmin.html
+  ⚙️ ตั้งค่า Lark Bot (?page=admin) — Admin only (server refuses everyone else).
+  FPR Bot (every workflow step) + FPR Reminder (SLA breaches): Webhook URL + Secret are saved to
+  Script Properties by the server; the browser never receives them back (URL shown masked, Secret as ✓).
+-->
+<script>
+Pages.admin = (function () {
+  function badge(ok, yes, no) { return '<span class="sla ' + (ok ? 'ok">✓ ' + yes : 'breach">✗ ' + no) + '</span>'; }
+  function lastHtml(l) {
+    if (!l) return '<span class="muted">ยังไม่เคยส่ง</span>';
+    const st = l.status === 'sent' ? '<span class="sla ok">ส่งสำเร็จ</span>' : l.status === 'not_configured' ? '<span class="sla warning">ยังไม่ได้ตั้งค่า</span>' : '<span class="sla breach">ส่งไม่สำเร็จ</span>';
+    return esc(l.ts) + ' · ' + esc(l.event) + ' · ' + st + (l.status === 'failed' ? '<div class="small muted">' + esc(l.http_code) + ' ' + esc(l.response) + '</div>' : '');
+  }
+  function botCard(b) {
+    return '<section class="card" data-bot="' + esc(b.key) + '"><h3>' + (b.key === 'fpr' ? '🤖 ' : '⏰ ') + esc(b.name) +
+      ' <span class="small muted">' + (b.key === 'fpr' ? 'แจ้งทุกขั้นตอน workflow' : 'แจ้งเฉพาะงานที่เกิน SLA (ทุกชั่วโมง)') + '</span></h3>' +
+      '<dl class="kv small"><dt>Webhook URL</dt><dd>' + badge(b.url_set, 'ตั้งแล้ว', 'ยังไม่ได้ตั้ง') + ' <code>' + esc(b.url_masked) + '</code>' +
+      (b.url_valid ? '' : ' <span class="sla breach">⚠ ไม่ใช่ลิงก์ Lark webhook</span>') + '</dd>' +
+      '<dt>Secret</dt><dd>' + badge(b.secret_set, 'ตั้งแล้ว (ซ่อนไว้)', 'ยังไม่ได้ตั้ง') + '</dd>' +
+      '<dt>ส่งล่าสุด</dt><dd>' + lastHtml(b.last) + '</dd></dl>' +
+      '<div class="fgrid two" style="margin-top:8px">' +
+      '<label class="field"><span>Webhook URL ใหม่</span><input type="url" data-k="url" style="width:100%" autocomplete="off" placeholder="https://open.larksuite.com/open-apis/bot/v2/hook/…"></label>' +
+      '<label class="field"><span>Secret ใหม่</span><input type="password" data-k="secret" style="width:100%" autocomplete="new-password" placeholder="จาก Security settings → Signature verification"></label></div>' +
+      '<div class="small muted">เว้นว่างช่องที่ไม่ต้องการเปลี่ยน · ค่าที่บันทึกเก็บใน Script Properties (<code>' + esc(b.url_prop) + '</code>, <code>' + esc(b.secret_prop) + '</code>) ไม่อยู่ใน Sheet</div>' +
+      '<div class="actions" style="margin-top:8px"><button class="btn primary" data-save>💾 บันทึก</button><button class="btn" data-test>📨 ส่งการ์ดทดสอบ</button>' +
+      (b.url_set || b.secret_set ? '<button class="btn danger ghost" data-clear>ลบค่า</button>' : '') + '</div><div class="small" data-out></div></section>';
+  }
+  function draw(view, d) {
+    view.innerHTML = '<div class="page-head"><h1>⚙️ ตั้งค่า Lark Bot</h1></div>' +
+      '<div class="card small"><b>วิธีสร้างบอท (ทำ 2 ตัวในกลุ่มเดียวกัน):</b> กลุ่ม Lark → ⚙️ Settings → <b>Bots → Add Bot → Custom Bot</b> → ตั้งชื่อ “FPR Bot” / “FPR Reminder” → ' +
+      '<b>Security settings: ✅ Set signature verification</b> (ไม่ต้องตั้ง keywords / IP) → คัดลอก Webhook URL และ Secret มาวางด้านล่าง → บันทึก → กด “ส่งการ์ดทดสอบ”' +
+      (d.failed_24h ? '<div class="notice warn" style="margin-top:8px">มีการ์ดส่งไม่สำเร็จ ' + d.failed_24h + ' ครั้งใน 24 ชม. — ดูรายละเอียดในแท็บ NotifLog</div>' : '') + '</div>' +
+      d.bots.map(botCard).join('') +
+      '<section class="card"><h3>🔗 ลิงก์เว็บแอป (ปุ่ม “เปิดใบขอราคา” ในการ์ด)</h3><div class="small">ปัจจุบัน: ' + (d.webapp_url ? '<code>' + esc(d.webapp_url) + '</code>' : '<span class="sla warning">ยังไม่ได้ตั้ง — ใช้ลิงก์ของ deployment ปัจจุบันแทน</span>') + '</div>' +
+      '<div class="fgrid two" style="margin-top:8px"><label class="field"><span>Web app URL (/exec)</span><input type="url" id="ad-webapp" style="width:100%" placeholder="https://script.google.com/a/macros/mglobalsourcing.net/s/…/exec" value="' + esc(d.webapp_url) + '"></label></div>' +
+      '<div class="actions"><button class="btn" id="ad-webapp-save">💾 บันทึกลิงก์</button></div></section>';
+    $all('[data-bot]', view).forEach(function (card) {
+      const bot = card.getAttribute('data-bot');
+      const out = $('[data-out]', card);
+      $('[data-save]', card).onclick = function () {
+        out.textContent = 'กำลังบันทึก...';
+        api('saveBotSettings', bot, { url: $('[data-k="url"]', card).value, secret: $('[data-k="secret"]', card).value }).then(function (r) {
+          toast('บันทึก ' + r.saved.join(' + ') + ' แล้ว', 'ok');
+          load(view);
+        }).catch(function (e) { out.innerHTML = '<span class="sla breach">' + esc(e.error) + '</span>'; });
+      };
+      $('[data-test]', card).onclick = function () {
+        out.textContent = 'กำลังส่งการ์ดทดสอบ...';
+        api('testBotSend', bot).then(function (r) {
+          out.innerHTML = r.status === 'sent' ? '<span class="sla ok">✓ ส่งสำเร็จ — ตรวจในกลุ่ม Lark ว่าเห็นการ์ดและชื่อคุณเป็นสีฟ้า</span>'
+            : '<span class="sla breach">✗ ' + esc(r.hint || r.status) + '</span>';
+        }).catch(function (e) { out.innerHTML = '<span class="sla breach">' + esc(e.error) + '</span>'; });
+      };
+      const clr = $('[data-clear]', card);
+      if (clr) clr.onclick = function () {
+        dialog({ title: 'ลบค่าของบอทนี้?', message: 'ลบ Webhook URL และ Secret — บอทนี้จะหยุดส่งการ์ดจนกว่าจะตั้งค่าใหม่', danger: true, confirmText: 'ลบค่า' }).then(function (ok) {
+          if (!ok) return;
+          api('saveBotSettings', bot, { clear: true }).then(function () { toast('ลบค่าแล้ว', 'ok'); load(view); }).catch(function (e) { toast(e.error, 'err'); });
+        });
+      };
+    });
+    $('#ad-webapp-save', view).onclick = function () {
+      api('saveWebappUrl', $('#ad-webapp', view).value).then(function () { toast('บันทึกลิงก์แล้ว', 'ok'); load(view); }).catch(function (e) { toast(e.error, 'err', 9000); });
+    };
+  }
+  function load(view) {
+    api('getBotSettings').then(function (d) { draw(view, d); }).catch(function (e) { view.innerHTML = errorHtml(e, 'App.reload()'); });
+  }
+  return {
+    render: function (view) {
+      if (state.me.role !== 'admin') { go({ page: 'home' }, true); return; }
+      view.innerHTML = loadingHtml();
+      load(view);
     }
   };
 })();

@@ -305,6 +305,7 @@ const STAGE_ORDER_ = ['pending_manager', 'returned', 'pending_gm', 'pending_assi
   'pending_sr_manager', 'pending_gm_price', 'awaiting_sales_ack', 'closed', 'rejected', 'cancelled'];
 
 function outcome_(t) {
+  if (t.status === 'deleted') return 'deleted';
   if (DONE_STATUSES_.indexOf(t.status) !== -1) return 'done';
   if (t.status === 'rejected') return 'rejected';
   return 'open';
@@ -322,7 +323,7 @@ function getDashboard(range) {
     const now = new Date();
     const ctx = listContext_();
 
-    let tickets = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return canSeeTicket_(u, t); });
+    let tickets = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return t.stage !== 'deleted' && canSeeTicket_(u, t); });
     let scope = 'ทุกคน';
     if (u.role === 'sales') { tickets = tickets.filter(function (t) { return t.requestor_email === u.email; }); scope = 'ใบขอราคาของคุณ'; }
     if (u.role === 'sr') { tickets = tickets.filter(function (t) { return t.sr_email === u.email; }); scope = 'งานที่คุณรับผิดชอบ'; }

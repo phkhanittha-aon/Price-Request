@@ -18,7 +18,7 @@
  */
 
 const PAGES_ = ['home', 'dashboard', 'gp', 'deals', 'tickets', 'ticket', 'new', 'edit', 'pricing', 'suppliers'];
-const PARTIALS_ = ['App', 'PageHome', 'PageDashboard', 'PageGp', 'PageDeals', 'PageTickets', 'PageTicket', 'PageForm', 'PageSuppliers', 'PagePricing'];
+const PARTIALS_ = ['App', 'PageHome', 'PageDashboard', 'PageGp', 'PageDeals', 'PageTickets', 'PageTicket', 'PageForm', 'PageSuppliers', 'PagePricing', 'PageAdmin'];
 
 function doGet(e) {
   const t = HtmlService.createTemplateFromFile('Index');
@@ -64,6 +64,7 @@ function menuFor_(u) {
   const m = [{ key: 'home', group: MAIN, icon: '🏠', label: 'หน้าแรก', route: { page: 'home' } }];
   m.push({ key: 'tickets', group: MAIN, icon: '📄', label: 'ใบเสนอราคา', route: { page: 'tickets' }, badge: 'inbox' });
   if (u.role === 'sales') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+  if (u.role === 'admin') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', hint: 'แทน Sales', route: { page: 'new' } });
   if (u.role === 'sales') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามการขาย', hint: 'ลูกค้าซื้อหรือยัง', route: { page: 'deals' }, badge: 'deals_due' });
   if (u.role === 'gm') {
     // two separate GM approvals: sales side (the request) and purchasing side (vendor price + selling price)
@@ -77,9 +78,11 @@ function menuFor_(u) {
   }
   // SR: follow up with Sales on the prices they made (weekly meeting) — Sales-side data only, no cost / GP
   if (u.role === 'sr') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามงานขาย', hint: 'ราคาที่ฉันทำ · ประชุมประจำสัปดาห์', route: { page: 'deals' } });
+  if (u.role === 'admin') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามการขาย', route: { page: 'deals' } });
   if (['manager', 'sr_manager', 'gm', 'admin'].indexOf(u.role) !== -1) {
     m.push({ key: 'reports', group: MAIN, icon: '📊', label: 'รายงาน', route: { page: 'dashboard' } });
   }
+  if (u.role === 'admin') m.push({ key: 'admin', group: MAIN, icon: '⚙️', label: 'ตั้งค่า Lark Bot', route: { page: 'admin' } });
   return m;
 }
 

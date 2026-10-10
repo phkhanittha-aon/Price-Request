@@ -23,6 +23,8 @@ Pages.ticket = (function () {
     gm_price_approve: { label: '✅ อนุมัติฝั่งซื้อ', cls: 'primary', comment: 'optional', confirm: 'อนุมัติฝั่งซื้อ: อนุมัติราคาซื้อและราคาขายใบ {no} แล้วส่งราคาขายถึง Sales?' },
     gm_price_return: { label: 'ส่งกลับให้ SR แก้ราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ SR แก้ไข' },
     gm_price_reject: { label: 'ปฏิเสธราคา (ปิดใบ)', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ปฏิเสธ', confirm: 'ปฏิเสธราคาใบ {no}? ใบจะถูกปิดและแก้ไขต่อไม่ได้' },
+    admin_delete: { label: '🗑 ลบใบขอราคา', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ลบ', confirm: 'ลบใบ {no}? ใบจะถูกซ่อนจากทุกคน (ข้อมูลยังเก็บไว้ Admin กู้คืนได้ที่แท็บ “🗑 ถูกลบ”)' },
+    admin_restore: { label: '♻️ กู้คืนใบขอราคา', cls: 'primary', comment: 'optional', confirm: 'กู้คืนใบ {no} กลับไปขั้นตอนเดิมก่อนถูกลบ?' },
     admin_cancel: { label: '⛔ ยกเลิก (Admin)', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ยกเลิก', confirm: 'Admin ยกเลิกใบ {no}? ยกเลิกแล้วเปิดใหม่ไม่ได้' },
     request_info: { label: 'ขอข้อมูลเพิ่มจาก Sales', cls: '', comment: 'required', commentLabel: 'ข้อมูล/เอกสารที่ต้องการ', checklist: true },
     respond_info: { label: 'ส่งข้อมูลเพิ่มให้ SR', cls: 'primary', comment: 'required', commentLabel: 'คำตอบ / รายละเอียดที่ส่งเพิ่ม (แนบไฟล์ด้านล่างก่อนกดส่ง)' },
@@ -126,7 +128,9 @@ Pages.ticket = (function () {
       if (ui) buttons.push('<button class="btn ' + ui.cls + '" data-action="' + a + '">' + esc(ui.label) + '</button>');
     });
     if (!buttons.length) return '';
-    return '<div class="card"><div class="actions">' + buttons.join('') + '</div></div>';
+    const adminNote = d.me.role === 'admin' ? (t.stage === 'deleted' ? '<div class="notice warn">🗑 ใบนี้ถูกลบแล้ว — เห็นเฉพาะ Admin · กด “กู้คืน” เพื่อนำกลับมาที่ขั้นตอนเดิม</div>' :
+      '<div class="small muted" style="margin-bottom:6px">🛡 โหมด Admin — ปุ่มด้านล่างทำแทนผู้รับผิดชอบขั้นนี้ได้ทุกขั้น (บันทึกใน Timeline ว่า Admin ทำแทนใคร)</div>') : '';
+    return '<div class="card">' + adminNote + '<div class="actions">' + buttons.join('') + '</div></div>';
   }
 
   function itemsHtml(d) {
@@ -331,6 +335,7 @@ Pages.ticket = (function () {
           if (m.reason) detail += '<div>เหตุผล: ' + esc(m.reason) + '</div>';
         }
         return '<li class="' + (isTransition ? '' : 'data') + '"' + (isTransition ? '' : ' data-kind="data" hidden') + '><div><b>' + esc(l.action_label) + '</b> · ' + esc(l.actor_name) +
+          (l.on_behalf_name ? ' <span class="small muted">(แทน ' + esc(l.on_behalf_name) + ')</span>' : '') +
           ' <span class="muted small">(' + esc(l.actor_role) + ')</span></div><div class="meta">' + esc(l.ts_bkk) +
           (l.stage_duration_sec != null && isTransition && l.from_stage ? ' · อยู่ในขั้นตอนก่อนหน้า ' + esc(fmtHours(l.stage_duration_sec / 3600)) : '') + '</div>' +
           (detail ? '<div class="small">' + detail + '</div>' : '') +
@@ -342,7 +347,7 @@ Pages.ticket = (function () {
     const t = d.ticket;
     const ui = ACTION_UI[action];
     let html = '';
-    const pickSr = ui.select === 'sr' || (ui.select === 'sr_gm' && state.ref.gm_assigns_sr);
+    const pickSr = ui.select === 'sr' || (ui.select === 'sr_gm' && state.ref.gm_assigns_sr) || (action === 'claim' && d.me.role === 'admin');
     if (pickSr) {
       html = '<label class="field"><span>' + (ui.select === 'sr_gm' ? 'Sourcing ผู้ทำราคา' : 'มอบหมายให้ SR') + ' <span class="req">*</span></span><select id="dlg-sr"><option value="">— เลือก SR —</option>' +
         state.ref.sr_users.filter(function (u) { return u.email !== t.sr_email; })

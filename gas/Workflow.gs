@@ -33,12 +33,12 @@
 const TRANSITION_ACTIONS = ['resubmit', 'cancel', 'manager_approve', 'manager_reject', 'manager_return',
   'gm_approve', 'gm_reject', 'claim', 'queue_return', 'assign', 'request_info', 'respond_info', 'doc_complete',
   'submit_quote', 'srm_approve', 'srm_return', 'gm_price_approve', 'gm_price_return', 'accept', 'request_revision',
-  'gm_price_reject', 'admin_cancel', 'srm_reject', 'gm_return'];
+  'gm_price_reject', 'admin_cancel', 'srm_reject', 'gm_return', 'admin_delete', 'admin_restore'];
 
 const ACTION_LABEL_TH = {
   create: 'สร้างใบขอราคา', resubmit: 'ส่งใบขอราคาอีกครั้ง', cancel: 'ยกเลิกใบขอราคา',
   manager_approve: 'Sales Manager อนุมัติ', manager_reject: 'Sales Manager ไม่อนุมัติ', manager_return: 'Sales Manager ส่งกลับแก้ไข',
-  deal_update: 'อัปเดตผลการขาย', gm_price_reject: 'GM ปฏิเสธราคา', srm_reject: 'SR Manager ปฏิเสธ', gm_return: 'GM ตีกลับให้ผู้ขอแก้ไข', admin_cancel: 'ผู้ดูแลระบบยกเลิกใบ', gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
+  deal_update: 'อัปเดตผลการขาย', gm_price_reject: 'GM ปฏิเสธราคา', srm_reject: 'SR Manager ปฏิเสธ', gm_return: 'GM ตีกลับให้ผู้ขอแก้ไข', admin_cancel: 'ผู้ดูแลระบบยกเลิกใบ', admin_delete: 'ผู้ดูแลระบบลบใบขอราคา', admin_restore: 'ผู้ดูแลระบบกู้คืนใบขอราคา', gm_approve: 'GM อนุมัติฝั่งขาย (คำขอราคา)', gm_reject: 'GM ไม่อนุมัติฝั่งขาย', claim: 'SR รับงาน', queue_return: 'SR ตีกลับ — ข้อมูลไม่ครบ', assign: 'มอบหมายงาน SR',
   request_info: 'SR ขอข้อมูลเพิ่ม', respond_info: 'Sales ส่งข้อมูลเพิ่ม', doc_complete: 'SR ตรวจเอกสารครบ',
   submit_quote: 'SR ส่งราคาให้ SR Manager ตรวจ', srm_approve: 'SR Manager อนุมัติราคา', srm_return: 'SR Manager ส่งกลับให้แก้ราคา',
   gm_price_approve: 'GM อนุมัติฝั่งซื้อ (ราคา → ส่งถึง Sales)', gm_price_return: 'GM ฝั่งซื้อ ส่งกลับให้แก้ราคา', accept: 'Sales รับทราบราคา / ปิดงาน', request_revision: 'Sales ขอให้ปรับราคา',
@@ -59,7 +59,14 @@ function createTicket(payload) {
   return api_('createTicket', function () {
     const p = payload || {};
     return withLock_(function () {
-      const u = currentUser_();
+      const actor = currentUser_();
+      let u = actor;
+      if (actor.role === 'admin') {
+        // Admin creates the request for a Sales person (the request belongs to that Sales)
+        const s = userByEmail_(p.requestor_email);
+        if (!s || !s.is_active || s.role !== 'sales') throw appError_('VALIDATION', 'กรุณาเลือก Sales ผู้ขอราคา (Admin สร้างใบแทน Sales)');
+        u = s;
+      }
       requireRole_(u, ['sales'], 'เฉพาะ Sales เท่านั้นที่สร้างใบขอราคาได้');
 
       const clientKey = cleanText_(p.client_key, 64);
@@ -139,15 +146,15 @@ function createTicket(payload) {
       insertRows_(TAB.ITEMS, cleanItems);
       appendLog_({
         ticket_id: ticketId, log_type: 'transition', action: 'create',
-        actor_email: u.email, actor_role: u.role,
+        actor_email: actor.email, actor_role: actor.role,
         to_status: 'requested', to_stage: firstStage,
-        metadata: { ticket_no: ticket.ticket_no, item_count: cleanItems.length,
-          sales_manager_skipped: firstStage === 'pending_gm' }
+        metadata: Object.assign({ ticket_no: ticket.ticket_no, item_count: cleanItems.length,
+          sales_manager_skipped: firstStage === 'pending_gm' }, actor !== u ? { on_behalf_of: u.email, on_behalf_role: u.role } : {})
       });
 
       const t = normTicket_(ticket);
       enqueueNotifications_(stageAssignees_(t), t, 'approval_required',
-        '[' + t.ticket_no + '] ใบขอราคาใหม่รออนุมัติ', t.title + ' — ' + u.full_name, ticketLink_(t));
+        '[' + t.ticket_no + '] ใบขอราคาใหม่รออนุมัติ', t.title + ' — ' + u.full_name + (actor !== u ? ' (Admin สร้างแทน)' : ''), ticketLink_(t));
       if (t.stage === 'pending_gm') queueFprCard_('submitted', t, {});
       return { ticket: publicTicket_(t), duplicate: false };
     });
@@ -167,13 +174,24 @@ function transitionTicket(ticketId, action, comment, payload) {
 }
 
 function doTransition_(ticketId, action, comment, payload) {
-  const u = currentUser_();
-  const t = ticketForUser_(u, ticketId);
+  const actor = currentUser_();
+  const t = ticketForUser_(actor, ticketId);
   requireVersion_(t, payload.expected_version);
   const note = cleanText_(comment, CFG.MAX_COMMENT);
   if (TRANSITION_ACTIONS.indexOf(action) === -1) {
     throw appError_('INVALID_ACTION', 'ไม่รู้จักคำสั่ง "' + cleanText_(action, 50) + '"');
   }
+  // Admin may do any step: it runs as the responsible person (all rules apply), logged as Admin
+  let u = actor;
+  if (actor.role === 'admin' && ADMIN_OWN_ACTIONS_.indexOf(action) === -1) {
+    if (t.stage === 'deleted') throw appError_('INVALID_STATE', 'ใบนี้ถูกลบแล้ว — กู้คืนก่อนจึงจะทำรายการต่อได้');
+    u = proxyUserFor_(t, action, payload);
+    if (!u) {
+      throw appError_(action === 'claim' ? 'INVALID_ASSIGNEE' : 'NO_PROXY', action === 'claim'
+        ? 'กรุณาเลือก SR ที่จะรับงานนี้' : 'ไม่พบผู้รับผิดชอบขั้นนี้ที่ใช้งานอยู่ (ตรวจแท็บ Users)');
+    }
+  }
+  const onBehalf = u !== actor ? u : null;
 
   const now = new Date();
   const patch = {};
@@ -382,7 +400,7 @@ function doTransition_(ticketId, action, comment, payload) {
       if (t.stage !== 'pending_sr_manager') badState();
       if (action === 'srm_approve') {
         meta = validateQuotesForSubmit_(t);
-        reviewerEdits_(u, t, meta, now, extraRecipients);
+        reviewerEdits_(u, t, meta, now, extraRecipients, actor);
         patch.stage = 'pending_gm_price';
         patch.sr_manager_email = u.email;
         patch.sr_manager_approved_at = now;
@@ -427,6 +445,25 @@ function doTransition_(ticketId, action, comment, payload) {
       extraRecipients = [t.requestor_email, t.sr_email];
       break;
     }
+    case 'admin_delete': {
+      // soft delete: hidden from everyone except Admin, all rows kept (audit), reversible with admin_restore
+      if (u.role !== 'admin') forbid('เฉพาะผู้ดูแลระบบเท่านั้นที่ลบใบขอราคาได้');
+      if (t.stage === 'deleted') badState('ใบนี้ถูกลบไปแล้ว');
+      needComment('กรุณาระบุเหตุผลที่ลบ');
+      patch.stage = 'deleted';
+      meta = { stage_before: t.stage };
+      notifyType = 'none';
+      break;
+    }
+    case 'admin_restore': {
+      if (u.role !== 'admin') forbid('เฉพาะผู้ดูแลระบบเท่านั้น');
+      if (t.stage !== 'deleted') badState('ใบนี้ไม่ได้ถูกลบ');
+      const del = findAll_(TAB.LOGS, 'ticket_id', t.ticket_id).filter(function (l) { return l.action === 'admin_delete'; }).pop();
+      const back = del ? String(del.from_stage || '') : '';
+      patch.stage = STAGE_STATUS[back] && back !== 'deleted' ? back : 'cancelled';
+      notifyType = 'none';
+      break;
+    }
     case 'admin_cancel': {
       if (u.role !== 'admin') forbid('เฉพาะผู้ดูแลระบบเท่านั้น');
       if (OPEN_STATUSES.indexOf(t.status) === -1) badState('ใบนี้ปิดไปแล้ว');
@@ -443,7 +480,7 @@ function doTransition_(ticketId, action, comment, payload) {
       if (t.stage !== 'pending_gm_price') badState();
       if (action === 'gm_price_approve') {
         meta = validateQuotesForSubmit_(t);
-        reviewerEdits_(u, t, meta, now, extraRecipients);
+        reviewerEdits_(u, t, meta, now, extraRecipients, actor);
         patch.stage = 'awaiting_sales_ack';
         patch.gm_price_approved_at = now;
         patch.completed_at = now;
@@ -490,25 +527,27 @@ function doTransition_(ticketId, action, comment, payload) {
     generateChecklist_(saved.ticket_id);
   }
 
+  if (onBehalf) meta = Object.assign({}, meta, { on_behalf_of: onBehalf.email, on_behalf_role: onBehalf.role });
   appendLog_({
     ticket_id: t.ticket_id, log_type: 'transition', action: action,
-    actor_email: u.email, actor_role: u.role,
+    actor_email: actor.email, actor_role: actor.role,
     from_status: t.status, to_status: saved.status,
     from_stage: t.stage, to_stage: saved.stage,
     comment: note, metadata: meta,
     stage_duration_sec: stageChanged && t.stage_entered_at ? (now.getTime() - new Date(t.stage_entered_at).getTime()) / 1000 : null
   });
 
+  if (notifyType === 'none') return { ticket: publicTicket_(saved) };   // delete / restore: no notifications, no group card
   let recipients = stageAssignees_(saved).concat(extraRecipients);
   if (saved.stage === 'rejected' || saved.stage === 'closed') recipients.push(saved.requestor_email);
   const page = ['doc_check', 'sourcing'].indexOf(saved.stage) !== -1 ? 'pricing' : 'ticket';
   if (saved.stage === 'sourcing' && (action === 'srm_return' || action === 'gm_price_return')) recipients.push(saved.sr_email);
   const nTitle = '[' + saved.ticket_no + '] ' + STAGE_LABEL_TH[saved.stage];
-  const nBody = ACTION_LABEL_TH[action] + ' โดย ' + u.full_name + ' — ' + saved.title;
+  const nBody = ACTION_LABEL_TH[action] + ' โดย ' + actor.full_name + (onBehalf ? ' (แทน ' + onBehalf.full_name + ')' : '') + ' — ' + saved.title;
   if (PRICE_REVIEW_ACTIONS_.indexOf(action) !== -1) {
     // reviewer comments may discuss cost / GP → only cost roles get them; Sales side gets the status line
     const isCost = function (e) { const x = userByEmail_(e); return !!x && COST_ROLES_.indexOf(x.role) !== -1; };
-    const edited = meta && meta.reviewer_changes ? '\n✏️ ' + u.full_name + ' แก้ไขราคา ' + meta.reviewer_changes + ' ครั้งก่อนอนุมัติ (ดูใน Timeline)' : '';
+    const edited = meta && meta.reviewer_changes ? '\n✏️ ' + actor.full_name + ' แก้ไขราคา ' + meta.reviewer_changes + ' ครั้งก่อนอนุมัติ (ดูใน Timeline)' : '';
     enqueueNotifications_(recipients.filter(isCost), saved, notifyType, nTitle, nBody + edited + (note ? '\n' + note : ''), ticketLink_(saved, page));
     const salesSide = recipients.filter(function (e) { return !isCost(e); });
     // the requesting Sales gets the selling price of THEIR OWN request (winning offer only) in the DM
@@ -528,18 +567,19 @@ function doTransition_(ticketId, action, comment, payload) {
  * At approval: if the reviewer edited prices in this step, store the new GP / selling price per item,
  * record how many changes in the approval log and tell the SR (in-app + Lark, cost roles only).
  */
-function reviewerEdits_(u, t, meta, now, extraRecipients) {
+function reviewerEdits_(u, t, meta, now, extraRecipients, actor) {
+  const editors = [u.email, (actor || u).email];
   // log timestamps are whole seconds → compare from the start of the second the step began
   const since = t.stage_entered_at ? Math.floor(new Date(t.stage_entered_at).getTime() / 1000) * 1000 : 0;
   const changes = findAll_(TAB.LOGS, 'ticket_id', t.ticket_id).filter(function (l) {
-    return String(l.actor_email).toLowerCase() === u.email && COST_LOG_ACTIONS_.indexOf(String(l.action)) !== -1 && new Date(l.ts).getTime() >= since;
+    return editors.indexOf(String(l.actor_email).toLowerCase()) !== -1 && COST_LOG_ACTIONS_.indexOf(String(l.action)) !== -1 && new Date(l.ts).getTime() >= since;
   }).length;
   meta.winners.forEach(function (w) {
     updateRow_(TAB.ITEMS, w.item_id, { gp_percent: w.gp_percent, sell_price_thb: w.sell_price_thb, updated_at: now });
   });
   if (changes) {
     meta.reviewer_changes = changes;
-    meta.edited_by = u.email;
+    meta.edited_by = (actor || u).email;
     if (t.sr_email) extraRecipients.push(t.sr_email);
   }
 }
@@ -690,6 +730,18 @@ function fprSlaInfo_(t) {
 
 /** Actions to show as buttons (UI hint only — doTransition_ re-checks everything). */
 function allowedActions_(u, t) {
+  if (u.role === 'admin') {
+    // Admin: every button of every person responsible for this step + Admin's own
+    if (t.stage === 'deleted') return ['admin_restore'];
+    const all = [];
+    proxyCandidates_(t).forEach(function (p) {
+      allowedActions_(p, t).forEach(function (x) { if (all.indexOf(x) === -1 && ADMIN_OWN_ACTIONS_.indexOf(x) === -1) all.push(x); });
+    });
+    if (OPEN_STATUSES.indexOf(t.status) !== -1) all.push('admin_cancel');
+    if (['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1) all.push('assign');
+    all.push('admin_delete');
+    return all;
+  }
   const a = [];
   const owner = u.role === 'sales' && t.requestor_email === u.email;
   const assigned = u.role === 'sr' && t.sr_email === u.email;
@@ -856,6 +908,10 @@ function timelineOf_(ticketId) {
         from_stage: String(l.from_stage), to_stage: String(l.to_stage), comment: String(l.comment || ''),
         metadata: parseJson_(l.metadata_json, {}), stage_duration_sec: l.stage_duration_sec === '' ? null : Number(l.stage_duration_sec)
       };
+    }).map(function (x) {
+      // Admin acting for someone: "Admin (แทน คุณสมชาย GM)"
+      if (x.metadata && x.metadata.on_behalf_of) x.on_behalf_name = names[String(x.metadata.on_behalf_of).toLowerCase()] || x.metadata.on_behalf_of;
+      return x;
     });
 }
 

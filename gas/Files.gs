@@ -34,7 +34,7 @@ function beginUpload(meta) {
     if (!canUpload_(u, t)) throw appError_('FORBIDDEN', 'แนบไฟล์ไม่ได้ในสถานะนี้ หรือคุณไม่ใช่ผู้รับผิดชอบใบนี้');
 
     const category = oneOf_(m.category || 'request', ATTACHMENT_CATEGORIES, 'ประเภทไฟล์');
-    if (COST_FILE_CATEGORIES_.indexOf(category) !== -1 && u.role !== 'sr') throw appError_('FORBIDDEN', 'ไฟล์ใบเสนอราคา / รูปสินค้าของ Supplier แนบได้เฉพาะ SR');
+    if (COST_FILE_CATEGORIES_.indexOf(category) !== -1 && u.role !== 'sr' && u.role !== 'admin') throw appError_('FORBIDDEN', 'ไฟล์ใบเสนอราคา / รูปสินค้าของ Supplier แนบได้เฉพาะ SR');
     const name = sanitizeFileName_(m.file_name);
     const ext = (name.split('.').pop() || '').toLowerCase();
     const mime = cleanText_(m.mime_type, 150) || EXT_MIME_[ext] || '';
@@ -163,7 +163,7 @@ function deleteAttachment(attachmentId) {
       const a = findOne_(TAB.ATTACHMENTS, 'attachment_id', cleanText_(attachmentId));
       if (!a || toBool_(a.is_deleted)) throw appError_('NOT_FOUND', 'ไม่พบไฟล์แนบ');
       const t = ticketForUser_(u, a.ticket_id);
-      if (String(a.uploaded_by).toLowerCase() !== u.email || !canUpload_(u, t)) {
+      if (u.role !== 'admin' && (String(a.uploaded_by).toLowerCase() !== u.email || !canUpload_(u, t))) {   // Admin may remove any file
         throw appError_('FORBIDDEN', 'ลบได้เฉพาะไฟล์ที่คุณแนบเอง และยังอยู่ในขั้นตอนที่แนบไฟล์ได้');
       }
       const inUse = rows_(TAB.QUOTATIONS).some(function (q) {

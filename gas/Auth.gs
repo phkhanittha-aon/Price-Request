@@ -136,6 +136,7 @@ function departmentByCode_(code) {
 // ---------------------------------------------------------------- Ticket-level permissions
 
 function canSeeTicket_(u, t) {
+  if (t.stage === 'deleted') return u.role === 'admin';   // deleted by Admin: hidden from everyone else
   switch (u.role) {
     case 'admin':
     case 'gm':
@@ -171,6 +172,7 @@ function canViewSellPrice_(u, t) {
 
 /** Sales may edit header/items only before Manager approval (or after Manager returned it). */
 function canEditRequest_(u, t) {
+  if (u.role === 'admin') return ['pending_manager', 'returned', 'pending_gm'].indexOf(t.stage) !== -1;   // Admin fixes it for Sales until GM approves
   return u.role === 'sales' && t.requestor_email === u.email &&
     (t.stage === 'pending_manager' || t.stage === 'returned');
 }
@@ -181,6 +183,7 @@ function canEditRequest_(u, t) {
  * so a reviewer can fix the price and approve, instead of sending it back to the SR.
  */
 function canEditQuotes_(u, t) {
+  if (u.role === 'admin') return ['sourcing', 'pending_sr_manager', 'pending_gm_price'].indexOf(t.stage) !== -1;
   if (u.role === 'sr') return t.sr_email === u.email && t.stage === 'sourcing';
   if (u.role === 'sr_manager') return t.stage === 'pending_sr_manager' && t.sr_email !== u.email;
   if (u.role === 'gm') return t.stage === 'pending_gm_price';
@@ -188,15 +191,69 @@ function canEditQuotes_(u, t) {
 }
 
 function canEditChecklist_(u, t) {
+  if (u.role === 'admin') return t.stage === 'doc_check';
   return u.role === 'sr' && t.sr_email === u.email && t.stage === 'doc_check';
 }
 
 function canUpload_(u, t) {
+  if (u.role === 'admin') return OPEN_STATUSES.indexOf(t.status) !== -1;
   if (u.role === 'sales' && t.requestor_email === u.email) {
     // until GM approves (pending_gm included: the Sales Manager step may be skipped right after submit)
     return ['pending_manager', 'returned', 'pending_gm', 'need_info'].indexOf(t.stage) !== -1;
   }
   return u.role === 'sr' && t.sr_email === u.email && t.status === 'on_process';
+}
+
+// ---------------------------------------------------------------- Admin acting on behalf of others
+
+/** Actions Admin does as Admin (not on behalf of anyone). */
+const ADMIN_OWN_ACTIONS_ = ['assign', 'admin_cancel', 'admin_delete', 'admin_restore'];
+const SALES_ACTIONS_ = ['resubmit', 'cancel', 'respond_info', 'accept', 'request_revision'];
+const SR_ACTIONS_ = ['request_info', 'doc_complete', 'submit_quote'];
+
+function asUser_(email, role) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return null;
+  const x = userByEmail_(e);
+  if (x) return x;
+  return { email: e, full_name: e, role: role, department_code: '', is_active: false };
+}
+function firstActive_(role, notEmail) {
+  return activeUsersByRole_(role).filter(function (x) { return x.email !== notEmail; })[0] || null;
+}
+
+/**
+ * Admin may do every step of the workflow. The step runs with the identity of the person who is
+ * responsible for it (requester, Sales Manager, GM, assigned SR, SR Manager) so every business rule
+ * still applies; the log records Admin as the actor and that person as "on behalf of".
+ * Returns null when no such person exists.
+ */
+function proxyUserFor_(t, action, payload) {
+  if (SALES_ACTIONS_.indexOf(action) !== -1) return asUser_(t.requestor_email, 'sales');
+  if (/^manager_/.test(action)) {
+    const d = departmentByCode_(t.department_code);
+    return asUser_((d && d.manager_email) || t.manager_email, 'manager');
+  }
+  if (/^gm_/.test(action)) {
+    const g = t.gm_email ? userByEmail_(t.gm_email) : null;
+    return g && g.is_active && g.role === 'gm' ? g : firstActive_('gm', '');
+  }
+  if (action === 'claim') {
+    const s = userByEmail_(payload && payload.sr_email);
+    return s && s.is_active && s.role === 'sr' ? s : null;
+  }
+  if (action === 'queue_return') return firstActive_('sr_manager', '') || firstActive_('sr', '');
+  if (/^srm_/.test(action)) return firstActive_('sr_manager', t.sr_email);
+  if (SR_ACTIONS_.indexOf(action) !== -1) return asUser_(t.sr_email, 'sr');
+  return null;
+}
+
+/** Everyone whose buttons Admin also gets on this ticket (UI hint; doTransition_ re-checks). */
+function proxyCandidates_(t) {
+  const d = departmentByCode_(t.department_code);
+  return [asUser_(t.requestor_email, 'sales'), asUser_((d && d.manager_email) || t.manager_email, 'manager'),
+    firstActive_('gm', ''), asUser_(t.sr_email, 'sr'), firstActive_('sr_manager', t.sr_email), firstActive_('sr', '')]
+    .filter(function (x) { return x && x.role !== 'admin'; });
 }
 
 // ---------------------------------------------------------------- Ticket loading
