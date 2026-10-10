@@ -177,26 +177,31 @@ function cardFacts_(t) {
   };
 }
 
-/** Interactive card JSON. opt: { color, title, mentions:[emails], extra:[lines], facts, overdue } */
+/**
+ * Interactive card JSON. opt: { color, title, mentions:[emails], extra:[lines], facts, link }
+ * "ผู้ขอ" = the requester (owner of the request) and "ผู้ดำเนินการ" = whoever must act now — both @mentioned in the field.
+ */
 function buildCard_(opt) {
   const f = opt.facts;
   const field = function (label, value) { return { is_short: true, text: { tag: 'lark_md', content: '**' + label + '**\n' + value } }; };
-  const fields = [field('เลขที่', f.no), field('ลูกค้า', f.customer), field('ผู้ขอ', f.requester), field('สถานะ', f.status),
-    field('ผู้รับผิดชอบ', f.owner)];
+  const tagOwner = toBool_(setting_('fpr_mention_owner', true));
+  const owner = String(f.requester_email || '').trim().toLowerCase();
+  const actors = (opt.mentions || []).map(function (e) { return String(e || '').trim().toLowerCase(); })
+    .filter(function (e, i, a) { return e && a.indexOf(e) === i; });
+  // the requester is already tagged in "ผู้ขอ" → not again in "ผู้ดำเนินการ" (unless only they must act)
+  const doers = actors.filter(function (e) { return !(tagOwner && owner && e === owner); });
+  const doerTags = doers.map(buildMention).filter(String);
+  let doerText = doerTags.join(' ');
+  if (!doerText && tagOwner && owner && actors.indexOf(owner) !== -1) doerText = 'ผู้ขอ (ด้านซ้าย)';
+  if (!doerText) doerText = f.owner || '-';
+  const reqText = tagOwner && owner ? buildMention(owner) : f.requester;
+  const fields = [field('เลขที่', f.no), field('ลูกค้า', f.customer), field('ผู้ขอ', reqText), field('สถานะ', f.status),
+    field('ผู้ดำเนินการ', doerText)];
   if (f.deadline) fields.push(field('ครบกำหนด (SLA)', f.deadline + ' น.'));
   const els = [{ tag: 'div', fields: fields }];
   if (f.items.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '**สินค้า**\n' + f.items.join('\n') } });
   if (f.priced) els.push({ tag: 'div', text: { tag: 'lark_md', content: '💰 **มีราคาแล้ว** — ดูราคาบนเว็บ (ต้นทุน / GP เฉพาะ Sourcing · Sourcing Manager · GM)' } });
   (opt.extra || []).filter(String).forEach(function (x) { els.push({ tag: 'div', text: { tag: 'lark_md', content: x } }); });
-  // the requester is the owner of the request: tagged on every card (Settings › fpr_mention_owner), once only
-  const owner = toBool_(setting_('fpr_mention_owner', true)) ? String(f.requester_email || '').trim().toLowerCase() : '';
-  const actors = (opt.mentions || []).map(function (e) { return String(e || '').trim().toLowerCase(); })
-    .filter(function (e, i, a) { return e && a.indexOf(e) === i; });
-  const mentions = actors.filter(function (e) { return e !== owner; }).map(buildMention).filter(String);
-  const ownerTag = owner ? buildMention(owner) : '';
-  if (ownerTag) els.push({ tag: 'div', text: { tag: 'lark_md', content: '👤 **เจ้าของคำขอ:** ' + ownerTag } });
-  if (mentions.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '👉 ' + (ownerTag ? '**ผู้ต้องดำเนินการ:** ' : '') + mentions.join(' ') } });
-  else if (ownerTag && actors.indexOf(owner) !== -1) els.push({ tag: 'div', text: { tag: 'lark_md', content: '👉 **ผู้ต้องดำเนินการ:** เจ้าของคำขอ' } });
   if (/^https:\/\//.test(opt.link || '')) {
     els.push({ tag: 'action', actions: [{ tag: 'button', type: 'primary', text: { tag: 'plain_text', content: 'เปิดรายการ ' + f.no }, url: opt.link }] });
   }
@@ -410,7 +415,7 @@ function testBotSend(bot) {
     const facts = { no: 'FPR-TEST-0001', customer: 'ทดสอบการเชื่อมต่อ', requester: u.full_name, requester_email: '', status: 'ทดสอบ', owner: u.full_name,
       deadline: fmtDate_(new Date(), 'dd/MM/yyyy HH:mm'), items: ['• ทดสอบจากหน้า ⚙️ ตั้งค่า Lark Bot'], priced: false };
     const card = buildCard_({ color: bot === 'reminder' ? 'yellow' : 'blue', title: '[ทดสอบ] ' + c.name + ' เชื่อมต่อสำเร็จ', facts: facts,
-      mentions: [u.email], link: fprLink_({ ticket_no: 'FPR-TEST-0001' }), extra: ['ถ้าชื่อคุณด้านล่างเป็นสีฟ้า = mention ทำงาน'] });
+      mentions: [u.email], link: fprLink_({ ticket_no: 'FPR-TEST-0001' }), extra: ['ถ้าชื่อคุณในช่อง “ผู้ดำเนินการ” เป็นสีฟ้า = mention ทำงาน'] });
     const r = sendBot_(bot, card, { event: 'test', ticket_no: 'FPR-TEST-0001', summary: 'ทดสอบโดย ' + u.email });
     let hint = '';
     if (r.status === 'not_configured') hint = 'ยังไม่ได้ใส่ Webhook URL';
