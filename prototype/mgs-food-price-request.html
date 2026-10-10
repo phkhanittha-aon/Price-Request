@@ -611,6 +611,18 @@
     .tstats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center; }
     .tstats div { background: var(--surface-2); border-radius: 9px; padding: 6px 2px; } .tstats b { display: block; font-size: 1.1rem; font-family: var(--font-mono); } .tstats span { font-size: .7rem; color: var(--muted); }
 
+
+    /* ติดตามการขาย › งานค้าง */
+    .pend-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; }
+    .pend-chips { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; } .pend-chips a { text-decoration: none; } .pend-chips b { font-family: var(--font-mono); margin-left: 4px; }
+    .pend-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(520px, 100%), 1fr)); gap: 12px; align-items: start; }
+    .pend { margin-bottom: 0; scroll-margin-top: 80px; }
+    .pend-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 6px; } .pend-h h3 { margin: 0; display: flex; align-items: center; gap: 6px; }
+    .pend-list { list-style: none; margin: 0; padding: 0; }
+    .pend-list li { display: flex; gap: 10px; justify-content: space-between; align-items: flex-start; padding: 10px 4px; border-top: 1px solid var(--line); }
+    .pend-list li.due { background: #FFF8EC; margin: 0 -16px; padding: 10px 20px; }
+    .pl-main { min-width: 0; flex: 1; } .pl-note { font-size: .82rem; color: var(--ink-2); margin-top: 2px; }
+    .pl-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; } .pl-side .late { color: var(--danger-ink); font-weight: 600; }
     /* ===== THEME: MGS green · light base (look of the MGS Sales app: paper background, white cards,
        rounded 14–16 px, pill tags, Inter / Sarabun body, Sora headings, JetBrains Mono figures) ===== */
     .topbar { background: rgba(243,248,246,.92); color: var(--text); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -922,7 +934,7 @@ var HtmlService = {};
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.10-1';
+const APP_VERSION = '2026.10.10-2';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -6420,7 +6432,7 @@ function fakeDrive_() {
     </aside>
     <div class="content">
       <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.10-1 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.10-2 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
     </div>
   </div>
   <div class="side-ov" id="side-ov"></div>
@@ -7320,7 +7332,7 @@ Pages.dashboard = (function () {
 <script>
 Pages.deals = (function () {
   let data = null, user = '';
-  const f = { filter: 'open', q: '', sales: '', sr: '', group: '', view: 'jobs' };
+  const f = { filter: 'open', q: '', sales: '', sr: '', group: '', view: 'jobs', dueOnly: false };
   const ST = {
     '': { cls: 'grey', label: 'รอติดตาม' }, follow: { cls: 'blue', label: 'กำลังติดตาม' }, sample: { cls: 'purple', label: 'ส่งตัวอย่าง / ทดลองสินค้า' },
     won: { cls: 'green', label: 'ปิดการขายได้ 🎉' }, lost: { cls: 'red', label: 'ไม่ได้งาน' }
@@ -7444,7 +7456,7 @@ Pages.deals = (function () {
     Object.keys(bySales).sort().forEach(function (s) {
       lines.push('👤 ' + s);
       bySales[s].sort(function (a, b) { return (b.is_due - a.is_due) || (a.quoted_at < b.quoted_at ? -1 : 1); }).forEach(function (r) {
-        const st = (ST[r.deal_status] || ST['']).label.replace(' 🎉', '');
+        const st = r.is_open ? PENDING.filter(function (b) { return b[0] === bucketOf(r); })[0][1].replace(/^\S+\s/, '') : (ST[r.deal_status] || ST['']).label.replace(' 🎉', '');
         lines.push((r.is_due ? '  ⏰ ' : '  • ') + r.ticket_no + ' ' + r.product_name + ' — ' + r.customer_name + ' · ' + fmtNum(r.qty) + ' ' + r.uom + '/เดือน · ' +
           fmtMoney(r.sell_price_thb) + ' บาท/' + r.uom + ' · ' + st + (r.deal_stage ? ' (' + r.deal_stage + ')' : '') +
           (r.deal_reason ? ' · เหตุผล: ' + r.deal_reason : '') +
@@ -7455,6 +7467,56 @@ Pages.deals = (function () {
     });
     if (!keep.length) lines.push('ไม่มีงานที่ต้องติดตาม');
     return lines.join('\n').trim();
+  }
+
+  /* ---------- งานค้าง: open lines only, grouped by what they are waiting for ---------- */
+  const PENDING = [
+    ['new', '🆕 ยังไม่เคยอัปเดต', 'ได้ราคาแล้ว แต่ Sales ยังไม่ได้บอกผลกับลูกค้า'],
+    ['sample', '🧪 ตัวอย่างสินค้า', 'รอส่ง / ลูกค้ากำลังทดลองตัวอย่าง'],
+    ['price', '💬 เรื่องราคา', 'ลูกค้าเทียบราคา / ต่อรอง / ขอปรับราคาจาก SR'],
+    ['customer', '⏳ รอลูกค้าตัดสินใจ', 'เพิ่งส่งราคา / รออนุมัติภายในของลูกค้า / ลูกค้าเลื่อน'],
+    ['closing', '🤝 ใกล้ปิด / รอ PO', 'ใกล้ปิดการขาย หรือรอใบสั่งซื้อ'],
+    ['other', '📌 กำลังติดตาม', 'ยังไม่ระบุสถานะกับลูกค้า']
+  ];
+  /** Which pending bucket an open line belongs to (from status, customer stage and next step). */
+  function bucketOf(r) {
+    const st = r.deal_stage || '', nx = r.deal_next_step || '';
+    if (!r.deal_status) return 'new';
+    if (r.deal_status === 'sample' || /ตัวอย่าง|ทดลอง/.test(st + ' ' + nx)) return 'sample';
+    if (/ราคา/.test(st.replace('เพิ่งส่งราคาให้ลูกค้า', '')) || /ปรับราคา/.test(nx)) return 'price';
+    if (/ใกล้ปิด/.test(st) || /PO|ปิดการขาย/.test(nx)) return 'closing';
+    if (st) return 'customer';
+    return 'other';
+  }
+  function pendingHtml(rows) {
+    const open = rows.filter(function (r) { return r.is_open && (!f.dueOnly || r.is_due); });
+    const by = {};
+    open.forEach(function (r) { (by[bucketOf(r)] = by[bucketOf(r)] || []).push(r); });
+    const allOpen = rows.filter(function (r) { return r.is_open; });
+    let html = '<div class="pend-bar"><span class="hint">แสดงเฉพาะรายการที่ยังไม่ปิด (' + allOpen.length + ') แยกตามเรื่องที่ค้าง · เรียงจากที่ไม่ได้อัปเดตนานที่สุด</span>' +
+      '<label class="chk-inline"><input type="checkbox" id="dl-dueonly"' + (f.dueOnly ? ' checked' : '') + '> เฉพาะที่ต้องอัปเดต (' + allOpen.filter(function (r) { return r.is_due; }).length + ')</label>' +
+      '<div class="pend-chips">' + PENDING.map(function (b) {
+        const n = (by[b[0]] || []).length;
+        return n ? '<a href="#pend-' + b[0] + '" class="tag outline" data-jump="' + b[0] + '">' + esc(b[1]) + ' <b>' + n + '</b></a>' : '';
+      }).join('') + '</div></div>';
+    if (!open.length) return html + '<div class="card empty"><div class="big">🎉</div>' + (f.dueOnly ? 'ไม่มีรายการที่ต้องอัปเดต' : 'ไม่มีงานค้าง — ทุกรายการปิดแล้ว') + '</div>';
+    html += '<div class="pend-groups">' + PENDING.filter(function (b) { return (by[b[0]] || []).length; }).map(function (b) {
+      const list = by[b[0]].sort(function (a, c) { return (c.is_due - a.is_due) || (c.days_since_update - a.days_since_update); });
+      return '<section class="card pend" id="pend-' + b[0] + '"><div class="pend-h"><h3>' + esc(b[1]) + ' <span class="tag grey">' + list.length + '</span></h3><span class="hint">' + esc(b[2]) + '</span></div>' +
+        '<ul class="pend-list">' + list.map(function (r) {
+          const late = r.deal_next_date && r.deal_next_date < todayYmd(0);
+          return '<li class="' + (r.is_due ? 'due' : '') + '"><div class="pl-main"><b>' + esc(r.product_name) + '</b> <span class="hint">' + fmtNum(r.qty) + ' ' + esc(r.uom) + '/เดือน · ' +
+              fmtMoney(r.sell_price_thb) + ' บาท/' + esc(r.uom) + '</span>' +
+            '<div class="hint">' + esc(r.customer_name) + (teamMode() ? ' · 👤 ' + esc(r.requestor_name) + (r.sr_name ? ' · 🏭 ' + esc(r.sr_name) : '') : '') +
+              ' · <a href="#" data-ticket="' + esc(r.ticket_id) + '">' + esc(r.ticket_no) + '</a></div>' +
+            ((r.deal_stage || r.deal_next_step || r.deal_note) ? '<div class="pl-note">' + esc([r.deal_stage, r.deal_next_step ? '➡ ' + r.deal_next_step : ''].filter(Boolean).join(' · ')) +
+              (r.deal_note ? ' — ' + esc(r.deal_note.length > 90 ? r.deal_note.slice(0, 90) + '…' : r.deal_note) : '') + '</div>' : '') + '</div>' +
+            '<div class="pl-side"><span class="' + (r.is_due ? 'tag red' : 'tag grey') + '">' + (r.deal_updated_at ? 'อัปเดต ' + agoTH(r.days_since_update) : 'ได้ราคา ' + agoTH(r.days_since_update)) + '</span>' +
+              (r.deal_next_date ? '<span class="hint' + (late ? ' late' : '') + '">📅 ' + esc(fmtDate(r.deal_next_date)) + '</span>' : '') +
+              (r.can_edit ? '<button class="btn sm' + (r.is_due ? ' danger-solid' : '') + '" data-upd="' + esc(r.item_id) + '">📝 อัปเดต</button>' : '') + '</div></li>';
+        }).join('') + '</ul></section>';
+    }).join('') + '</div>';
+    return html;
   }
 
   function draw(view) {
@@ -7475,10 +7537,11 @@ Pages.deals = (function () {
         (f.sr ? 'ราคาที่ ' + (f.sr === state.me.email ? 'ฉัน' : esc(srWho)) + ' ทำ — ติดตามกับ Sales' + (f.sales ? ' · ' + esc(who) : '') : f.sales ? 'งานของ ' + esc(who) :
           f.view === 'sourcing' ? 'ติดตามการขาย — แยกตาม Sourcing' : teamMode() ? 'ติดตามการขาย — ทีมขาย' : 'ติดตามการขายของฉัน') + '</h1>' +
         '<div class="hint">ทุกรายการที่ GM อนุมัติราคาแล้ว · อัปเดตความคืบหน้ากับลูกค้าอย่างน้อยทุก ' + data.follow_days + ' วัน</div></div>' +
-        (teamMode() ? '<div class="seg" role="tablist"><button type="button" class="' + (f.view === 'jobs' ? 'on' : '') + '" data-view="jobs">📋 รายการ</button>' +
-          '<button type="button" class="' + (f.view === 'team' ? 'on' : '') + '" data-view="team">👥 ทีมขาย</button>' +
-          ((data.sourcing || []).length ? '<button type="button" class="' + (f.view === 'sourcing' ? 'on' : '') + '" data-view="sourcing">🏭 Sourcing</button>' : '') + '</div>' : '') +
-        (f.sr && f.view === 'jobs' ? '<button class="btn sm" data-weekly>📋 สรุปสำหรับประชุมประจำสัปดาห์</button>' : '') +
+        '<div class="seg" role="tablist"><button type="button" class="' + (f.view === 'jobs' ? 'on' : '') + '" data-view="jobs">📋 รายการ</button>' +
+          '<button type="button" class="' + (f.view === 'pending' ? 'on' : '') + '" data-view="pending">⏳ งานค้าง</button>' +
+          (teamMode() ? '<button type="button" class="' + (f.view === 'team' ? 'on' : '') + '" data-view="team">👥 ทีมขาย</button>' +
+            ((data.sourcing || []).length ? '<button type="button" class="' + (f.view === 'sourcing' ? 'on' : '') + '" data-view="sourcing">🏭 Sourcing</button>' : '') : '') + '</div>' +
+        (f.sr && (f.view === 'jobs' || f.view === 'pending') ? '<button class="btn sm" data-weekly>📋 สรุปสำหรับประชุมประจำสัปดาห์</button>' : '') +
         (f.sales || f.sr ? '<button class="btn sm ghost" data-clear-person>✕ ดูทุกคน</button>' : '') + '</div>';
     html += '<div class="kpis5">' +
       kpi('open', 'งานที่เปิดอยู่', fmtInt(open.length), 'รอลูกค้าตัดสินใจ ' + baht0(open.reduce(function (s, r) { return s + r.monthly_value_thb; }, 0)) + '/เดือน') +
@@ -7491,6 +7554,8 @@ Pages.deals = (function () {
       html += teamHtml(all);
     } else if (f.view === 'sourcing' && teamMode()) {
       html += sourcingHtml(all);
+    } else if (f.view === 'pending') {
+      html += pendingHtml(all);
     } else {
       html += '<div class="toolbar"><input type="search" class="search" id="dl-q" placeholder="🔍 ค้นหา ลูกค้า / สินค้า / เลขที่ใบ" value="' + esc(f.q) + '">' +
         '<select id="dl-filter">' + FILTERS.map(function (x) { return '<option value="' + x[0] + '"' + (f.filter === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select>' +
@@ -7507,6 +7572,10 @@ Pages.deals = (function () {
     bindReportTabs(view);
     $all('[data-filter]', view).forEach(function (b) { b.onclick = function () { f.filter = b.getAttribute('data-filter'); f.view = 'jobs'; draw(view); }; });
     $all('[data-view]', view).forEach(function (b) { b.onclick = function () { f.view = b.getAttribute('data-view'); draw(view); }; });
+    if ($('#dl-dueonly', view)) $('#dl-dueonly', view).onchange = function (e) { f.dueOnly = e.target.checked; draw(view); };
+    $all('[data-jump]', view).forEach(function (a) {
+      a.onclick = function (e) { e.preventDefault(); const t = $('#pend-' + a.getAttribute('data-jump'), view); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    });
     $all('[data-person]', view).forEach(function (b) { b.onclick = function () { f.sales = b.getAttribute('data-person'); f.view = 'jobs'; f.filter = 'open'; draw(view); }; });
     $all('[data-clear-person]', view).forEach(function (b) { b.onclick = function () { f.sales = ''; f.sr = ''; draw(view); }; });
     $all('[data-srperson]', view).forEach(function (b) { b.onclick = function () { f.sr = b.getAttribute('data-srperson'); f.view = 'jobs'; f.filter = 'open'; draw(view); }; });

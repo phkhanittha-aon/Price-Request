@@ -608,6 +608,18 @@
     .tstats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center; }
     .tstats div { background: var(--surface-2); border-radius: 9px; padding: 6px 2px; } .tstats b { display: block; font-size: 1.1rem; font-family: var(--font-mono); } .tstats span { font-size: .7rem; color: var(--muted); }
 
+
+    /* ติดตามการขาย › งานค้าง */
+    .pend-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; }
+    .pend-chips { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; } .pend-chips a { text-decoration: none; } .pend-chips b { font-family: var(--font-mono); margin-left: 4px; }
+    .pend-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(520px, 100%), 1fr)); gap: 12px; align-items: start; }
+    .pend { margin-bottom: 0; scroll-margin-top: 80px; }
+    .pend-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 6px; } .pend-h h3 { margin: 0; display: flex; align-items: center; gap: 6px; }
+    .pend-list { list-style: none; margin: 0; padding: 0; }
+    .pend-list li { display: flex; gap: 10px; justify-content: space-between; align-items: flex-start; padding: 10px 4px; border-top: 1px solid var(--line); }
+    .pend-list li.due { background: #FFF8EC; margin: 0 -16px; padding: 10px 20px; }
+    .pl-main { min-width: 0; flex: 1; } .pl-note { font-size: .82rem; color: var(--ink-2); margin-top: 2px; }
+    .pl-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; } .pl-side .late { color: var(--danger-ink); font-weight: 600; }
     /* ===== THEME: MGS green · light base (look of the MGS Sales app: paper background, white cards,
        rounded 14–16 px, pill tags, Inter / Sarabun body, Sora headings, JetBrains Mono figures) ===== */
     .topbar { background: rgba(243,248,246,.92); color: var(--text); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
