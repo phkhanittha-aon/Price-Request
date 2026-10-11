@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-2
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-3
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-2';
+const APP_VERSION = '2026.10.14-3';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',

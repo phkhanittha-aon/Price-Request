@@ -84,6 +84,45 @@ function fileSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : M
 function debounce(fn, ms) {
   let t; return function () { const a = arguments; clearTimeout(t); t = setTimeout(function () { fn.apply(null, a); }, ms); };
 }
+/**
+ * Progress stepper — only WHERE the request is (no names). Current step green, finished steps ✓,
+ * a step that was skipped (GM's own request) marked “ไม่ต้องอนุมัติ”, a request stopped (rejected / cancelled) ✕ red.
+ * t = ticket (publicTicket_) or null for a request being filled in.
+ */
+const STEPS_ = ['ส่งคำขอราคา', 'อนุมัติฝั่งขาย', 'ตรวจเอกสาร', 'หาราคา', 'ตรวจราคา', 'อนุมัติฝั่งซื้อ', 'รับทราบราคา'];
+const STEP_OF_STAGE_ = { pending_manager: 1, returned: 1, pending_gm: 1, pending_assign: 2, doc_check: 2, need_info: 2, sourcing: 3,
+  pending_sr_manager: 4, pending_gm_price: 5, awaiting_sales_ack: 6, closed: 7 };
+const STEP_SUB_ = { returned: 'ส่งกลับให้แก้ไข', need_info: 'รอข้อมูลเพิ่ม', pending_assign: 'รอแบ่งงาน' };   // others: “ขั้นตอนปัจจุบัน”
+function stepperHtml(t, opts) {
+  const o = opts || {};
+  const gmOwn = t ? !!(t.gm_approved_at && t.requestor_email && t.requestor_email === t.gm_email) : !!o.gmOwn;
+  let cur = 0, stop = -1, sub = o.sub || 'กำลังกรอก', warn = false;
+  if (t) {
+    if (STEP_OF_STAGE_[t.stage] !== undefined) {
+      cur = STEP_OF_STAGE_[t.stage];
+      sub = STEP_SUB_[t.stage] || (t.stage === 'closed' ? '' : 'ขั้นตอนปัจจุบัน');
+      warn = t.stage === 'returned' || t.stage === 'need_info';
+    } else {
+      // rejected / cancelled / deleted: stopped at the step after the last one it passed
+      stop = t.gm_price_approved_at ? 6 : t.sr_manager_approved_at ? 5 : t.quote_submitted_at ? 4 : t.doc_checked_at ? 3 : t.gm_approved_at ? 2 : 1;
+      cur = -1;
+      sub = t.stage_label || '';
+    }
+  }
+  const items = STEPS_.map(function (label, i) {
+    let cls = '', mark = String(i + 1), s = '';
+    if (stop !== -1) {
+      if (i < stop) { cls = 'done'; mark = '✓'; }
+      else if (i === stop) { cls = 'stop'; mark = '✕'; s = sub; }
+    } else if (i < cur) { cls = 'done'; mark = '✓'; }
+    else if (i === cur) { cls = 'cur' + (warn ? ' warn' : ''); s = sub; }
+    if (i === 1 && gmOwn && (cls === 'done' || (stop === -1 && cur <= 1))) { cls = cls === 'done' ? 'skip' : cls; s = 'ไม่ต้องอนุมัติ (GM ขอเอง)'; if (cls === 'skip') mark = '–'; }
+    return '<li class="' + cls + '"' + (cls.indexOf('cur') === 0 ? ' aria-current="step"' : '') + '><span class="dot" aria-hidden="true">' + mark + '</span>' +
+      '<span class="txt"><span class="lbl">' + esc(label) + '</span>' + (s ? '<br><span class="sub">' + esc(s) + '</span>' : '') + '</span></li>';
+  }).join('');
+  return '<ol class="stepper" aria-label="ขั้นตอนของใบขอราคา">' + items + '</ol>';
+}
+
 function statusBadge(status, label) { return '<span class="badge st-' + esc(status) + '">' + esc(label || status) + '</span>'; }
 function stageText(stage) { return (state.ref && state.ref.stage_labels[stage]) || stage; }
 /** SLA: colour + icon + words (never colour alone). */

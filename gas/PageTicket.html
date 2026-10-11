@@ -109,6 +109,7 @@ Pages.ticket = (function () {
     const t = d.ticket;
     return '<div class="page-head"><h1>' + esc(t.ticket_no) + ' · ' + esc(t.title) + '</h1>' +
       statusBadge(t.status, t.status_label) + '<span class="badge">' + esc(t.stage_label) + '</span></div>' +
+      '<div class="card step-card">' + stepperHtml(t) + '</div>' +
       '<div class="card"><dl class="kv">' +
       '<dt>ผู้ขอราคา</dt><dd>' + esc(t.requestor_name) + ' <span class="muted small">(' + esc(t.department_code) + ')</span></dd>' +
       '<dt>ลูกค้า (Customer)</dt><dd>' + esc(t.customer_name || '–') + '</dd>' +

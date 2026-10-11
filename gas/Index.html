@@ -240,6 +240,31 @@
     .route-steps li { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-dark); }
     .route-steps li:not(:last-child)::after { content: "›"; margin-left: 6px; color: var(--muted); }
     .route-steps .n { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #fff; font-size: .75rem; font-weight: 600; }
+    /* progress stepper (request form + request page): where the request is now — current step green */
+    .stepper { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
+    .stepper li { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 0 4px; min-width: 0; }
+    .stepper li::before { content: ""; position: absolute; top: 13px; left: calc(-50% + 16px); right: calc(50% + 16px); height: 3px; border-radius: 2px; background: var(--line-2); }
+    .stepper li:first-child::before { display: none; }
+    .stepper li.done::before, .stepper li.cur::before, .stepper li.skip::before { background: var(--ok); }
+    .stepper .dot { position: relative; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line-2); background: var(--card); color: var(--muted); font-size: .8rem; font-weight: 600; }
+    .stepper .lbl { font-size: .8rem; color: var(--muted); line-height: 1.25; overflow-wrap: anywhere; }
+    .stepper .sub { font-size: .72rem; color: var(--muted); line-height: 1.2; }
+    .stepper li.done .dot { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .stepper li.done .lbl { color: var(--ink-2); }
+    .stepper li.skip .dot { background: var(--surface-2); border-color: var(--ok); color: var(--ok); }
+    .stepper li.cur .dot { background: var(--ok); border-color: var(--ok); color: #fff; box-shadow: 0 0 0 5px rgba(46, 138, 91, .22); }
+    .stepper li.cur .lbl { color: var(--ok); font-weight: 700; }
+    .stepper li.cur .sub { color: var(--ok); font-weight: 600; }
+    .stepper li.cur.warn .sub { color: var(--warn); }
+    .stepper li.stop .dot { background: var(--danger); border-color: var(--danger); color: #fff; }
+    .stepper li.stop .lbl, .stepper li.stop .sub { color: var(--danger); font-weight: 600; }
+    .step-card { padding: 14px 12px 12px; }
+    @media (max-width: 640px) {
+      .stepper { grid-template-columns: 1fr; gap: 0; }
+      .stepper li { flex-direction: row; text-align: left; gap: 10px; padding: 0 0 12px; align-items: flex-start; }
+      .stepper li::before { top: calc(-100% + 28px); bottom: calc(100% - 12px); left: 12px; right: auto; width: 3px; height: auto; display: none; }
+      .stepper li .txt { padding-top: 4px; }
+    }
     .fsec h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 1.02rem; }
     .fsec .sn { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--brand); color: #fff; font-size: .85rem; }
     .fgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; align-items: start; }

@@ -243,6 +243,31 @@
     .route-steps li { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-dark); }
     .route-steps li:not(:last-child)::after { content: "›"; margin-left: 6px; color: var(--muted); }
     .route-steps .n { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #fff; font-size: .75rem; font-weight: 600; }
+    /* progress stepper (request form + request page): where the request is now — current step green */
+    .stepper { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
+    .stepper li { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 0 4px; min-width: 0; }
+    .stepper li::before { content: ""; position: absolute; top: 13px; left: calc(-50% + 16px); right: calc(50% + 16px); height: 3px; border-radius: 2px; background: var(--line-2); }
+    .stepper li:first-child::before { display: none; }
+    .stepper li.done::before, .stepper li.cur::before, .stepper li.skip::before { background: var(--ok); }
+    .stepper .dot { position: relative; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line-2); background: var(--card); color: var(--muted); font-size: .8rem; font-weight: 600; }
+    .stepper .lbl { font-size: .8rem; color: var(--muted); line-height: 1.25; overflow-wrap: anywhere; }
+    .stepper .sub { font-size: .72rem; color: var(--muted); line-height: 1.2; }
+    .stepper li.done .dot { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .stepper li.done .lbl { color: var(--ink-2); }
+    .stepper li.skip .dot { background: var(--surface-2); border-color: var(--ok); color: var(--ok); }
+    .stepper li.cur .dot { background: var(--ok); border-color: var(--ok); color: #fff; box-shadow: 0 0 0 5px rgba(46, 138, 91, .22); }
+    .stepper li.cur .lbl { color: var(--ok); font-weight: 700; }
+    .stepper li.cur .sub { color: var(--ok); font-weight: 600; }
+    .stepper li.cur.warn .sub { color: var(--warn); }
+    .stepper li.stop .dot { background: var(--danger); border-color: var(--danger); color: #fff; }
+    .stepper li.stop .lbl, .stepper li.stop .sub { color: var(--danger); font-weight: 600; }
+    .step-card { padding: 14px 12px 12px; }
+    @media (max-width: 640px) {
+      .stepper { grid-template-columns: 1fr; gap: 0; }
+      .stepper li { flex-direction: row; text-align: left; gap: 10px; padding: 0 0 12px; align-items: flex-start; }
+      .stepper li::before { top: calc(-100% + 28px); bottom: calc(100% - 12px); left: 12px; right: auto; width: 3px; height: auto; display: none; }
+      .stepper li .txt { padding-top: 4px; }
+    }
     .fsec h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 1.02rem; }
     .fsec .sn { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--brand); color: #fff; font-size: .85rem; }
     .fgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; align-items: start; }
@@ -947,7 +972,7 @@ var HtmlService = {};
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-2';
+const APP_VERSION = '2026.10.14-3';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -8211,7 +8236,7 @@ function fakeDrive_() {
     </aside>
     <div class="content">
       <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.14-2 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.14-3 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
     </div>
   </div>
   <div class="side-ov" id="side-ov"></div>
@@ -8306,6 +8331,45 @@ function fileSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : M
 function debounce(fn, ms) {
   let t; return function () { const a = arguments; clearTimeout(t); t = setTimeout(function () { fn.apply(null, a); }, ms); };
 }
+/**
+ * Progress stepper — only WHERE the request is (no names). Current step green, finished steps ✓,
+ * a step that was skipped (GM's own request) marked “ไม่ต้องอนุมัติ”, a request stopped (rejected / cancelled) ✕ red.
+ * t = ticket (publicTicket_) or null for a request being filled in.
+ */
+const STEPS_ = ['ส่งคำขอราคา', 'อนุมัติฝั่งขาย', 'ตรวจเอกสาร', 'หาราคา', 'ตรวจราคา', 'อนุมัติฝั่งซื้อ', 'รับทราบราคา'];
+const STEP_OF_STAGE_ = { pending_manager: 1, returned: 1, pending_gm: 1, pending_assign: 2, doc_check: 2, need_info: 2, sourcing: 3,
+  pending_sr_manager: 4, pending_gm_price: 5, awaiting_sales_ack: 6, closed: 7 };
+const STEP_SUB_ = { returned: 'ส่งกลับให้แก้ไข', need_info: 'รอข้อมูลเพิ่ม', pending_assign: 'รอแบ่งงาน' };   // others: “ขั้นตอนปัจจุบัน”
+function stepperHtml(t, opts) {
+  const o = opts || {};
+  const gmOwn = t ? !!(t.gm_approved_at && t.requestor_email && t.requestor_email === t.gm_email) : !!o.gmOwn;
+  let cur = 0, stop = -1, sub = o.sub || 'กำลังกรอก', warn = false;
+  if (t) {
+    if (STEP_OF_STAGE_[t.stage] !== undefined) {
+      cur = STEP_OF_STAGE_[t.stage];
+      sub = STEP_SUB_[t.stage] || (t.stage === 'closed' ? '' : 'ขั้นตอนปัจจุบัน');
+      warn = t.stage === 'returned' || t.stage === 'need_info';
+    } else {
+      // rejected / cancelled / deleted: stopped at the step after the last one it passed
+      stop = t.gm_price_approved_at ? 6 : t.sr_manager_approved_at ? 5 : t.quote_submitted_at ? 4 : t.doc_checked_at ? 3 : t.gm_approved_at ? 2 : 1;
+      cur = -1;
+      sub = t.stage_label || '';
+    }
+  }
+  const items = STEPS_.map(function (label, i) {
+    let cls = '', mark = String(i + 1), s = '';
+    if (stop !== -1) {
+      if (i < stop) { cls = 'done'; mark = '✓'; }
+      else if (i === stop) { cls = 'stop'; mark = '✕'; s = sub; }
+    } else if (i < cur) { cls = 'done'; mark = '✓'; }
+    else if (i === cur) { cls = 'cur' + (warn ? ' warn' : ''); s = sub; }
+    if (i === 1 && gmOwn && (cls === 'done' || (stop === -1 && cur <= 1))) { cls = cls === 'done' ? 'skip' : cls; s = 'ไม่ต้องอนุมัติ (GM ขอเอง)'; if (cls === 'skip') mark = '–'; }
+    return '<li class="' + cls + '"' + (cls.indexOf('cur') === 0 ? ' aria-current="step"' : '') + '><span class="dot" aria-hidden="true">' + mark + '</span>' +
+      '<span class="txt"><span class="lbl">' + esc(label) + '</span>' + (s ? '<br><span class="sub">' + esc(s) + '</span>' : '') + '</span></li>';
+  }).join('');
+  return '<ol class="stepper" aria-label="ขั้นตอนของใบขอราคา">' + items + '</ol>';
+}
+
 function statusBadge(status, label) { return '<span class="badge st-' + esc(status) + '">' + esc(label || status) + '</span>'; }
 function stageText(stage) { return (state.ref && state.ref.stage_labels[stage]) || stage; }
 /** SLA: colour + icon + words (never colour alone). */
@@ -10153,6 +10217,7 @@ Pages.ticket = (function () {
     const t = d.ticket;
     return '<div class="page-head"><h1>' + esc(t.ticket_no) + ' · ' + esc(t.title) + '</h1>' +
       statusBadge(t.status, t.status_label) + '<span class="badge">' + esc(t.stage_label) + '</span></div>' +
+      '<div class="card step-card">' + stepperHtml(t) + '</div>' +
       '<div class="card"><dl class="kv">' +
       '<dt>ผู้ขอราคา</dt><dd>' + esc(t.requestor_name) + ' <span class="muted small">(' + esc(t.department_code) + ')</span></dd>' +
       '<dt>ลูกค้า (Customer)</dt><dd>' + esc(t.customer_name || '–') + '</dd>' +
@@ -10680,15 +10745,6 @@ Pages.new = Pages.edit = (function () {
       '</div></div>';
   }
 
-  function routeSteps() {
-    // approval route as steps; the text comes from the server (it knows whether the Sales Manager step is skipped)
-    const parts = String(state.approvalRoute || '').split('→').map(function (x) { return x.trim(); }).filter(Boolean);
-    if (!parts.length) return '';
-    return '<ol class="route-steps" aria-label="เส้นทางอนุมัติ">' + parts.map(function (x, k) {
-      return '<li><span class="n">' + (k + 1) + '</span>' + esc(x) + '</li>';
-    }).join('') + '</ol>';
-  }
-
   /** GM's own request goes straight to pricing; without product-group routing GM names the SR here. */
   function gmPicksSr() { return state.me.role === 'gm' && !state.ref.assign_by_group && state.ref.gm_assigns_sr; }
 
@@ -10696,7 +10752,7 @@ Pages.new = Pages.edit = (function () {
     return '<div class="form-wrap">' +
       '<div class="page-head form-title"><div><h1>' + (mode === 'edit' ? 'แก้ไขใบขอราคา ' + esc(ticket.ticket_no) : 'สร้างใบขอราคา') + '</h1>' +
       '<div class="small muted">แบบฟอร์มขอราคาสินค้า FOOD · M Global Sourcing Ltd.</div></div></div>' +
-      (state.approvalRoute ? '<div class="card route-card"><div class="sec-label">เส้นทางอนุมัติ</div>' + routeSteps() + '</div>' : '') +
+      '<div class="card step-card"><div class="sec-label">ขั้นตอน</div>' + (mode === 'edit' && ticket ? stepperHtml(ticket) : stepperHtml(null, { gmOwn: state.me.role === 'gm' })) + '</div>' +
       (mode === 'edit' && ticket.stage === 'returned' ? '<div class="notice warn">ถูกส่งกลับให้แก้ไข — แก้แล้วกด “บันทึกและส่งอีกครั้ง”</div>' : '') +
       (mode === 'edit' && ticket.stage === 'pending_gm' ? '<div class="notice">แก้ไขได้จนกว่า GM จะอนุมัติหรือตีกลับ — กด “บันทึก” แล้ว GM จะเห็นข้อมูลล่าสุด</div>' : '') +
       '<form id="pr-form" novalidate>' +
@@ -11488,6 +11544,7 @@ Pages.pricing = (function () {
     } else if (t.stage === 'pending_sr_manager' || t.stage === 'pending_gm_price') banner += '<div class="notice">ส่งราคาแล้ว — ' + esc(t.stage_label) + '</div>';
     return '<div class="page-head"><h1>' + esc(t.ticket_no) + ' · ใบเสนอราคา</h1>' + statusBadge(t.status, t.status_label) +
       '<button class="btn sm ghost" data-back>← รายละเอียดใบ</button></div>' +
+      '<div class="card step-card">' + stepperHtml(t) + '</div>' +
       '<div class="card"><div class="row" style="gap:6px 24px">' +
       '<div><div class="muted small">เรื่อง</div><b>' + esc(t.title) + '</b></div>' +
       '<div><div class="muted small">ผู้ขอราคา</div>' + esc(t.requestor_name) + '</div>' +
