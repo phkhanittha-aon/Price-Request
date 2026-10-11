@@ -34,12 +34,14 @@ let id = toPricing();
 let it = A.run(`activeItemsOf_('${id}')[0]`);
 const qa = q('Sup A', 100);
 A.call('saveSourcingDraft', [id, [{ item_id: it.item_id, quotes: [qa], winner_quote_id: qa.quote_id }]], U.sr1);
+const srPage = A.call('getTicket', [id], U.sr1).data;   // the SR opens the pricing page (loaded_at)
+A.run('Utilities.sleep(0)');
 const qd = q('Admin Sup D', 90);
 A.call('saveSourcingDraft', [id, [{ item_id: it.item_id, quotes: [qa, qd], winner_quote_id: qa.quote_id }]], U.admin);
 const afterAdmin = quotesOf(it.item_id);
-A.call('saveSourcingDraft', [id, [{ item_id: it.item_id, quotes: [Object.assign({}, qa, { unit_price: 98 })], winner_quote_id: qa.quote_id }]], U.sr1);  // SR's page still shows only A
+const stale = A.call('saveSourcingDraft', [id, [{ item_id: it.item_id, quotes: [Object.assign({}, qa, { unit_price: 98 })], winner_quote_id: qa.quote_id }], srPage.loaded_at], U.sr1);  // SR's page still shows only A
 const afterSr = quotesOf(it.item_id);
-log(afterSr.some((x) => /Admin Sup D/.test(x)), 'Stale page: Admin adds supplier D, SR saves old page', 'before ' + afterAdmin.join(', ') + ' → after ' + afterSr.join(', ') + ' (saveSourcingDraft has no version check; missing quotes are deleted)');
+log(afterSr.some((x) => /Admin Sup D/.test(x)) && stale.code === 'STALE_DRAFT', 'Stale page: Admin adds supplier D, SR saves old page', 'before ' + afterAdmin.join(', ') + ' → after ' + afterSr.join(', ') + ' · save → ' + (stale.code || 'ok'));
 
 // ---- 2. double click on transitions / stale version
 const t2 = mk().data.ticket;

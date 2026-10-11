@@ -37,9 +37,9 @@ Holidays: added columns date, name
 Created tab ErrorLog
 ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
 Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
-Created Drive folder folder-fec7914d-eec4-4869-98e3-3a894430b457
+Created Drive folder folder-9ce80216-eea9-4412-8ddc-af011d688338
 Suppliers from old quotations: +0 created, 0 quotations linked
-Database URL: https://docs.google.com/spreadsheets/d/678543e9-d457-4a00-a553-b24e1aa7805c
+Database URL: https://docs.google.com/spreadsheets/d/da40eb80-5ac9-41a8-8731-67ce2479b977
 departments +3
 product groups +6
 vendors +6

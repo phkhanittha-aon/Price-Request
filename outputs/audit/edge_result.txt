@@ -37,15 +37,15 @@ Holidays: added columns date, name
 Created tab ErrorLog
 ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
 Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
-Created Drive folder folder-8e61ff22-3b19-43a7-bfe9-8180bc781c7d
+Created Drive folder folder-7a767349-2821-4ffc-8606-75896d1eead7
 Suppliers from old quotations: +0 created, 0 quotations linked
-Database URL: https://docs.google.com/spreadsheets/d/98ac639d-b327-4ed4-b921-9a2fbd4a81d6
+Database URL: https://docs.google.com/spreadsheets/d/1accd917-d193-4a7e-9955-b2594885c454
 departments +3
 product groups +6
 vendors +6
 users +9
 demo tickets +14
-FAIL | Stale page: Admin adds supplier D, SR saves old page | before Sup A@100, Admin Sup D@90 → after Sup A@98 (saveSourcingDraft has no version check; missing quotes are deleted)
+PASS | Stale page: Admin adds supplier D, SR saves old page | before Sup A@100, Admin Sup D@90 → after Sup A@100, Admin Sup D@90 · save → STALE_DRAFT
 PASS | Double click on approve | second → VERSION_CONFLICT
 PASS | Edit with stale version | VERSION_CONFLICT
 INFO | qty "1,000" | stored 1000
