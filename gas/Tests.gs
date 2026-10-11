@@ -39,6 +39,7 @@ function runAcceptanceTests() {
     runAdminCases_(results);
     runGroupAssignCases_(results);
     runAuditFixCases_(results);
+    runMediumCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -2397,5 +2398,156 @@ function runAuditFixCases_(results) {
   } finally {
     setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false', lark_dm_types: '["*"]' });
     TEST_BOTS_ = null;
+  }
+}
+
+/** Audit Medium items: M6 admin health · M7 list period · M8 cache patch · M9 poll cache · M10 checklist pre-tick · M11 setup guard · M14 assign. */
+function runMediumCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  const wrap = function (name, fn) {
+    try { fn(); } catch (e) { results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: ' + name + ' — ' + e.message + '\n' + e.stack); }
+  };
+  const item = function (x) { return Object.assign({ product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว', spec: 'Vannamei', size: '31/40', packing_size: '1 kg x 10', net_weight: '80%', qty: 10, uom: 'กก.', target_price: 0 }, x || {}); };
+  const create = function (items) {
+    return must(as(U.salesFood1, function () { return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'Medium test', due_date: inDays(3), items: items }); })).ticket.ticket_id;
+  };
+  TEST_HTTP_ = fakeHttp_();
+  TEST_DRIVE_ = fakeDrive_();
+  setTestSettings_({ sales_manager_step: 'false', assign_by_group: 'false', gm_assigns_sr: 'true', min_suppliers: '1', lark_dm_types: '["*"]' });
+  try {
+    wrap('M8_CACHE', function () {
+      withLock_(function () {
+        const list = rows_(TAB.SETTINGS);
+        const row = list.filter(function (r) { return r.key === 'list_months'; })[0];
+        const sh = headers_(TAB.SETTINGS).sheet;
+        const orig = sh.getRange;
+        let calls = 0;
+        sh.getRange = function () { calls++; return orig.apply(sh, arguments); };
+        try { updateRow_(TAB.SETTINGS, 'list_months', { value: '7', updated_at: new Date() }); } finally { sh.getRange = orig; }
+        ok(calls === 1, 'M8: updating a row already read inside the lock = 1 write, no re-reads (' + calls + ' range call)');
+        ok(rows_(TAB.SETTINGS) === list && findOne_(TAB.SETTINGS, 'key', 'list_months').value === '7' && row.value !== '7', 'M8: cache patched in place (callers keep their old object)');
+        insertRow_(TAB.HOLIDAYS, { date: '2031-01-02', name: 'ทดสอบ M8' });
+        const cached = rows_(TAB.HOLIDAYS).filter(function (h) { return h.name === 'ทดสอบ M8'; })[0];
+        invalidate_(TAB.SETTINGS); invalidate_(TAB.HOLIDAYS);
+        const fresh = findOne_(TAB.SETTINGS, 'key', 'list_months');
+        const freshH = rows_(TAB.HOLIDAYS).filter(function (h) { return h.name === 'ทดสอบ M8'; })[0];
+        ok(fresh.value === '7' && cached && freshH && cached._row === freshH._row, 'M8: patched / appended cache rows match a fresh read (row numbers too)');
+        updateRow_(TAB.SETTINGS, 'list_months', { value: '6', updated_at: new Date() });
+      });
+      ok(sheetLike_('due_date', '2026-10-11') instanceof Date && fmtDate_(sheetLike_('due_date', '2026-10-11')) === '2026-10-11' &&
+        sheetLike_('qty', '12.5') === 12.5 && sheetLike_('is_active', 'TRUE') === true && sheetLike_('note', '0012') === '0012',
+        'M8: cached values typed like a sheet read (dates, numbers, booleans; text stays text)');
+    });
+
+    wrap('M9_POLL', function () {
+      const a = as(U.salesFood1, function () { return must(getPoll()); });
+      const b = as(U.salesFood1, function () { return must(getPoll()); });
+      ok(!a.cached && b.cached && b.inbox === a.inbox && b.unread === a.unread, 'M9: second poll answered from cache (no sheet scan)');
+      const mine = rows_(TAB.NOTIFICATIONS).filter(function (n) { return String(n.user_email).toLowerCase() === U.salesFood1 && !toBool_(n.is_read); });
+      if (mine.length) {
+        as(U.salesFood1, function () { return must(markNotificationsRead([String(mine[0].notif_id)])); });
+        const c = as(U.salesFood1, function () { return must(getPoll()); });
+        ok(!c.cached && c.unread === a.unread - 1, 'M9: reading a notification refreshes the bell count at once');
+      }
+      create([item()]);
+      ok(!as(U.salesFood1, function () { return must(getPoll()); }).cached, 'M9: any ticket change starts a new poll answer');
+    });
+
+    wrap('M10_CHECKLIST', function () {
+      const id = create([item()]);
+      must(go(U.gm, id, 'gm_approve', '', { sr_email: U.sr1 }));
+      const cl = checklistOf_(id);
+      const by = function (k) { return cl.filter(function (c) { return c.item_key === k; })[0]; };
+      ok(['spec', 'size_grade', 'packing', 'net_weight'].every(function (k) { return by(k) && by(k).is_checked && by(k).checked_by === CHECK_FROM_FORM_; }),
+        'M10: spec / size / packing / net weight from the Sales form are ticked when the checklist is made');
+      ok(by('glazing') && !by('glazing').is_checked && by('origin') && !by('origin').is_checked, 'M10: lines the form does not cover stay unticked');
+      ok(by('size_grade').note.indexOf('31/40') !== -1, 'M10: the note shows the value Sales entered');
+      as(U.sr1, function () { must(updateChecklist(by('spec').check_id, true, by('spec').note)); });
+      ok(checklistOf_(id).filter(function (c) { return c.item_key === 'spec'; })[0].checked_by === U.sr1, 'M10: SR confirming a pre-ticked line is recorded as the SR');
+      const id2 = create([item(), item({ line_no: 2, product_name: 'กุ้งแชบ๊วย', spec: '' })]);
+      must(go(U.gm, id2, 'gm_approve', '', { sr_email: U.sr1 }));
+      const s2 = checklistOf_(id2).filter(function (c) { return c.item_key === 'spec' && c.product_group_code === 'FOOD'; })[0];
+      ok(s2 && !s2.is_checked, 'M10: a line is not pre-ticked when one item left that field blank');
+    });
+
+    wrap('M6_HEALTH', function () {
+      expectErr(as(U.gm, function () { return getAdminHealth(); }), 'FORBIDDEN', 'M6: admin health is Admin only');
+      const id = create([item()]);
+      must(go(U.gm, id, 'gm_approve', '', { sr_email: U.sr2 }));
+      withLock_(function () { updateRow_(TAB.USERS, U.sr2, { is_active: false }); });
+      let h;
+      try { h = as(U.admin, function () { return must(getAdminHealth()); }); } finally { withLock_(function () { updateRow_(TAB.USERS, U.sr2, { is_active: true }); }); }
+      ok(h.bots.length === 2 && h.bots.every(function (b) { return 'url_set' in b && 'failed' in b && !('url' in b) && !('secret' in b); }), 'M6: shows both FPR bots (set / sent / failed — never the URL or secret)');
+      ok(!('lark_configured' in h) && Array.isArray(h.dm.types), 'M6: old “LARK_APP_ID” warning replaced by the DM-for-reminders status');
+      ok(h.stuck_owner.some(function (x) { return x.ticket_id === id; }), 'M6: a request whose SR is inactive is listed as stuck');
+      ok(/^https:\/\/docs\.google\.com\/spreadsheets\//.test(h.db_url) && typeof h.errors_24h === 'number', 'M6: database link + errors in 24 h');
+      ok(!as(U.admin, function () { return must(getAdminHealth()); }).stuck_owner.some(function (x) { return x.ticket_id === id; }), 'M6: back to normal once the SR is active again');
+    });
+
+    wrap('M7_PERIOD', function () {
+      const id = create([item()]);
+      must(go(U.salesFood1, id, 'cancel', 'ไม่ใช้แล้ว'));
+      withLock_(function () { updateRow_(TAB.TICKETS, id, { updated_at: new Date(Date.now() - 400 * 86400000) }); });
+      const def = as(U.admin, function () { return must(listTicketBoard()); });
+      const all = as(U.admin, function () { return must(listTicketBoard({ months: 0 })); });
+      ok(def.period_months === 6 && def.older_hidden >= 1 && !def.rows.some(function (r) { return r.ticket_id === id; }), 'M7: list loads 6 months by default (an old cancelled request stays on the server)');
+      ok(all.period_months === 0 && all.older_hidden === 0 && all.rows.some(function (r) { return r.ticket_id === id; }) && all.rows.length > def.rows.length, 'M7: “แสดงทั้งหมด” loads everything');
+      ok(def.rows.filter(function (r) { return r.outcome === 'open'; }).length === all.rows.filter(function (r) { return r.outcome === 'open' && OPEN_STATUSES.indexOf(ticketById_(r.ticket_id).status) !== -1; }).length,
+        'M7: open requests are never cut');
+      const d0 = as(U.admin, function () { return must(listDeals({ months: 0 })); }).rows;
+      if (d0.length) {
+        const r = d0[0];
+        withLock_(function () {
+          updateRow_(TAB.ITEMS, r.item_id, { deal_status: 'won', deal_closed_at: new Date() });
+          updateRow_(TAB.TICKETS, r.ticket_id, { gm_price_approved_at: new Date(Date.now() - 800 * 86400000) });
+        });
+        const dd = as(U.admin, function () { return must(listDeals()); });
+        const gp = as(U.gm, function () { return must(getGpSummary()); });
+        const gpAll = as(U.gm, function () { return must(getGpSummary({ months: 0 })); });
+        ok(!dd.rows.some(function (x) { return x.item_id === r.item_id; }) && dd.older_hidden >= 1, 'M7: an old won deal is left out of ติดตามการขาย by default');
+        ok(!gp.rows.some(function (x) { return x.item_id === r.item_id; }) && gpAll.rows.some(function (x) { return x.item_id === r.item_id; }), 'M7: สรุป GP loads it when a longer period is chosen');
+      }
+    });
+
+    wrap('M11_SETUP', function () {
+      let msg = '';
+      try { requireDbId_(''); } catch (e) { msg = e.message; }
+      ok(msg.indexOf('createNewDatabase') !== -1 && msg.indexOf(CFG.PROP.DB_ID) !== -1, 'M11: setupDatabase stops (with guidance) when DB_SPREADSHEET_ID is missing — no silent new database');
+      // the real project always has the property; the local runner may not → set a dummy only then, removed again
+      const props = PropertiesService.getScriptProperties();
+      const had = !!props.getProperty(CFG.PROP.DB_ID);
+      if (!had) props.setProperty(CFG.PROP.DB_ID, 'test-existing-db');
+      let m2 = '';
+      try { createNewDatabase(); } catch (e) { m2 = e.message; } finally { if (!had) props.deleteProperty(CFG.PROP.DB_ID); }
+      ok(m2.indexOf('มีฐานข้อมูลอยู่แล้ว') !== -1, 'M11: createNewDatabase refuses when a database is already set');
+    });
+
+    wrap('M14_ASSIGN', function () {
+      setTestSettings_({ assign_by_group: 'true' });
+      const id = create([item()]);
+      must(go(U.gm, id, 'gm_approve', ''));
+      const acts = as(U.srManager, function () { return must(getTicket(id)); }).permissions.actions;
+      const aacts = as(U.admin, function () { return must(getTicket(id)); }).permissions.actions;
+      ok(acts.indexOf('assign') === -1 && aacts.indexOf('assign') === -1, 'M14: by product group there is no whole-request “assign” button (SR Manager / Admin)');
+      expectErr(go(U.srManager, id, 'assign', '', { sr_email: U.sr2 }), 'USE_ITEM_ASSIGN', 'M14: whole-request assign without confirmation refused');
+      must(go(U.srManager, id, 'assign', '', { sr_email: U.sr2, confirm_whole: true }));
+      ok(activeItemsOf_(id).every(function (it) { return it.sr_email === U.sr2; }), 'M14: with confirm_whole the whole request moves to one SR');
+    });
+  } finally {
+    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false', lark_dm_types: '["*"]' });
   }
 }

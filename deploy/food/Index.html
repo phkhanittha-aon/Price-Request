@@ -298,6 +298,8 @@
     .tdot.warning { background: var(--warn); } .tdot.breach { background: var(--danger); } .tdot.none, .tdot.done { background: var(--line); }
     .health { list-style: none; padding: 0; margin: 0; }
     .health li { padding: 6px 0; } .health li.bad { color: var(--danger-ink); } .health li.ok { color: var(--ok-ink); }
+    .period-note { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; } .period-note:empty { display: none; }
+    .health li a { color: inherit; text-decoration: underline; }
     @media (max-width: 720px) { .home-tiles { grid-template-columns: minmax(0, 1fr); } }
 
     /* dashboard (simple) */
@@ -1333,11 +1335,20 @@ function downloadBase64(name, mime, b64) {
 }
 
 /** Ticket board for home / list: the copy embedded in the page is used once (fresh, < 60 s), then the server (cached). */
+/* M7: the list loads the last N months (Settings list_months) + every open request; “แสดงทั้งหมด” sets boardMonths = 0. */
 function boardData() {
   const p = state.preBoard;
   state.preBoard = null;
+  if (state.boardMonths === 0) return api('listTicketBoard', { months: 0 });
   if (p && state.me && p.email === state.me.email && Date.now() - p.at < 60000) return Promise.resolve(p.data);
   return api('listTicketBoard');
+}
+/** “ซ่อน…ที่ปิดแล้วเก่ากว่า N เดือน x รายการ · แสดงทั้งหมด” — '' when nothing is hidden. */
+function periodNoteHtml(d, what) {
+  if (!d || !d.period_months) return '';
+  if (!d.older_hidden) return '';
+  return '<span class="small muted">ซ่อน' + esc(what) + 'ที่ปิดแล้วเก่ากว่า ' + d.period_months + ' เดือน ' + fmtInt(d.older_hidden) + ' รายการ</span> ' +
+    '<button type="button" class="btn sm ghost" data-period-all>แสดงทั้งหมด</button>';
 }
 
 /* ===== 8. Boot ===== */
@@ -1479,12 +1490,28 @@ Pages.home = (function () {
         const box = $('#admin-health', view);
         if (!box) return;
         const line = function (bad, text) { return '<li class="' + (bad ? 'bad' : 'ok') + '">' + (bad ? '⚠ ' : '✓ ') + text + '</li>'; };
+        const tlinks = function (list) { return list.map(function (x) { return '<a href="#" data-ticket="' + esc(x.ticket_id) + '">' + esc(x.ticket_no) + '</a>'; }).join(', '); };
+        const DM_LABEL = { sla_warning: 'ใกล้ครบ SLA', sla_breach: 'เกิน SLA', deal_due: 'ต้องติดตามลูกค้า', '*': 'ทุกประเภท' };
+        const dmOn = h.dm.types.length > 0;
         box.innerHTML = '<h3>สถานะระบบ (24 ชม.)</h3><ul class="health">' +
-          line(!h.lark_configured, h.lark_configured ? 'เชื่อมต่อ Lark แล้ว' : 'ยังไม่ได้ตั้งค่า Lark (LARK_APP_ID / SECRET)') +
-          line(h.lark_failed > 0, 'แจ้งเตือน Lark ส่งไม่สำเร็จ ' + h.lark_failed + ' รายการ') +
-          line(h.lark_no_user > 0, 'ผู้ใช้ที่ไม่พบบัญชี Lark ' + h.lark_no_user + ' รายการ') +
-          line(h.lark_no_group > 0, 'ข้อความกลุ่มที่ยังไม่ได้ตั้งกลุ่ม ' + h.lark_no_group + ' รายการ') +
-          '</ul><p class="small muted">ตรวจละเอียด: เปิด Apps Script แล้ว Run <code>runSelfTest</code></p>';
+          h.bots.map(function (b) {
+            const set = b.url_set && b.secret_set;
+            return line(!set || b.failed > 0 || b.not_configured > 0, esc(b.name) + ': ' + (set ? 'ตั้ง Webhook + Secret แล้ว' : 'ยังตั้งค่าไม่ครบ') +
+              ' · ส่งสำเร็จ ' + b.sent + (b.failed ? ' · <b>ไม่สำเร็จ ' + b.failed + '</b>' : '') + (b.not_configured ? ' · ไม่ได้ส่งเพราะยังไม่ตั้งค่า ' + b.not_configured : ''));
+          }).join('') +
+          line(!h.webapp_url_set, h.webapp_url_set ? 'ตั้งลิงก์เว็บแอปสำหรับปุ่มในการ์ดแล้ว' : 'ยังไม่ได้ตั้งลิงก์เว็บแอป (ปุ่มในการ์ดใช้ลิงก์ deployment ปัจจุบัน)') +
+          (dmOn ? line(!h.dm.app_configured || h.dm.failed > 0, 'Lark DM ติดตามงาน (' + h.dm.types.map(function (t) { return esc(DM_LABEL[t] || t); }).join(', ') + '): ' +
+              (h.dm.app_configured ? 'พร้อมส่ง' : 'ยังไม่ได้ตั้ง Lark App (LARK_APP_ID / SECRET) — DM จะไม่ถูกส่ง แต่ยังเห็นในกระดิ่ง') +
+              (h.dm.failed ? ' · ส่งไม่สำเร็จ ' + h.dm.failed : '') + (h.dm.no_user ? ' · ไม่พบบัญชี Lark ' + h.dm.no_user + ' คน' : ''))
+            : '<li class="ok">✓ Lark DM ปิดอยู่ (lark_dm_types ว่าง)</li>') +
+          line(h.stuck_owner_count > 0, h.stuck_owner_count ? 'ใบที่ค้างเพราะผู้รับผิดชอบไม่ได้ใช้งาน/ไม่มีในระบบ ' + h.stuck_owner_count + ' ใบ: ' + tlinks(h.stuck_owner) : 'ไม่มีใบที่ค้างเพราะผู้รับผิดชอบไม่ได้ใช้งาน') +
+          line(h.no_sr_count > 0, h.no_sr_count ? 'ใบที่มีสินค้ายังไม่มี SR (รอ SR Manager แบ่งงาน) ' + h.no_sr_count + ' ใบ: ' + tlinks(h.no_sr) : 'สินค้าทุกรายการมี SR รับผิดชอบแล้ว') +
+          line(h.sla_breach > 0, 'ใบที่เกิน SLA ตอนนี้ ' + h.sla_breach + ' ใบ') +
+          line(h.errors_24h > 0, 'ข้อผิดพลาดของระบบ ' + h.errors_24h + ' ครั้ง' + (h.errors_24h ? ' (ดูแท็บ ErrorLog)' : '')) +
+          '</ul><p class="small muted">ฐานข้อมูล: <a href="' + esc(h.db_url) + '" target="_blank" rel="noopener">เปิด Google Sheet</a> · v' + esc(h.db_version) +
+          ' · ตั้งค่าบอท: <a href="#" data-go-admin>⚙️ ตั้งค่า Lark Bot</a> · ตรวจละเอียด: Run <code>runSelfTest</code></p>';
+        $all('[data-ticket]', box).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-ticket') }); }; });
+        const ga = $('[data-go-admin]', box); if (ga) ga.onclick = function (e) { e.preventDefault(); go({ page: 'admin' }); };
       }).catch(function (e) { const box = $('#admin-health', view); if (box) box.innerHTML = '<h3>สถานะระบบ</h3>' + errorHtml(e); });
     }
   }
@@ -1666,7 +1693,7 @@ Pages.dashboard = (function () {
 -->
 <script>
 Pages.deals = (function () {
-  let data = null, user = '';
+  let data = null, user = '', months = null;   // M7: null = Settings list_months · 0 = everything
   const f = { filter: 'open', q: '', sales: '', sr: '', group: '', view: 'jobs', dueOnly: false };
   const ST = {
     '': { cls: 'grey', label: 'รอติดตาม' }, follow: { cls: 'blue', label: 'กำลังติดตาม' }, sample: { cls: 'purple', label: 'ส่งตัวอย่าง / ทดลองสินค้า' },
@@ -1884,7 +1911,7 @@ Pages.deals = (function () {
       kpi('won', 'ปิดการขายได้', fmtInt(won.length), baht0(won.reduce(function (s, r) { return s + r.monthly_value_thb; }, 0)) + '/เดือน', 'ok') +
       kpi('lost', 'ไม่ได้งาน', fmtInt(lost.length), 'ดูเหตุผลเพื่อปรับราคา / สินค้า') +
       kpi('all', 'อัตราปิดการขาย', all.length ? Math.round(won.length / all.length * 100) + '%' : '–', (won.length + lost.length ? 'ชนะ ' + Math.round(won.length / (won.length + lost.length) * 100) + '% ของที่ตัดสินแล้ว · ' : '') + all.length + ' รายการ') +
-      '</div>';
+      '</div>' + (data.older_hidden ? '<div class="period-note">' + periodNoteHtml(data, 'งาน') + '</div>' : '');
     if (f.view === 'team' && teamMode()) {
       html += teamHtml(all);
     } else if (f.view === 'sourcing' && teamMode()) {
@@ -1900,6 +1927,8 @@ Pages.deals = (function () {
         '<div class="card empty"><div class="big">📭</div>' + (data.rows.length ? 'ไม่มีงานในหมวดนี้' : 'ยังไม่มีรายการที่ได้ราคาจาก GM — เมื่อราคาส่งถึง Sales แล้ว รายการจะมาอยู่ที่นี่') + '</div>';
     }
     view.innerHTML = html;
+    const pa = $('[data-period-all]', view);
+    if (pa) pa.onclick = function () { months = 0; pa.disabled = true; fetchDeals(view, function () { return true; }); };
     bind(view);
   }
 
@@ -1997,20 +2026,25 @@ Pages.deals = (function () {
     });
   }
 
+  function fetchDeals(view, isCurrent) {
+    const who = state.me.email;
+    if (user !== who) months = null;
+    (months === null ? api('listDeals') : api('listDeals', { months: months })).then(function (d) {
+      if (!data || user !== who) {
+        f.sales = ''; f.q = ''; f.group = '';
+        f.sr = d.default_sr || '';      // SR opens on the prices they made
+        f.view = 'jobs';
+        f.filter = d.rows.some(function (r) { return r.is_due && r.can_edit; }) ? 'update' : 'open';
+      }
+      data = d; user = who;
+      if (isCurrent()) draw(view);
+    }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+  }
+
   return {
     render: function (view, route, isCurrent) {
       if (data && user === state.me.email) draw(view); else view.innerHTML = loadingHtml('กำลังโหลดงานติดตามการขาย...');
-      const who = state.me.email;
-      api('listDeals').then(function (d) {
-        if (!data || user !== who) {
-          f.sales = ''; f.q = ''; f.group = '';
-          f.sr = d.default_sr || '';      // SR opens on the prices they made
-          f.view = 'jobs';
-          f.filter = d.rows.some(function (r) { return r.is_due && r.can_edit; }) ? 'update' : 'open';
-        }
-        data = d; user = who;
-        if (isCurrent()) draw(view);
-      }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+      fetchDeals(view, isCurrent);
     }
   };
 })();
@@ -2028,7 +2062,7 @@ Pages.deals = (function () {
 -->
 <script>
 Pages.gp = (function () {
-  let data = null, user = '';
+  let data = null, user = '', loadedMonths = null;   // M7: what the server sent (null = Settings list_months)
   const f = { period: '6', group: '', sales: '' };
   const PERIODS = [['3', '3 เดือน'], ['6', '6 เดือน'], ['12', '12 เดือน'], ['year', 'ปีนี้'], ['all', 'ทั้งหมด']];
 
@@ -2204,22 +2238,36 @@ Pages.gp = (function () {
     }
     view.innerHTML = html;
     bindReportTabs(view);
-    $all('[data-period]', view).forEach(function (b) { b.onclick = function () { f.period = b.getAttribute('data-period'); draw(view); }; });
+    $all('[data-period]', view).forEach(function (b) {
+      b.onclick = function () {
+        f.period = b.getAttribute('data-period');
+        // the server sends the last list_months months (+ open deals); a longer period loads the rest first
+        const need = { '3': 3, '6': 6, '12': 12, year: 12, all: 0 }[f.period];
+        if (data.period_months && (need === 0 || need > data.period_months)) {
+          view.innerHTML = loadingHtml('กำลังโหลดข้อมูลย้อนหลัง...');
+          fetchGp(view, function () { return true; }, need);
+        } else draw(view);
+      };
+    });
     if ($('#gp-group', view)) $('#gp-group', view).onchange = function (e) { f.group = e.target.value; draw(view); };
     if ($('#gp-sales', view)) $('#gp-sales', view).onchange = function (e) { f.sales = e.target.value; draw(view); };
     if ($('#gp-csv', view)) $('#gp-csv', view).onclick = function () { csv(rows); };
     $all('[data-ticket]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-ticket') }); }; });
   }
 
+  function fetchGp(view, isCurrent, months) {
+    const who = state.me.email;
+    (months === null || months === undefined ? api('getGpSummary') : api('getGpSummary', { months: months })).then(function (d) {
+      data = d; user = who; loadedMonths = months === undefined ? null : months;
+      if (isCurrent()) draw(view);
+    }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+  }
+
   return {
     render: function (view, route, isCurrent) {
       if (!state.ref.can_view_gp) { go({ page: 'home' }, true); return; }
       if (data && user === state.me.email) draw(view); else view.innerHTML = loadingHtml('กำลังสรุป GP...');
-      const who = state.me.email;
-      api('getGpSummary').then(function (d) {
-        data = d; user = who;
-        if (isCurrent()) draw(view);
-      }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+      fetchGp(view, isCurrent, user === state.me.email ? loadedMonths : null);
     }
   };
 })();
@@ -2335,7 +2383,7 @@ Pages.tickets = (function () {
       '<div class="tabs" role="tablist" id="t-tabs"></div>' +
       '<div class="list-tools"><input type="search" id="f-q" placeholder="ค้นหา เลขที่ใบ / ลูกค้า / สินค้า / Sales / SR" value="' + esc(f.q) + '" aria-label="ค้นหา">' +
       '<button class="btn" id="f-adv" aria-expanded="false">⚙ ตัวกรองเพิ่มเติม <span class="count" id="f-adv-n" hidden></span></button></div>' +
-      '<div class="chips" id="t-chips"></div></div>' +
+      '<div class="chips" id="t-chips"></div><div id="t-period" class="period-note"></div></div>' +
       '<div id="t-results" class="t-results">' + loadingHtml() + '</div>';
   }
 
@@ -2461,6 +2509,7 @@ Pages.tickets = (function () {
         const list = base.filter(tab.test).sort(SORTS[f.sort] || SORTS.smart);
         $('#t-results', pg).innerHTML = tableHtml(list, f, shown);
         $('#t-chips', pg).innerHTML = chipsHtml(f);
+        $('#t-period', pg).innerHTML = periodNoteHtml(board.meta, 'ใบ');
         const nAdv = ['stage', 'outcome', 'sla', 'requestor', 'sr', 'group', 'prio', 'sort'].filter(function (k) { return f[k]; }).length + (f.from || f.to ? 1 : 0);
         const badge = $('#f-adv-n', pg);
         badge.hidden = !nAdv; badge.textContent = nAdv;
@@ -2474,9 +2523,10 @@ Pages.tickets = (function () {
 
       // one delegated handler: survives every redraw of tabs / chips / table
       pg.addEventListener('click', function (e) {
-        const t = e.target.closest('[data-tab], [data-unchip], [data-clear], [data-more], [data-new], tr.click');
+        const t = e.target.closest('[data-tab], [data-unchip], [data-clear], [data-more], [data-new], [data-period-all], tr.click');
         if (!t) return;
-        if (t.hasAttribute('data-tab')) update({ tab: t.getAttribute('data-tab') });
+        if (t.hasAttribute('data-period-all')) { state.boardMonths = 0; load(); }
+        else if (t.hasAttribute('data-tab')) update({ tab: t.getAttribute('data-tab') });
         else if (t.hasAttribute('data-unchip')) {
           const k = t.getAttribute('data-unchip');
           if (k === 'q') $('#f-q', pg).value = '';
@@ -2501,13 +2551,14 @@ Pages.tickets = (function () {
       // A late answer never overwrites a newer one.
       if (board.user !== state.me.email) { board.rows = null; board.user = state.me.email; }
       if (board.rows) draw();
-      {
+      function load() {
         const seq = ++board.seq;
         const res = $('#t-results', pg);
         if (board.rows && res) res.classList.add('refreshing');
         boardData().then(function (d) {
           if (seq !== board.seq) return;
           board.rows = d.rows;
+          board.meta = { period_months: d.period_months, older_hidden: d.older_hidden };
           board.at = Date.now();
           draw();
         }).catch(function (e) {
@@ -2519,6 +2570,7 @@ Pages.tickets = (function () {
           if (r) r.classList.remove('refreshing');
         });
       }
+      load();
     }
   };
 })();
@@ -2572,11 +2624,22 @@ const ItemAssign = (function () {
         return '<tr><td data-label="#">' + it.line_no + '</td><td class="main">' + esc(it.product_name) + (it.sr_submitted ? ' <span class="sla ok">✓ ส่งแล้ว</span>' : '') + '</td>' +
           '<td data-label="กลุ่มสินค้า">' + esc(it.product_group_name) + '</td>' +
           '<td data-label="SR"><select data-ia="' + esc(it.item_id) + '" data-cur="' + esc(it.sr_email || '') + '">' + srOptions(it.sr_email, !it.sr_email) + '</select></td></tr>';
-      }).join('') + '</tbody></table></div><div class="actions"><button class="btn primary" id="ia-save">💾 บันทึกการแบ่งงาน</button></div></div>';
+      }).join('') + '</tbody></table></div><div class="actions">' +
+      (items.filter(function (it) { return !it.sr_submitted; }).length > 1 ? '<label class="small">ตั้งทุกรายการที่ยังไม่ส่งเป็น <select id="ia-all">' + srOptions('', true) + '</select></label><span class="sep"></span>' : '') +
+      '<button class="btn primary" id="ia-save">💾 บันทึกการแบ่งงาน</button></div></div>';
   }
   function bindPanel(view, d, done) {
     const btn = $('#ia-save', view);
     if (!btn) return;
+    // M14: one SR for the whole request = fill every row, the SR Manager sees the item list before saving
+    const all = $('#ia-all', view);
+    if (all) all.onchange = function () {
+      if (!all.value) return;
+      const sent = {};
+      (d.items || []).forEach(function (it) { if (it.sr_submitted) sent[it.item_id] = true; });
+      $all('[data-ia]', view).forEach(function (s) { if (!sent[s.getAttribute('data-ia')] && !s.disabled) s.value = all.value; });
+      toast('ตั้ง SR ให้ทุกรายการแล้ว — ตรวจรายการแล้วกด “บันทึกการแบ่งงาน”', 'ok');
+    };
     btn.onclick = function () {
       const list = $all('[data-ia]', view).filter(function (s) { return s.value && s.value !== s.getAttribute('data-cur'); })
         .map(function (s) { return { item_id: s.getAttribute('data-ia'), sr_email: s.value }; });
@@ -2602,7 +2665,7 @@ Pages.ticket = (function () {
     claim: { label: '✅ รับงาน', cls: 'primary', comment: 'none', confirm: 'รับงานใบ {no}? ระบบจะบันทึกคุณเป็น SR ผู้รับผิดชอบ' },
     queue_return: { label: '↩ ตีกลับ — ข้อมูลไม่ครบ', cls: 'danger', comment: 'required', commentLabel: 'ข้อมูลที่ขาด / สิ่งที่ต้องการให้ Sales เพิ่ม', fields: true,
       confirm: 'ส่งใบ {no} กลับให้ Sales เพิ่มข้อมูล — เมื่อ Sales ตอบ งานจะกลับเข้าคิวรอรับงาน' },
-    assign: { label: 'มอบหมายทั้งใบให้ SR คนเดียว', cls: '', comment: 'optional', select: 'sr' },
+    assign: { label: 'มอบหมายงานให้ SR', cls: '', comment: 'optional', select: 'sr' },
     srm_approve: { label: 'อนุมัติราคา (SR Manager)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันราคาใบ {no} ส่งต่อให้ GM อนุมัติฝั่งซื้อ?' },
     srm_return: { label: 'ส่งกลับให้ SR แก้ราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ SR แก้ไข' },
     srm_reject: { label: 'ปฏิเสธ (ปิดใบ)', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ปฏิเสธ', confirm: 'ปฏิเสธใบ {no}? ใบจะถูกปิดและแก้ไขต่อไม่ได้' },
@@ -3991,9 +4054,11 @@ Pages.pricing = (function () {
         return '<div class="chk"><label><input type="checkbox" data-chk="' + esc(c.check_id) + '"' + (c.is_checked ? ' checked' : '') + (editable ? '' : ' disabled') + '> ' +
           esc(c.label) + (c.is_required ? ' <span class="req">*</span>' : ' <span class="muted small">(ไม่บังคับ)</span>') + '</label>' +
           '<input type="text" class="chk-note" data-note="' + esc(c.check_id) + '" placeholder="หมายเหตุ" value="' + esc(c.note) + '"' + (editable ? '' : ' disabled') + '>' +
-          (c.checked_by ? '<div class="small muted">✓ ' + esc(c.checked_by) + ' · ' + esc(fmtDateTime(c.checked_at)) + '</div>' : '') + '</div>';
+          (c.checked_by === 'from_form' ? '<div class="small muted">✓ ติ๊กให้อัตโนมัติ — Sales กรอกมาในใบขอราคาแล้ว (ตรวจค่าในหมายเหตุ ถ้าไม่ถูกต้องให้เอาติ๊กออก)</div>'
+            : c.checked_by ? '<div class="small muted">✓ ' + esc(c.checked_by) + ' · ' + esc(fmtDateTime(c.checked_at)) + '</div>' : '') + '</div>';
       }).join('') + '</div>' +
-      (editable ? '<div class="actions" style="margin-top:12px"><button class="btn" id="pc-save">บันทึกการตรวจ</button>' +
+      (editable ? '<div class="actions" style="margin-top:12px">' + (done < d.checklist.length ? '<button class="btn" id="pc-all">☑ ครบทั้งหมด</button>' : '') +
+        '<button class="btn" id="pc-save">บันทึกการตรวจ</button>' +
         '<button class="btn" id="pc-info">ขอข้อมูลเพิ่มจาก Sales</button><span class="sep"></span>' +
         '<button class="btn primary" id="pc-done">ยืนยันเอกสารครบ → ไปกรอกราคา</button></div>' : '') + '</details>';
   }
@@ -4426,6 +4491,11 @@ Pages.pricing = (function () {
         return d.checklist.map(function (c) {
           return { check_id: c.check_id, is_checked: $('[data-chk="' + c.check_id + '"]', view).checked, note: $('[data-note="' + c.check_id + '"]', view).value };
         });
+      };
+      if ($('#pc-all', view)) $('#pc-all', view).onclick = function () {
+        // tick every line on screen; the SR still presses “บันทึก” or “ยืนยันเอกสารครบ”
+        $all('[data-chk]', view).forEach(function (cb) { cb.checked = true; });
+        toast('ติ๊กครบทุกรายการแล้ว — กด “บันทึกการตรวจ” หรือ “ยืนยันเอกสารครบ”', 'ok');
       };
       $('#pc-save', view).onclick = function () {
         api('saveChecklist', d.ticket.ticket_id, rows()).then(function (r) { toast('บันทึกการตรวจเอกสารแล้ว (' + r.changes + ' รายการ)', 'ok'); reload(); })
@@ -4877,7 +4947,9 @@ Pages.admin = (function () {
       'ทุกวันที่ 1 ระบบเก็บสำเนาข้อมูลที่จะถูกล้างเป็น Excel ไว้ใน Drive โฟลเดอร์ Exports ให้อัตโนมัติ</div>' +
       '<div class="fgrid two" style="margin-top:8px"><label class="field"><span>ขอราคาตั้งแต่วันที่</span><input type="date" id="ex-from" value="' + todayYmd(-365) + '"></label>' +
       '<label class="field"><span>ถึงวันที่</span><input type="date" id="ex-to" value="' + todayYmd(0) + '"></label></div>' +
-      '<div class="actions"><button class="btn primary" id="ex-go">📥 ดาวน์โหลด Excel</button></div><div class="small" id="ex-out"></div></section>';
+      '<div class="actions"><button class="btn primary" id="ex-go">📥 ดาวน์โหลด Excel</button></div><div class="small" id="ex-out"></div></section>' +
+      '<section class="card"><h3>🗄 ฐานข้อมูล</h3><div class="small">Google Sheet ที่ระบบใช้อยู่: ' + (d.db_url ? '<a href="' + esc(d.db_url) + '" target="_blank" rel="noopener">' + esc(d.db_url) + '</a>' : '–') +
+      ' · v' + esc(d.app_version) + '</div><div class="small muted">ตรวจให้ตรงกับไฟล์จริงทุกครั้งหลังย้าย / คัดลอกโปรเจกต์ Apps Script — <code>setupDatabase</code> จะไม่สร้างฐานข้อมูลใหม่เองถ้าไม่พบ <code>DB_SPREADSHEET_ID</code></div></section>';
     $all('[data-bot]', view).forEach(function (card) {
       const bot = card.getAttribute('data-bot');
       const out = $('[data-out]', card);

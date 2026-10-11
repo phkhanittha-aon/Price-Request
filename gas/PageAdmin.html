@@ -40,7 +40,9 @@ Pages.admin = (function () {
       'ทุกวันที่ 1 ระบบเก็บสำเนาข้อมูลที่จะถูกล้างเป็น Excel ไว้ใน Drive โฟลเดอร์ Exports ให้อัตโนมัติ</div>' +
       '<div class="fgrid two" style="margin-top:8px"><label class="field"><span>ขอราคาตั้งแต่วันที่</span><input type="date" id="ex-from" value="' + todayYmd(-365) + '"></label>' +
       '<label class="field"><span>ถึงวันที่</span><input type="date" id="ex-to" value="' + todayYmd(0) + '"></label></div>' +
-      '<div class="actions"><button class="btn primary" id="ex-go">📥 ดาวน์โหลด Excel</button></div><div class="small" id="ex-out"></div></section>';
+      '<div class="actions"><button class="btn primary" id="ex-go">📥 ดาวน์โหลด Excel</button></div><div class="small" id="ex-out"></div></section>' +
+      '<section class="card"><h3>🗄 ฐานข้อมูล</h3><div class="small">Google Sheet ที่ระบบใช้อยู่: ' + (d.db_url ? '<a href="' + esc(d.db_url) + '" target="_blank" rel="noopener">' + esc(d.db_url) + '</a>' : '–') +
+      ' · v' + esc(d.app_version) + '</div><div class="small muted">ตรวจให้ตรงกับไฟล์จริงทุกครั้งหลังย้าย / คัดลอกโปรเจกต์ Apps Script — <code>setupDatabase</code> จะไม่สร้างฐานข้อมูลใหม่เองถ้าไม่พบ <code>DB_SPREADSHEET_ID</code></div></section>';
     $all('[data-bot]', view).forEach(function (card) {
       const bot = card.getAttribute('data-bot');
       const out = $('[data-out]', card);

@@ -1,3 +1,4 @@
+Created database https://docs.google.com/spreadsheets/d/47605bcb-afb1-44e1-a164-26607e7b777e
 Created tab Users
 Users: added columns email, full_name, role, department_code, is_active, lark_open_id, phone, created_at, updated_at, updated_by
 Created tab Departments
@@ -36,16 +37,16 @@ Created tab Holidays
 Holidays: added columns date, name
 Created tab ErrorLog
 ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
-Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
-Created Drive folder folder-9ce80216-eea9-4412-8ddc-af011d688338
+Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, list_months, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
+Created Drive folder folder-2e434d24-dbb7-4c72-804e-08aa3af8ad37
 Suppliers from old quotations: +0 created, 0 quotations linked
-Database URL: https://docs.google.com/spreadsheets/d/da40eb80-5ac9-41a8-8731-67ce2479b977
+Database URL: https://docs.google.com/spreadsheets/d/47605bcb-afb1-44e1-a164-26607e7b777e
 departments +3
 product groups +6
 vendors +6
 users +9
 demo tickets +14
-pending_assign (Others only): stage=pending_assign | SR1 buttons: queue_return | SR2: queue_return | SRMgr: queue_return/assign/panel
+pending_assign (Others only): stage=pending_assign | SR1 buttons: queue_return | SR2: queue_return | SRMgr: queue_return/panel
   badge delta → SRMgr 1 · SR1 0  (notified: sr.manager@example.co.th)
 doc_check with Others unassigned: SRMgr badge delta = 1 (SR Manager must split, but is it in their “รอฉัน”?)
 one new request → in-app/Lark-DM rows: 1 · group-card rows: 1 (GM gets: bell + Lark DM (if Lark app set) + @mention in group card)

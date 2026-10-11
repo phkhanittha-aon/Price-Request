@@ -206,7 +206,18 @@ function runSelfTest() {
     }).length;
     if (failed) throw new Error(failed + ' failed');
   });
-  t('lark configured', function () { if (!larkConfigured_()) throw new Error('LARK_APP_ID / LARK_APP_SECRET not set'); });
+  t('FPR Bot + FPR Reminder webhooks configured', function () {
+    const p = PropertiesService.getScriptProperties();
+    const miss = [];
+    Object.keys(BOT_PROPS_).forEach(function (k) { [BOT_PROPS_[k].url, BOT_PROPS_[k].secret].forEach(function (n) { if (!p.getProperty(n)) miss.push(n); }); });
+    if (miss.length) throw new Error(miss.join(', ') + ' not set (Admin › ⚙️ ตั้งค่า Lark Bot)');
+  });
+  t('Lark DM for follow-up reminders', function () {
+    const types = setting_('lark_dm_types', []);
+    if (!Array.isArray(types) || !types.length) return 'off';
+    if (!larkConfigured_()) throw new Error('lark_dm_types is on but LARK_APP_ID / LARK_APP_SECRET not set — DMs are skipped (bell only)');
+    return 'on';
+  });
 
   const failedLines = out.filter(function (l) { return l.indexOf('FAIL') === 0; });
   console.log(out.join('\n'));

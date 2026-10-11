@@ -584,11 +584,20 @@ function downloadBase64(name, mime, b64) {
 }
 
 /** Ticket board for home / list: the copy embedded in the page is used once (fresh, < 60 s), then the server (cached). */
+/* M7: the list loads the last N months (Settings list_months) + every open request; “แสดงทั้งหมด” sets boardMonths = 0. */
 function boardData() {
   const p = state.preBoard;
   state.preBoard = null;
+  if (state.boardMonths === 0) return api('listTicketBoard', { months: 0 });
   if (p && state.me && p.email === state.me.email && Date.now() - p.at < 60000) return Promise.resolve(p.data);
   return api('listTicketBoard');
+}
+/** “ซ่อน…ที่ปิดแล้วเก่ากว่า N เดือน x รายการ · แสดงทั้งหมด” — '' when nothing is hidden. */
+function periodNoteHtml(d, what) {
+  if (!d || !d.period_months) return '';
+  if (!d.older_hidden) return '';
+  return '<span class="small muted">ซ่อน' + esc(what) + 'ที่ปิดแล้วเก่ากว่า ' + d.period_months + ' เดือน ' + fmtInt(d.older_hidden) + ' รายการ</span> ' +
+    '<button type="button" class="btn sm ghost" data-period-all>แสดงทั้งหมด</button>';
 }
 
 /* ===== 8. Boot ===== */

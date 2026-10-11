@@ -1,9 +1,9 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.13-1
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-1
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
- * First install: Run setupDatabase → Run runAcceptanceTests → Deploy (see the end of docs/ or the README).
+ * First install: Run createNewDatabase (once; later updates: setupDatabase) → Run runAcceptanceTests → Deploy (see the end of docs/ or the README).
  */
 
 // ============================================================================
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.13-1';
+const APP_VERSION = '2026.10.14-1';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -309,6 +309,7 @@ const DEFAULT_SETTINGS = [
   ['fpr_mention_owner', 'true', 'การ์ด Lark ทุกใบ (FPR Bot + Reminder) แท็กเจ้าของคำขอ (Sales ผู้ขอราคา) ด้วย — false = แท็กเฉพาะผู้ต้องดำเนินการ'],
   ['retention', JSON.stringify({ notifications_read_days: 180, notif_log_days: 180, sla_alerts_days: 90, usage_raw_days: 90, error_log_days: 180, log_archive_months: 18, loser_photo_days: 180 }),
     'ล้างข้อมูลรายเดือน (runRetention): แจ้งเตือนที่อ่านแล้ว / NotifLog / ErrorLog 6 เดือน · SlaAlerts 3 เดือนหลังปิดงาน · UsageLog รวมเป็นรายเดือนหลัง 3 เดือน · TicketLogs ย้ายไปไฟล์ archive หลังปิดงาน 18 เดือน · รูป supplier ที่ไม่ได้รับเลือก ลบหลังปิดงาน 6 เดือน'],
+  ['list_months', '6', 'หน้า รายการใบขอราคา / ติดตามการขาย / สรุป GP โหลดเฉพาะ N เดือนล่าสุด — งานที่ยังเปิดอยู่แสดงเสมอ · เลือก “ทั้งหมด” ได้ในหน้านั้น · 0 = โหลดทั้งหมดเสมอ'],
   ['lark_dm_types', JSON.stringify(['sla_warning', 'sla_breach', 'deal_due']), 'Lark DM รายคน ส่งเฉพาะการแจ้งเตือนเพื่อติดตามงาน (เกิน / ใกล้ครบ SLA, ต้องติดตามลูกค้า) — แจ้งเตือนอื่นอยู่ที่กระดิ่งในเว็บ + การ์ดในกลุ่ม · ["*"] = ส่งทุกประเภท'],
   ['reminder_repeat_work_hours', '8', 'FPR Reminder แจ้งซ้ำรายการเดิมได้ไม่เกิน 1 ครั้งต่อกี่ชั่วโมง (นับแบบเดียวกับ SLA: ไม่นับเสาร์-อาทิตย์)'],
   ['max_photos_per_quote', '10', 'จำนวนรูปสินค้าสูงสุดต่อ Supplier 1 เจ้า (ต่อใบเสนอราคา 1 รายการ)'],
@@ -633,7 +634,13 @@ function toCell_(v) {
 /** Tabs whose change makes cached ticket lists stale (see listTicketBoard). */
 const BOARD_TABS_ = ['Tickets', 'TicketItems', 'Users', 'Departments', 'ProductGroups', 'Settings'];
 let DATA_DIRTY_ = false;
+let NOTIF_DIRTY_ = false;
 function markDataChanged_(tab) {
+  if (tab === TAB.NOTIFICATIONS) {   // only the bell / poll counts depend on it (M9)
+    if (LOCK_DEPTH_ > 0) NOTIF_DIRTY_ = true;
+    else bumpNotifVersion_();
+    return;
+  }
   if (BOARD_TABS_.indexOf(tab) === -1) return;
   if (LOCK_DEPTH_ > 0) DATA_DIRTY_ = true;   // bumped once when the lock is released
   else bumpDataVersion_();
@@ -645,6 +652,14 @@ function bumpDataVersion_() {
 }
 function dataVersion_() {
   return PropertiesService.getScriptProperties().getProperty('DATA_VERSION') || '0';
+}
+/** Same idea for the Notifications tab: a new value = every cached poll answer is ignored. */
+function bumpNotifVersion_() {
+  NOTIF_DIRTY_ = false;
+  PropertiesService.getScriptProperties().setProperty('NOTIF_VERSION', String(Date.now()) + '-' + Math.floor(Math.random() * 1e6));
+}
+function notifVersion_() {
+  return PropertiesService.getScriptProperties().getProperty('NOTIF_VERSION') || '0';
 }
 
 function insertRows_(tab, objs) {
@@ -660,8 +675,20 @@ function insertRows_(tab, objs) {
     return row;
   });
   const sh = meta.sheet;
-  sh.getRange(sh.getLastRow() + 1, 1, data.length, width).setValues(data);
-  meta.rows = null;
+  const first = sh.getLastRow() + 1;
+  sh.getRange(first, 1, data.length, width).setValues(data);
+  if (meta.rows && LOCK_DEPTH_ > 0) {
+    // inside the lock the cache is fresh (dropped on entry) → append instead of re-reading the whole tab (M8)
+    const keyCol = meta.idx[SCHEMA[tab].key];
+    data.forEach(function (r, i) {
+      if (r[keyCol] === '' || r[keyCol] === null) return;
+      const o = { _row: first + i };
+      meta.headers.forEach(function (h, c) { if (h) o[h] = sheetLike_(h, cellUnsafe_(r[c])); });
+      meta.rows.push(o);
+    });
+  } else {
+    meta.rows = null;
+  }
   return objs;
 }
 
@@ -671,35 +698,77 @@ function insertRow_(tab, obj) {
 }
 
 /**
- * Update one row located by its primary key (looked up fresh, not from cache).
- * Returns the merged row object.
+ * Update one row located by its primary key. Returns the merged row object.
+ * Inside the lock with the tab already read this execution, the cached row is current (the cache is dropped on
+ * lock entry and every write below keeps it in step) → no extra reads, and the cache is patched in place
+ * instead of being thrown away (M8: saving a pricing page used to re-read whole tabs after every quote).
+ * Otherwise the row is looked up fresh, as before.
  */
 function updateRow_(tab, keyValue, patch) {
   markDataChanged_(tab);
   const meta = headers_(tab);
   const sh = meta.sheet;
-  const lastRow = sh.getLastRow();
-  if (lastRow < 2) throw appError_('NOT_FOUND', 'ไม่พบข้อมูลที่ต้องการแก้ไข');
-  const keyCol = meta.idx[SCHEMA[tab].key] + 1;
-  const keys = sh.getRange(2, keyCol, lastRow - 1, 1).getValues();
-  let rowNo = -1;
-  for (let i = 0; i < keys.length; i++) {
-    if (String(keys[i][0]) === String(keyValue)) { rowNo = i + 2; break; }
-  }
-  if (rowNo === -1) throw appError_('NOT_FOUND', 'ไม่พบข้อมูลที่ต้องการแก้ไข');
-
   const width = meta.headers.length;
-  const current = sh.getRange(rowNo, 1, 1, width).getValues()[0];
-  const merged = { _row: rowNo };
-  meta.headers.forEach(function (h, c) { if (h) merged[h] = cellUnsafe_(current[c]); });
+  const keyName = SCHEMA[tab].key;
   Object.keys(patch).forEach(function (k) {
     if (meta.idx[k] === undefined) throw new Error('updateRow_: unknown column ' + tab + '.' + k);
-    merged[k] = patch[k];
   });
+
+  let rowNo = -1, cachedAt = -1, current = null;
+  if (meta.rows && LOCK_DEPTH_ > 0) {
+    for (let i = 0; i < meta.rows.length; i++) {
+      if (String(meta.rows[i][keyName]) === String(keyValue)) { cachedAt = i; rowNo = meta.rows[i]._row; break; }
+    }
+  }
+  const merged = { _row: 0 };
+  if (cachedAt !== -1) {
+    const c = meta.rows[cachedAt];
+    meta.headers.forEach(function (h) { if (h) merged[h] = c[h]; });
+  } else {
+    const lastRow = sh.getLastRow();
+    if (lastRow < 2) throw appError_('NOT_FOUND', 'ไม่พบข้อมูลที่ต้องการแก้ไข');
+    const keys = sh.getRange(2, meta.idx[keyName] + 1, lastRow - 1, 1).getValues();
+    for (let i = 0; i < keys.length; i++) {
+      if (String(keys[i][0]) === String(keyValue)) { rowNo = i + 2; break; }
+    }
+    if (rowNo === -1) throw appError_('NOT_FOUND', 'ไม่พบข้อมูลที่ต้องการแก้ไข');
+    current = sh.getRange(rowNo, 1, 1, width).getValues()[0];
+    meta.headers.forEach(function (h, c) { if (h) merged[h] = cellUnsafe_(current[c]); });
+  }
+  merged._row = rowNo;
+  Object.keys(patch).forEach(function (k) { merged[k] = patch[k]; });
   const out = meta.headers.map(function (h) { return h ? toCell_(merged[h]) : ''; });
   sh.getRange(rowNo, 1, 1, width).setValues([out]);
-  meta.rows = null;
+
+  if (cachedAt !== -1) {
+    // a new object (callers may still hold the old one); values as the sheet would return them
+    const fresh = { _row: rowNo };
+    meta.headers.forEach(function (h, c) { if (h) fresh[h] = sheetLike_(h, cellUnsafe_(out[c])); });
+    meta.rows[cachedAt] = fresh;
+  } else {
+    meta.rows = null;
+  }
   return merged;
+}
+
+/**
+ * A written value as Sheets hands it back on the next read (column formats from setupSchema_): date strings in
+ * date columns become Dates, numeric strings in number columns become numbers, TRUE/FALSE become booleans.
+ * Keeps the patched cache identical to a fresh read.
+ */
+function sheetLike_(h, v) {
+  if (typeof v !== 'string' || v === '') return v;
+  if (DATE_COLS_.indexOf(h) !== -1 || DAY_COLS_.indexOf(h) !== -1) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(v);
+    if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)) - 7 * 3600000);   // Asia/Bangkok
+    return v;
+  }
+  if (NUMBER_COLS_.indexOf(h) !== -1) return /^-?\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : v;
+  if (BOOL_COLS_.indexOf(h) !== -1) {
+    if (/^true$/i.test(v)) return true;
+    if (/^false$/i.test(v)) return false;
+  }
+  return v;
 }
 
 /**
@@ -742,6 +811,7 @@ function withLock_(fn) {
     LOCK_DEPTH_--;
     invalidate_();
     if (DATA_DIRTY_) bumpDataVersion_();
+    if (NOTIF_DIRTY_) bumpNotifVersion_();
     lock.releaseLock();
   }
 }
@@ -2013,6 +2083,10 @@ function doTransition_(ticketId, action, comment, payload) {
         forbid('เฉพาะ SR Manager หรือ Admin เท่านั้นที่มอบหมายงานได้');
       }
       if (['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) === -1) badState();
+      // M14: by product group, moving EVERY item (also the ones other SRs own) needs an explicit confirm_whole
+      if (toBool_(setting_('assign_by_group', true)) && payload.confirm_whole !== true) {
+        throw appError_('USE_ITEM_ASSIGN', 'แบ่งงานตามกลุ่มสินค้าอยู่ — ใช้ “แบ่งงาน SR ตามรายการ” (เลือก “ตั้งทุกรายการเป็น” ได้ถ้าต้องการให้ SR คนเดียวทำทั้งใบ)');
+      }
       const target = userByEmail_(payload.sr_email);
       if (!target || !target.is_active || target.role !== 'sr') {
         throw appError_('INVALID_ASSIGNEE', 'ผู้รับงานต้องเป็น SR ที่ใช้งานอยู่');
@@ -2502,7 +2576,8 @@ function allowedActions_(u, t) {
       });
     });
     if (OPEN_STATUSES.indexOf(t.status) !== -1) all.push('admin_cancel');
-    if (['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1) all.push('assign');
+    // M14: by product group the work is split per item (panel “แบ่งงาน SR ตามรายการ”) — no whole-request button
+    if (['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1 && !toBool_(setting_('assign_by_group', true))) all.push('assign');
     all.push('admin_delete');
     return all;
   }
@@ -2521,7 +2596,7 @@ function allowedActions_(u, t) {
   if (u.role === 'sr_manager' && t.stage === 'pending_sr_manager' && !isSr_(t, u.email)) a.push('srm_approve', 'srm_return', 'srm_reject');
   if (u.role === 'gm' && t.stage === 'pending_gm_price') a.push('gm_price_approve', 'gm_price_return', 'gm_price_reject');
   if (u.role === 'admin' && OPEN_STATUSES.indexOf(t.status) !== -1) a.push('admin_cancel');
-  if ((u.role === 'admin' || u.role === 'sr_manager') &&
+  if ((u.role === 'admin' || u.role === 'sr_manager') && !toBool_(setting_('assign_by_group', true)) &&
       ['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1) a.push('assign');
   if (assigned && (t.stage === 'doc_check' || t.stage === 'sourcing')) a.push('request_info');
   if (assigned && t.stage === 'doc_check') a.push('doc_complete');
@@ -2732,6 +2807,21 @@ function salesTimeline_(timeline) {
  * Build the document checklist from the templates of every product group used in the
  * ticket and all of their ancestors (e.g. Solar template + Inverter template).
  */
+/**
+ * M10: checklist lines Sales already answered in the request form are ticked when the checklist is made
+ * (checked_by = CHECK_FROM_FORM_, note = the values) — the SR only checks them and can untick.
+ * A line is pre-ticked only when EVERY item it covers has the field filled in.
+ */
+const CHECK_FROM_FORM_ = 'from_form';
+const CHECK_FORM_FIELDS_ = { spec: 'spec', size_grade: 'size', packing: 'packing_size', net_weight: 'net_weight' };
+function checklistPrefill_(key, items) {
+  const f = CHECK_FORM_FIELDS_[key];
+  if (!f || !items.length) return '';
+  const vals = items.map(function (it) { return String(it[f] === undefined || it[f] === null ? '' : it[f]).trim(); });
+  if (vals.some(function (v) { return !v; })) return '';
+  return ('จากใบขอราคา: ' + items.map(function (it, i) { return (items.length > 1 ? '#' + it.line_no + ' ' : '') + vals[i]; }).join(' · ')).slice(0, 500);
+}
+
 function generateChecklist_(ticketId) {
   const groups = {};
   rows_(TAB.PRODUCT_GROUPS).forEach(function (g) { groups[String(g.code)] = g; });
@@ -2739,10 +2829,12 @@ function generateChecklist_(ticketId) {
   checklistOf_(ticketId).forEach(function (c) { existing[c.product_group_code + '|' + c.item_key] = true; });
 
   const owners = {};   // group code → depth from the item's own group (0 = own group)
+  const itemsOf = {};  // group code → the items under it (own group or a child group)
   activeItemsOf_(ticketId).forEach(function (it) {
     let code = it.product_group_code;
     let depth = 0;
     while (code && groups[code] && depth < 10) {
+      (itemsOf[code] = itemsOf[code] || []).push(it);
       if (owners[code] === undefined || owners[code] > depth) owners[code] = depth;
       code = String(groups[code].parent_code || '');
       depth++;
@@ -2758,12 +2850,13 @@ function generateChecklist_(ticketId) {
       const key = cleanText_(e && e.key, 100);
       if (!key || existing[code + '|' + key]) return;
       existing[code + '|' + key] = true;
+      const pre = checklistPrefill_(key, itemsOf[code] || []);
       toInsert.push({
         check_id: uuid_(), ticket_id: ticketId, product_group_code: code, item_key: key,
         label: cleanText_(e.label, 300) || key,
         is_required: e.required === undefined ? true : toBool_(e.required),
         sort_order: (10 - owners[code]) * 1000 + i + 1,
-        is_checked: false, checked_by: '', checked_at: '', note: '', updated_at: now
+        is_checked: !!pre, checked_by: pre ? CHECK_FROM_FORM_ : '', checked_at: pre ? now : '', note: pre || '', updated_at: now
       });
     });
   });
@@ -2933,11 +3026,13 @@ function updateChecklist(checkId, isChecked, note) {
         note: note === undefined ? String(row.note || '') : cleanText_(note, 500),
         updated_at: new Date()
       };
-      if (checked !== toBool_(row.is_checked)) {
+      const confirm = checked && String(row.checked_by) === CHECK_FROM_FORM_;   // SR confirms a line pre-ticked from the form
+      if (checked !== toBool_(row.is_checked) || confirm) {
         patch.checked_by = checked ? u.email : '';
         patch.checked_at = checked ? new Date() : '';
       }
       const d = diff_({ is_checked: toBool_(row.is_checked), note: String(row.note || '') }, patch, ['is_checked', 'note']);
+      if (confirm) d.checked_by = { old: CHECK_FROM_FORM_, 'new': u.email };
       if (!Object.keys(d).length) return { changed: false };
       updateRow_(TAB.CHECKLIST, row.check_id, patch);
       appendLog_({ ticket_id: t.ticket_id, action: 'checklist_updated', actor_email: u.email, actor_role: u.role,
@@ -3307,9 +3402,11 @@ function saveChecklist(ticketId, rows) {
         const checked = toBool_(r.is_checked);
         const note = r.note === undefined ? String(row.note || '') : cleanText_(r.note, 500);
         const d = diff_({ is_checked: toBool_(row.is_checked), note: String(row.note || '') }, { is_checked: checked, note: note }, ['is_checked', 'note']);
+        const confirm = checked && String(row.checked_by) === CHECK_FROM_FORM_;   // SR confirms a line pre-ticked from the form
+        if (confirm) d.checked_by = { old: CHECK_FROM_FORM_, 'new': u.email };
         if (!Object.keys(d).length) return;
         const patch = { is_checked: checked, note: note, updated_at: new Date() };
-        if (checked !== toBool_(row.is_checked)) {
+        if (checked !== toBool_(row.is_checked) || confirm) {
           patch.checked_by = checked ? u.email : '';
           patch.checked_at = checked ? new Date() : '';
         }
@@ -3852,7 +3949,8 @@ function dealFollowDays_() {
 }
 
 /** Quoted lines (items with a GM-approved selling price) of tickets `u` may see. Cost fields only for GP_ROLES_. */
-function dealRows_(u, withCost) {
+function dealRows_(u, withCost, period) {
+  const cut = period ? period.cutoff : 0;   // M7: closed deals (won / lost) quoted before this are left out
   const ctx = listContext_();
   const tickets = {};
   rows_(TAB.TICKETS).map(normTicket_).forEach(function (t) {
@@ -3875,6 +3973,7 @@ function dealRows_(u, withCost) {
       const quotedAt = new Date(t.gm_price_approved_at);
       const quotedYmd = fmtDate_(quotedAt);
       const open = it.deal_status !== 'won' && it.deal_status !== 'lost';
+      if (cut && !open && quotedAt.getTime() < cut) { period.hidden++; return; }
       // same rule as the MGS Sales app: an open deal needs an update when the follow-up date has come,
       // or nobody updated it for deal_follow_days (counted from the price / the last update)
       const lastTouch = it.deal_updated_at ? new Date(it.deal_updated_at) : quotedAt;
@@ -3929,11 +4028,13 @@ function canEditDeal_(u, t) {
 }
 
 /** Follow-up list (no cost data for anyone — the GP view is getGpSummary). */
-function listDeals() {
+function listDeals(opts) {
   return api_('listDeals', function () {
     const u = currentUser_();
+    const period = listPeriod_(opts);
     return {
-      rows: dealRows_(u, false),
+      rows: dealRows_(u, false, period),
+      period_months: period.months, older_hidden: period.hidden,
       today: todayBkk_(),
       follow_days: dealFollowDays_(),
       lost_reasons: setting_('deal_lost_reasons', []),
@@ -4021,12 +4122,14 @@ function updateDeal(itemId, patch) {
  * GP & close-rate summary (GM / SR Manager / Admin): every quoted line with its cost, GP and deal status.
  * The browser groups by month / customer group / Sales so filters never call the server again.
  */
-function getGpSummary() {
+function getGpSummary(opts) {
   return api_('getGpSummary', function () {
     const u = currentUser_();
     requireRole_(u, GP_ROLES_, 'สรุป GP ดูได้เฉพาะ GM, SR Manager และผู้ดูแลระบบ');
+    const period = listPeriod_(opts);
     return {
-      rows: dealRows_(u, true),
+      rows: dealRows_(u, true, period),
+      period_months: period.months, older_hidden: period.hidden,
       today: todayBkk_(),
       lost_reasons: setting_('deal_lost_reasons', []),
       customer_groups: setting_('customer_groups', []),
@@ -4282,8 +4385,28 @@ function getPoll(views) {
   return api_('getPoll', function () {
     const u = currentUser_();
     logUsage_(u, views);
-    return pollData_(u);
+    return cachedPoll_(u);
   });
+}
+
+const POLL_TTL_SEC_ = 120;
+/**
+ * M9: every open page polls once a minute; the counts only change when tickets / items / users / settings
+ * (DATA_VERSION) or notifications (NOTIF_VERSION) change → answer from CacheService until then.
+ * server_time is always fresh. The 2-minute TTL covers counts that depend on the date (deals due today).
+ */
+function cachedPoll_(u) {
+  const cache = CacheService.getScriptCache();
+  const key = 'pol:' + dataVersion_() + ':' + notifVersion_() + ':' + u.email;
+  let hit = null;
+  try { hit = cache.get(key); } catch (e) { hit = null; }
+  if (hit) {
+    const o = parseJson_(hit, null);
+    if (o) { o.server_time = new Date().toISOString(); o.cached = true; return o; }
+  }
+  const out = pollData_(u);
+  try { cache.put(key, JSON.stringify(out), POLL_TTL_SEC_); } catch (e) { /* cache is optional */ }
+  return out;
 }
 
 function logUsage_(u, views) {
@@ -4297,16 +4420,61 @@ function logUsage_(u, views) {
   }
 }
 
-/** Admin home card: delivery problems in the last 24 h. */
+/**
+ * Admin home card (M6): what actually runs today —
+ *   FPR Bot / FPR Reminder webhooks (Script Properties set? cards failed / not configured in 24 h, NotifLog)
+ *   Lark DM for follow-up reminders (only the types in lark_dm_types; needs the Lark app keys)
+ *   stuck work: open requests whose current owner is missing / inactive, items nobody prices yet
+ *   errors in 24 h, database link (Admin only — the sheet itself is shared with Admin / owner only).
+ */
 function getAdminHealth() {
   return api_('getAdminHealth', function () {
     const u = currentUser_();
     if (u.role !== 'admin') throw appError_('FORBIDDEN', 'เฉพาะผู้ดูแลระบบ');
     const since = Date.now() - 86400000;
+    const p = PropertiesService.getScriptProperties();
+    const log = rows_(TAB.NOTIF_LOG).filter(function (n) { return new Date(n.ts).getTime() > since && String(n.event) !== 'config_changed'; });
+    const bots = Object.keys(BOT_PROPS_).map(function (k) {
+      const c = BOT_PROPS_[k];
+      const mine = log.filter(function (n) { return String(n.bot) === c.name; });
+      return { key: k, name: c.name, url_set: !!p.getProperty(c.url), secret_set: !!p.getProperty(c.secret),
+        sent: mine.filter(function (n) { return String(n.status) === 'sent'; }).length,
+        failed: mine.filter(function (n) { return String(n.status) === 'failed'; }).length,
+        not_configured: mine.filter(function (n) { return String(n.status) === 'not_configured'; }).length };
+    });
+    const dmTypes = setting_('lark_dm_types', ['sla_warning', 'sla_breach', 'deal_due']);
     const recent = rows_(TAB.NOTIFICATIONS).filter(function (n) { return new Date(n.created_at).getTime() > since; });
     const count = function (st) { return recent.filter(function (n) { return String(n.lark_status) === st; }).length; };
-    return { lark_failed: count('failed'), lark_no_user: count('no_lark_user'), lark_no_group: count('no_group'), lark_pending: count('pending'),
-      lark_configured: larkConfigured_(), db_version: APP_VERSION };
+
+    // stuck work
+    const ctx = listContext_();
+    const active = {};
+    rows_(TAB.USERS).map(normUser_).forEach(function (x) { if (x.is_active) active[x.email] = x; });
+    const stuckOwner = [], noSr = [];
+    rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return OPEN_STATUSES.indexOf(t.status) !== -1; }).forEach(function (t) {
+      const owners = stageAssignees_(t).map(function (e) { return String(e || '').trim().toLowerCase(); }).filter(String);
+      if (owners.length && !owners.some(function (e) { return active[e]; })) {
+        stuckOwner.push({ ticket_id: t.ticket_id, ticket_no: t.ticket_no, stage_label: STAGE_LABEL_TH[t.stage] || t.stage, owners: owners.join(', ') });
+      } else if (!owners.length && STAGE_STATUS[t.stage] && ['pending_manager', 'pending_gm', 'pending_assign', 'pending_sr_manager', 'pending_gm_price'].indexOf(t.stage) !== -1) {
+        stuckOwner.push({ ticket_id: t.ticket_id, ticket_no: t.ticket_no, stage_label: STAGE_LABEL_TH[t.stage] || t.stage, owners: '(ไม่มีผู้ใช้ role นี้ที่ใช้งานอยู่)' });
+      }
+      if ((t.stage === 'doc_check' || t.stage === 'sourcing') && activeItemsOf_(t.ticket_id).some(function (it) { return !it.quote_status && !itemOwner_(t, it); })) {
+        noSr.push({ ticket_id: t.ticket_id, ticket_no: t.ticket_no });
+      }
+    });
+    const breach = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return OPEN_STATUSES.indexOf(t.status) !== -1 && slaInfo_(t, ctx, new Date()).status === 'breach'; }).length;
+    let errors = 0;
+    try { errors = rows_(TAB.ERRORS).filter(function (e) { return new Date(e.ts).getTime() > since; }).length; } catch (e) { errors = 0; }
+
+    return {
+      bots: bots,
+      webapp_url_set: !!p.getProperty(CFG.PROP.WEBAPP_URL),
+      dm: { types: Array.isArray(dmTypes) ? dmTypes : [], app_configured: larkConfigured_(), failed: count('failed'), no_user: count('no_lark_user') },
+      stuck_owner: stuckOwner.slice(0, 20), stuck_owner_count: stuckOwner.length,
+      no_sr: noSr.slice(0, 20), no_sr_count: noSr.length,
+      sla_breach: breach, errors_24h: errors,
+      db_url: db_().getUrl(), db_version: APP_VERSION
+    };
   });
 }
 
@@ -4458,6 +4626,22 @@ function myOpenFollowUps_(u) {
 // searches and counts in the browser (no round trip per filter = no lag, no race).
 // =============================================================================
 
+/**
+ * M7: how far back the list pages load. opts.months: a number (0 = everything) or missing → Settings list_months
+ * (default 6). Open work is never cut — only finished / closed rows older than the cut-off.
+ * Returns { months, cutoff (ms, 0 = none), hidden (counter filled by the caller) }.
+ */
+function listPeriod_(opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  let m = o.months === undefined || o.months === null || o.months === '' ? Number(setting_('list_months', 6)) : Number(o.months);
+  if (!isFinite(m) || m < 0) m = 6;
+  m = Math.min(Math.floor(m), 120);
+  if (!m) return { months: 0, cutoff: 0, hidden: 0 };
+  const d = new Date();
+  d.setMonth(d.getMonth() - m);
+  return { months: m, cutoff: d.getTime(), hidden: 0 };
+}
+
 const BOARD_TTL_SEC_ = 300;
 const BOARD_CHUNK_ = 90000;   // CacheService: 100 KB per value
 
@@ -4466,15 +4650,21 @@ const BOARD_CHUNK_ = 90000;   // CacheService: 100 KB per value
  * Cached per user for 5 minutes; any write to tickets / items / users / settings starts a
  * new data version, so a cached list is never older than the last change.
  */
-function listTicketBoard() {
+function listTicketBoard(opts) {
   return api_('listTicketBoard', function () {
     const u = currentUser_();
-    const key = 'brd:' + dataVersion_() + ':' + u.email;
+    const period = listPeriod_(opts);
+    const key = 'brd:' + dataVersion_() + ':' + period.months + ':' + u.email;
     const cached = boardCacheGet_(key);
     if (cached) { cached.cached = true; return cached; }
     const now = new Date();
     const ctx = listContext_();
-    const rows = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return canSeeTicket_(u, t); }).map(function (t) {
+    const rows = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) {
+      if (!canSeeTicket_(u, t)) return false;
+      // M7: closed / rejected / cancelled / deleted requests whose last change is older than the period stay on the server
+      if (period.cutoff && OPEN_STATUSES.indexOf(t.status) === -1 && new Date(t.updated_at || t.created_at).getTime() < period.cutoff) { period.hidden++; return false; }
+      return true;
+    }).map(function (t) {
       const r = summaryRow_(t, ctx, now);
       r.is_inbox = isAssignee_(u, t, ctx);
       r.is_mine = u.role === 'sr' ? isSr_(t, u.email) : t.requestor_email === u.email;
@@ -4483,7 +4673,7 @@ function listTicketBoard() {
       r.priority = String(t.priority);
       return r;
     });
-    const out = { rows: rows, generated_at: now.toISOString(), cached: false };
+    const out = { rows: rows, generated_at: now.toISOString(), cached: false, period_months: period.months, older_hidden: period.hidden };
     boardCachePut_(key, out);
     return out;
   });
@@ -5501,7 +5691,7 @@ function getBotSettings() {
         last: last ? { ts: fmtDate_(last.ts, 'dd/MM/yyyy HH:mm'), event: String(last.event), status: String(last.status), http_code: String(last.http_code), response: String(last.response).slice(0, 200) } : null };
     });
     const failed24 = log.filter(function (n) { return String(n.status) === 'failed' && new Date(n.ts).getTime() > Date.now() - 86400000; }).length;
-    return { bots: bots, webapp_url: p.getProperty(CFG.PROP.WEBAPP_URL) || '', failed_24h: failed24 };
+    return { bots: bots, webapp_url: p.getProperty(CFG.PROP.WEBAPP_URL) || '', failed_24h: failed24, db_url: db_().getUrl(), app_version: APP_VERSION };
   });
 }
 
@@ -5852,7 +6042,18 @@ function runSelfTest() {
     }).length;
     if (failed) throw new Error(failed + ' failed');
   });
-  t('lark configured', function () { if (!larkConfigured_()) throw new Error('LARK_APP_ID / LARK_APP_SECRET not set'); });
+  t('FPR Bot + FPR Reminder webhooks configured', function () {
+    const p = PropertiesService.getScriptProperties();
+    const miss = [];
+    Object.keys(BOT_PROPS_).forEach(function (k) { [BOT_PROPS_[k].url, BOT_PROPS_[k].secret].forEach(function (n) { if (!p.getProperty(n)) miss.push(n); }); });
+    if (miss.length) throw new Error(miss.join(', ') + ' not set (Admin › ⚙️ ตั้งค่า Lark Bot)');
+  });
+  t('Lark DM for follow-up reminders', function () {
+    const types = setting_('lark_dm_types', []);
+    if (!Array.isArray(types) || !types.length) return 'off';
+    if (!larkConfigured_()) throw new Error('lark_dm_types is on but LARK_APP_ID / LARK_APP_SECRET not set — DMs are skipped (bell only)');
+    return 'on';
+  });
 
   const failedLines = out.filter(function (l) { return l.indexOf('FAIL') === 0; });
   console.log(out.join('\n'));
@@ -6367,18 +6568,30 @@ const NUMBER_COLS_ = ['qty', 'target_price', 'unit_price', 'fx_rate', 'vat_rate'
   'sort_order', 'size_bytes', 'log_id', 'stage_duration_sec', 'last_no', 'lark_attempts'];
 const BOOL_COLS_ = ['is_active', 'is_selected', 'is_deleted', 'is_checked', 'is_required', 'is_read'];
 
-/** Create / repair the database. Owner only. */
+const DB_FILE_NAME_ = 'MGS Food Price Request — DATABASE (do not share)';
+
+/** The database ID from Script Properties, or stop with guidance (M11 — never create a new one silently). */
+function requireDbId_(id) {
+  if (id) return id;
+  const found = existingDbFiles_();
+  throw new Error('ไม่พบ Script Property ' + CFG.PROP.DB_ID + ' — setupDatabase จะไม่สร้างฐานข้อมูลใหม่เอง\n' +
+    (found.length ? 'พบไฟล์ฐานข้อมูลเดิมใน Drive: ' + found.map(function (f) { return f.id + ' (' + f.url + ')'; }).join(', ') +
+      '\n→ ใส่ ID นี้ใน Project Settings › Script Properties › ' + CFG.PROP.DB_ID + ' แล้วรัน setupDatabase อีกครั้ง'
+      : '→ ถ้ามีฐานข้อมูลเดิมอยู่แล้ว: ใส่ ID ของชีตใน Script Properties › ' + CFG.PROP.DB_ID + ' แล้วรันใหม่\n' +
+        '→ ถ้าเป็นการติดตั้งครั้งแรกจริง ๆ: รัน createNewDatabase()'));
+}
+
+/**
+ * Create / repair the database. Owner only.
+ * M11: never creates a database by itself any more. If DB_SPREADSHEET_ID is missing (e.g. a copied script
+ * project, or the property was deleted) a silent new empty database would make every request "disappear".
+ * → stop with guidance. A real first install runs createNewDatabase() once (it then runs this function).
+ */
 function setupDatabase() {
   requireOwner_();
   const props = PropertiesService.getScriptProperties();
-  let ss;
-  const id = props.getProperty(CFG.PROP.DB_ID);
-  if (id) {
-    ss = SpreadsheetApp.openById(id);
-  } else {
-    ss = SpreadsheetApp.create('MGS Food Price Request — DATABASE (do not share)');
-    props.setProperty(CFG.PROP.DB_ID, ss.getId());
-  }
+  const id = requireDbId_(props.getProperty(CFG.PROP.DB_ID));
+  const ss = SpreadsheetApp.openById(id);   // a wrong / inaccessible ID fails here — nothing new is created
   useDatabase_(ss);
   const report = setupSchema_(ss, { protect: true });
 
@@ -6418,6 +6631,41 @@ function setupDatabase() {
   console.log(report.join('\n'));
   console.log('Database URL: ' + ss.getUrl());
   return report;
+}
+
+/**
+ * First install only: creates the database spreadsheet, stores its ID in Script Properties and runs setupDatabase().
+ * Refuses when an ID is already set, or when a database file with the standard name already exists in the
+ * owner's Drive (set its ID instead — or rename / trash that file first if it really is unwanted).
+ */
+function createNewDatabase() {
+  requireOwner_();
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty(CFG.PROP.DB_ID);
+  if (id) throw new Error('มีฐานข้อมูลอยู่แล้ว (' + CFG.PROP.DB_ID + ' = ' + id + ') — ไม่สร้างใหม่ · ถ้าต้องการซ่อม/เพิ่มคอลัมน์ให้รัน setupDatabase()');
+  const found = existingDbFiles_();
+  if (found.length) {
+    throw new Error('พบไฟล์ฐานข้อมูลเดิมใน Drive: ' + found.map(function (f) { return f.id; }).join(', ') +
+      ' — ใส่ ID นี้ใน Script Properties › ' + CFG.PROP.DB_ID + ' แล้วรัน setupDatabase() แทน (ถ้าไฟล์นั้นไม่ใช้แล้วจริง ๆ ให้เปลี่ยนชื่อหรือย้ายลงถังขยะก่อน)');
+  }
+  const ss = SpreadsheetApp.create(DB_FILE_NAME_);
+  props.setProperty(CFG.PROP.DB_ID, ss.getId());
+  console.log('Created database ' + ss.getUrl());
+  return setupDatabase();
+}
+
+/** Database files with the standard name in the owner's Drive (not in the trash). */
+function existingDbFiles_() {
+  const out = [];
+  try {
+    const it = DriveApp.getFilesByName(DB_FILE_NAME_);
+    while (it.hasNext() && out.length < 5) {
+      const f = it.next();
+      if (f.isTrashed && f.isTrashed()) continue;
+      out.push({ id: f.getId(), url: f.getUrl() });
+    }
+  } catch (e) { /* Drive search is a hint only */ }
+  return out;
 }
 
 /** Tabs, headers, formats, validation, protection, default settings. */
@@ -6650,7 +6898,7 @@ function seedDemoTickets_() {
       const x = go(U.gm, id, 'gm_approve', comment || '');
       const t1 = ticketById_(id);
       if (t1.srs.length === 1 && t1.srs[0] === sr && t1.stage !== 'pending_assign') return x;
-      return go(U.srManager, id, 'assign', '', { sr_email: sr });
+      return go(U.srManager, id, 'assign', '', { sr_email: sr, confirm_whole: true });
     }
     if (toBool_(setting_('gm_assigns_sr', true))) return go(U.gm, id, 'gm_approve', comment || '', { sr_email: sr });
     go(U.gm, id, 'gm_approve', comment || '');
@@ -6694,7 +6942,7 @@ function seedDemoTickets_() {
     { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว Vannamei HLSO', net_weight: '80%', size: '31/40', packing_size: '1 kg/pack', qty: 500, uom: 'กก.', target_price: 0 }
   ]);
   if (toBool_(setting_('assign_by_group', true)) || toBool_(setting_('gm_assigns_sr', true))) toSr(t.ticket_id, U.sr1);
-  else { go(U.gm, t.ticket_id, 'gm_approve'); go(U.srManager, t.ticket_id, 'assign', '', { sr_email: U.sr1 }); }
+  else { go(U.gm, t.ticket_id, 'gm_approve'); go(U.srManager, t.ticket_id, 'assign', '', { sr_email: U.sr1, confirm_whole: true }); }
   go(U.sr1, t.ticket_id, 'request_info', 'ขอ % glazing และรูปแบบ packing ของกุ้ง', { missing_items: ['glazing', 'packing'] });
 
   // (C) Squid — waiting for GM (no Sales Manager → step skipped)
@@ -6845,6 +7093,7 @@ function runAcceptanceTests() {
     runAdminCases_(results);
     runGroupAssignCases_(results);
     runAuditFixCases_(results);
+    runMediumCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -9203,5 +9452,156 @@ function runAuditFixCases_(results) {
   } finally {
     setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false', lark_dm_types: '["*"]' });
     TEST_BOTS_ = null;
+  }
+}
+
+/** Audit Medium items: M6 admin health · M7 list period · M8 cache patch · M9 poll cache · M10 checklist pre-tick · M11 setup guard · M14 assign. */
+function runMediumCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  const wrap = function (name, fn) {
+    try { fn(); } catch (e) { results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: ' + name + ' — ' + e.message + '\n' + e.stack); }
+  };
+  const item = function (x) { return Object.assign({ product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว', spec: 'Vannamei', size: '31/40', packing_size: '1 kg x 10', net_weight: '80%', qty: 10, uom: 'กก.', target_price: 0 }, x || {}); };
+  const create = function (items) {
+    return must(as(U.salesFood1, function () { return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'Medium test', due_date: inDays(3), items: items }); })).ticket.ticket_id;
+  };
+  TEST_HTTP_ = fakeHttp_();
+  TEST_DRIVE_ = fakeDrive_();
+  setTestSettings_({ sales_manager_step: 'false', assign_by_group: 'false', gm_assigns_sr: 'true', min_suppliers: '1', lark_dm_types: '["*"]' });
+  try {
+    wrap('M8_CACHE', function () {
+      withLock_(function () {
+        const list = rows_(TAB.SETTINGS);
+        const row = list.filter(function (r) { return r.key === 'list_months'; })[0];
+        const sh = headers_(TAB.SETTINGS).sheet;
+        const orig = sh.getRange;
+        let calls = 0;
+        sh.getRange = function () { calls++; return orig.apply(sh, arguments); };
+        try { updateRow_(TAB.SETTINGS, 'list_months', { value: '7', updated_at: new Date() }); } finally { sh.getRange = orig; }
+        ok(calls === 1, 'M8: updating a row already read inside the lock = 1 write, no re-reads (' + calls + ' range call)');
+        ok(rows_(TAB.SETTINGS) === list && findOne_(TAB.SETTINGS, 'key', 'list_months').value === '7' && row.value !== '7', 'M8: cache patched in place (callers keep their old object)');
+        insertRow_(TAB.HOLIDAYS, { date: '2031-01-02', name: 'ทดสอบ M8' });
+        const cached = rows_(TAB.HOLIDAYS).filter(function (h) { return h.name === 'ทดสอบ M8'; })[0];
+        invalidate_(TAB.SETTINGS); invalidate_(TAB.HOLIDAYS);
+        const fresh = findOne_(TAB.SETTINGS, 'key', 'list_months');
+        const freshH = rows_(TAB.HOLIDAYS).filter(function (h) { return h.name === 'ทดสอบ M8'; })[0];
+        ok(fresh.value === '7' && cached && freshH && cached._row === freshH._row, 'M8: patched / appended cache rows match a fresh read (row numbers too)');
+        updateRow_(TAB.SETTINGS, 'list_months', { value: '6', updated_at: new Date() });
+      });
+      ok(sheetLike_('due_date', '2026-10-11') instanceof Date && fmtDate_(sheetLike_('due_date', '2026-10-11')) === '2026-10-11' &&
+        sheetLike_('qty', '12.5') === 12.5 && sheetLike_('is_active', 'TRUE') === true && sheetLike_('note', '0012') === '0012',
+        'M8: cached values typed like a sheet read (dates, numbers, booleans; text stays text)');
+    });
+
+    wrap('M9_POLL', function () {
+      const a = as(U.salesFood1, function () { return must(getPoll()); });
+      const b = as(U.salesFood1, function () { return must(getPoll()); });
+      ok(!a.cached && b.cached && b.inbox === a.inbox && b.unread === a.unread, 'M9: second poll answered from cache (no sheet scan)');
+      const mine = rows_(TAB.NOTIFICATIONS).filter(function (n) { return String(n.user_email).toLowerCase() === U.salesFood1 && !toBool_(n.is_read); });
+      if (mine.length) {
+        as(U.salesFood1, function () { return must(markNotificationsRead([String(mine[0].notif_id)])); });
+        const c = as(U.salesFood1, function () { return must(getPoll()); });
+        ok(!c.cached && c.unread === a.unread - 1, 'M9: reading a notification refreshes the bell count at once');
+      }
+      create([item()]);
+      ok(!as(U.salesFood1, function () { return must(getPoll()); }).cached, 'M9: any ticket change starts a new poll answer');
+    });
+
+    wrap('M10_CHECKLIST', function () {
+      const id = create([item()]);
+      must(go(U.gm, id, 'gm_approve', '', { sr_email: U.sr1 }));
+      const cl = checklistOf_(id);
+      const by = function (k) { return cl.filter(function (c) { return c.item_key === k; })[0]; };
+      ok(['spec', 'size_grade', 'packing', 'net_weight'].every(function (k) { return by(k) && by(k).is_checked && by(k).checked_by === CHECK_FROM_FORM_; }),
+        'M10: spec / size / packing / net weight from the Sales form are ticked when the checklist is made');
+      ok(by('glazing') && !by('glazing').is_checked && by('origin') && !by('origin').is_checked, 'M10: lines the form does not cover stay unticked');
+      ok(by('size_grade').note.indexOf('31/40') !== -1, 'M10: the note shows the value Sales entered');
+      as(U.sr1, function () { must(updateChecklist(by('spec').check_id, true, by('spec').note)); });
+      ok(checklistOf_(id).filter(function (c) { return c.item_key === 'spec'; })[0].checked_by === U.sr1, 'M10: SR confirming a pre-ticked line is recorded as the SR');
+      const id2 = create([item(), item({ line_no: 2, product_name: 'กุ้งแชบ๊วย', spec: '' })]);
+      must(go(U.gm, id2, 'gm_approve', '', { sr_email: U.sr1 }));
+      const s2 = checklistOf_(id2).filter(function (c) { return c.item_key === 'spec' && c.product_group_code === 'FOOD'; })[0];
+      ok(s2 && !s2.is_checked, 'M10: a line is not pre-ticked when one item left that field blank');
+    });
+
+    wrap('M6_HEALTH', function () {
+      expectErr(as(U.gm, function () { return getAdminHealth(); }), 'FORBIDDEN', 'M6: admin health is Admin only');
+      const id = create([item()]);
+      must(go(U.gm, id, 'gm_approve', '', { sr_email: U.sr2 }));
+      withLock_(function () { updateRow_(TAB.USERS, U.sr2, { is_active: false }); });
+      let h;
+      try { h = as(U.admin, function () { return must(getAdminHealth()); }); } finally { withLock_(function () { updateRow_(TAB.USERS, U.sr2, { is_active: true }); }); }
+      ok(h.bots.length === 2 && h.bots.every(function (b) { return 'url_set' in b && 'failed' in b && !('url' in b) && !('secret' in b); }), 'M6: shows both FPR bots (set / sent / failed — never the URL or secret)');
+      ok(!('lark_configured' in h) && Array.isArray(h.dm.types), 'M6: old “LARK_APP_ID” warning replaced by the DM-for-reminders status');
+      ok(h.stuck_owner.some(function (x) { return x.ticket_id === id; }), 'M6: a request whose SR is inactive is listed as stuck');
+      ok(/^https:\/\/docs\.google\.com\/spreadsheets\//.test(h.db_url) && typeof h.errors_24h === 'number', 'M6: database link + errors in 24 h');
+      ok(!as(U.admin, function () { return must(getAdminHealth()); }).stuck_owner.some(function (x) { return x.ticket_id === id; }), 'M6: back to normal once the SR is active again');
+    });
+
+    wrap('M7_PERIOD', function () {
+      const id = create([item()]);
+      must(go(U.salesFood1, id, 'cancel', 'ไม่ใช้แล้ว'));
+      withLock_(function () { updateRow_(TAB.TICKETS, id, { updated_at: new Date(Date.now() - 400 * 86400000) }); });
+      const def = as(U.admin, function () { return must(listTicketBoard()); });
+      const all = as(U.admin, function () { return must(listTicketBoard({ months: 0 })); });
+      ok(def.period_months === 6 && def.older_hidden >= 1 && !def.rows.some(function (r) { return r.ticket_id === id; }), 'M7: list loads 6 months by default (an old cancelled request stays on the server)');
+      ok(all.period_months === 0 && all.older_hidden === 0 && all.rows.some(function (r) { return r.ticket_id === id; }) && all.rows.length > def.rows.length, 'M7: “แสดงทั้งหมด” loads everything');
+      ok(def.rows.filter(function (r) { return r.outcome === 'open'; }).length === all.rows.filter(function (r) { return r.outcome === 'open' && OPEN_STATUSES.indexOf(ticketById_(r.ticket_id).status) !== -1; }).length,
+        'M7: open requests are never cut');
+      const d0 = as(U.admin, function () { return must(listDeals({ months: 0 })); }).rows;
+      if (d0.length) {
+        const r = d0[0];
+        withLock_(function () {
+          updateRow_(TAB.ITEMS, r.item_id, { deal_status: 'won', deal_closed_at: new Date() });
+          updateRow_(TAB.TICKETS, r.ticket_id, { gm_price_approved_at: new Date(Date.now() - 800 * 86400000) });
+        });
+        const dd = as(U.admin, function () { return must(listDeals()); });
+        const gp = as(U.gm, function () { return must(getGpSummary()); });
+        const gpAll = as(U.gm, function () { return must(getGpSummary({ months: 0 })); });
+        ok(!dd.rows.some(function (x) { return x.item_id === r.item_id; }) && dd.older_hidden >= 1, 'M7: an old won deal is left out of ติดตามการขาย by default');
+        ok(!gp.rows.some(function (x) { return x.item_id === r.item_id; }) && gpAll.rows.some(function (x) { return x.item_id === r.item_id; }), 'M7: สรุป GP loads it when a longer period is chosen');
+      }
+    });
+
+    wrap('M11_SETUP', function () {
+      let msg = '';
+      try { requireDbId_(''); } catch (e) { msg = e.message; }
+      ok(msg.indexOf('createNewDatabase') !== -1 && msg.indexOf(CFG.PROP.DB_ID) !== -1, 'M11: setupDatabase stops (with guidance) when DB_SPREADSHEET_ID is missing — no silent new database');
+      // the real project always has the property; the local runner may not → set a dummy only then, removed again
+      const props = PropertiesService.getScriptProperties();
+      const had = !!props.getProperty(CFG.PROP.DB_ID);
+      if (!had) props.setProperty(CFG.PROP.DB_ID, 'test-existing-db');
+      let m2 = '';
+      try { createNewDatabase(); } catch (e) { m2 = e.message; } finally { if (!had) props.deleteProperty(CFG.PROP.DB_ID); }
+      ok(m2.indexOf('มีฐานข้อมูลอยู่แล้ว') !== -1, 'M11: createNewDatabase refuses when a database is already set');
+    });
+
+    wrap('M14_ASSIGN', function () {
+      setTestSettings_({ assign_by_group: 'true' });
+      const id = create([item()]);
+      must(go(U.gm, id, 'gm_approve', ''));
+      const acts = as(U.srManager, function () { return must(getTicket(id)); }).permissions.actions;
+      const aacts = as(U.admin, function () { return must(getTicket(id)); }).permissions.actions;
+      ok(acts.indexOf('assign') === -1 && aacts.indexOf('assign') === -1, 'M14: by product group there is no whole-request “assign” button (SR Manager / Admin)');
+      expectErr(go(U.srManager, id, 'assign', '', { sr_email: U.sr2 }), 'USE_ITEM_ASSIGN', 'M14: whole-request assign without confirmation refused');
+      must(go(U.srManager, id, 'assign', '', { sr_email: U.sr2, confirm_whole: true }));
+      ok(activeItemsOf_(id).every(function (it) { return it.sr_email === U.sr2; }), 'M14: with confirm_whole the whole request moves to one SR');
+    });
+  } finally {
+    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false', lark_dm_types: '["*"]' });
   }
 }

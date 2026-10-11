@@ -356,6 +356,10 @@ function doTransition_(ticketId, action, comment, payload) {
         forbid('เฉพาะ SR Manager หรือ Admin เท่านั้นที่มอบหมายงานได้');
       }
       if (['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) === -1) badState();
+      // M14: by product group, moving EVERY item (also the ones other SRs own) needs an explicit confirm_whole
+      if (toBool_(setting_('assign_by_group', true)) && payload.confirm_whole !== true) {
+        throw appError_('USE_ITEM_ASSIGN', 'แบ่งงานตามกลุ่มสินค้าอยู่ — ใช้ “แบ่งงาน SR ตามรายการ” (เลือก “ตั้งทุกรายการเป็น” ได้ถ้าต้องการให้ SR คนเดียวทำทั้งใบ)');
+      }
       const target = userByEmail_(payload.sr_email);
       if (!target || !target.is_active || target.role !== 'sr') {
         throw appError_('INVALID_ASSIGNEE', 'ผู้รับงานต้องเป็น SR ที่ใช้งานอยู่');
@@ -845,7 +849,8 @@ function allowedActions_(u, t) {
       });
     });
     if (OPEN_STATUSES.indexOf(t.status) !== -1) all.push('admin_cancel');
-    if (['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1) all.push('assign');
+    // M14: by product group the work is split per item (panel “แบ่งงาน SR ตามรายการ”) — no whole-request button
+    if (['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1 && !toBool_(setting_('assign_by_group', true))) all.push('assign');
     all.push('admin_delete');
     return all;
   }
@@ -864,7 +869,7 @@ function allowedActions_(u, t) {
   if (u.role === 'sr_manager' && t.stage === 'pending_sr_manager' && !isSr_(t, u.email)) a.push('srm_approve', 'srm_return', 'srm_reject');
   if (u.role === 'gm' && t.stage === 'pending_gm_price') a.push('gm_price_approve', 'gm_price_return', 'gm_price_reject');
   if (u.role === 'admin' && OPEN_STATUSES.indexOf(t.status) !== -1) a.push('admin_cancel');
-  if ((u.role === 'admin' || u.role === 'sr_manager') &&
+  if ((u.role === 'admin' || u.role === 'sr_manager') && !toBool_(setting_('assign_by_group', true)) &&
       ['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1) a.push('assign');
   if (assigned && (t.stage === 'doc_check' || t.stage === 'sourcing')) a.push('request_info');
   if (assigned && t.stage === 'doc_check') a.push('doc_complete');
@@ -1075,6 +1080,21 @@ function salesTimeline_(timeline) {
  * Build the document checklist from the templates of every product group used in the
  * ticket and all of their ancestors (e.g. Solar template + Inverter template).
  */
+/**
+ * M10: checklist lines Sales already answered in the request form are ticked when the checklist is made
+ * (checked_by = CHECK_FROM_FORM_, note = the values) — the SR only checks them and can untick.
+ * A line is pre-ticked only when EVERY item it covers has the field filled in.
+ */
+const CHECK_FROM_FORM_ = 'from_form';
+const CHECK_FORM_FIELDS_ = { spec: 'spec', size_grade: 'size', packing: 'packing_size', net_weight: 'net_weight' };
+function checklistPrefill_(key, items) {
+  const f = CHECK_FORM_FIELDS_[key];
+  if (!f || !items.length) return '';
+  const vals = items.map(function (it) { return String(it[f] === undefined || it[f] === null ? '' : it[f]).trim(); });
+  if (vals.some(function (v) { return !v; })) return '';
+  return ('จากใบขอราคา: ' + items.map(function (it, i) { return (items.length > 1 ? '#' + it.line_no + ' ' : '') + vals[i]; }).join(' · ')).slice(0, 500);
+}
+
 function generateChecklist_(ticketId) {
   const groups = {};
   rows_(TAB.PRODUCT_GROUPS).forEach(function (g) { groups[String(g.code)] = g; });
@@ -1082,10 +1102,12 @@ function generateChecklist_(ticketId) {
   checklistOf_(ticketId).forEach(function (c) { existing[c.product_group_code + '|' + c.item_key] = true; });
 
   const owners = {};   // group code → depth from the item's own group (0 = own group)
+  const itemsOf = {};  // group code → the items under it (own group or a child group)
   activeItemsOf_(ticketId).forEach(function (it) {
     let code = it.product_group_code;
     let depth = 0;
     while (code && groups[code] && depth < 10) {
+      (itemsOf[code] = itemsOf[code] || []).push(it);
       if (owners[code] === undefined || owners[code] > depth) owners[code] = depth;
       code = String(groups[code].parent_code || '');
       depth++;
@@ -1101,12 +1123,13 @@ function generateChecklist_(ticketId) {
       const key = cleanText_(e && e.key, 100);
       if (!key || existing[code + '|' + key]) return;
       existing[code + '|' + key] = true;
+      const pre = checklistPrefill_(key, itemsOf[code] || []);
       toInsert.push({
         check_id: uuid_(), ticket_id: ticketId, product_group_code: code, item_key: key,
         label: cleanText_(e.label, 300) || key,
         is_required: e.required === undefined ? true : toBool_(e.required),
         sort_order: (10 - owners[code]) * 1000 + i + 1,
-        is_checked: false, checked_by: '', checked_at: '', note: '', updated_at: now
+        is_checked: !!pre, checked_by: pre ? CHECK_FROM_FORM_ : '', checked_at: pre ? now : '', note: pre || '', updated_at: now
       });
     });
   });

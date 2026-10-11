@@ -1,3 +1,4 @@
+Created database https://docs.google.com/spreadsheets/d/715d24e4-4696-4daa-858b-a53d137600e9
 Created tab Users
 Users: added columns email, full_name, role, department_code, is_active, lark_open_id, phone, created_at, updated_at, updated_by
 Created tab Departments
@@ -36,10 +37,10 @@ Created tab Holidays
 Holidays: added columns date, name
 Created tab ErrorLog
 ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
-Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
-Created Drive folder folder-5c03102e-6239-4bbe-94ef-8324fbd9a7eb
+Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, list_months, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
+Created Drive folder folder-b10ad616-7c03-44ce-a4b7-cc5f8ff58817
 Suppliers from old quotations: +0 created, 0 quotations linked
-Database URL: https://docs.google.com/spreadsheets/d/4fd1ca17-0fe8-4494-8df0-606960912190
+Database URL: https://docs.google.com/spreadsheets/d/715d24e4-4696-4daa-858b-a53d137600e9
 departments +3
 product groups +6
 vendors +6
@@ -55,22 +56,22 @@ PASS | sales.food2@example.co.th | getTicket FPR-2610-0004 (pending_gm)
 PASS | mgr.food@example.co.th | getTicket FPR-2610-0004 (pending_gm)
 PASS | sales.food2@example.co.th | getTicket FPR-2610-0005 (sourcing)
 PASS | mgr.food@example.co.th | getTicket FPR-2610-0005 (sourcing)
-PASS | sales.food3@example.co.th | getTicket FPR-2610-0006 (pending_sr_manager) | NOTE supplier_shortfall_reason present
-PASS | mgr.food@example.co.th | getTicket FPR-2610-0006 (pending_sr_manager) | NOTE supplier_shortfall_reason present
-PASS | sales.food1@example.co.th | getTicket FPR-2610-0007 (closed) | NOTE supplier_shortfall_reason present
-PASS | mgr.food@example.co.th | getTicket FPR-2610-0007 (closed) | NOTE supplier_shortfall_reason present
-PASS | sales.food2@example.co.th | getTicket FPR-2610-0008 (closed) | NOTE supplier_shortfall_reason present
-PASS | mgr.food@example.co.th | getTicket FPR-2610-0008 (closed) | NOTE supplier_shortfall_reason present
-PASS | sales.food3@example.co.th | getTicket FPR-2610-0009 (closed) | NOTE supplier_shortfall_reason present
-PASS | mgr.food@example.co.th | getTicket FPR-2610-0009 (closed) | NOTE supplier_shortfall_reason present
-PASS | sales.food1@example.co.th | getTicket FPR-2610-0010 (closed) | NOTE supplier_shortfall_reason present
-PASS | mgr.food@example.co.th | getTicket FPR-2610-0010 (closed) | NOTE supplier_shortfall_reason present
-PASS | sales.food2@example.co.th | getTicket FPR-2610-0011 (closed) | NOTE supplier_shortfall_reason present
-PASS | mgr.food@example.co.th | getTicket FPR-2610-0011 (closed) | NOTE supplier_shortfall_reason present
-PASS | sales.food3@example.co.th | getTicket FPR-2610-0012 (closed) | NOTE supplier_shortfall_reason present
-PASS | mgr.food@example.co.th | getTicket FPR-2610-0012 (closed) | NOTE supplier_shortfall_reason present
-PASS | sales.food1@example.co.th | getTicket FPR-2610-0013 (awaiting_sales_ack) | NOTE supplier_shortfall_reason present
-PASS | mgr.food@example.co.th | getTicket FPR-2610-0013 (awaiting_sales_ack) | NOTE supplier_shortfall_reason present
+PASS | sales.food3@example.co.th | getTicket FPR-2610-0006 (pending_sr_manager)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0006 (pending_sr_manager)
+PASS | sales.food1@example.co.th | getTicket FPR-2610-0007 (closed)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0007 (closed)
+PASS | sales.food2@example.co.th | getTicket FPR-2610-0008 (closed)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0008 (closed)
+PASS | sales.food3@example.co.th | getTicket FPR-2610-0009 (closed)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0009 (closed)
+PASS | sales.food1@example.co.th | getTicket FPR-2610-0010 (closed)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0010 (closed)
+PASS | sales.food2@example.co.th | getTicket FPR-2610-0011 (closed)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0011 (closed)
+PASS | sales.food3@example.co.th | getTicket FPR-2610-0012 (closed)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0012 (closed)
+PASS | sales.food1@example.co.th | getTicket FPR-2610-0013 (awaiting_sales_ack)
+PASS | mgr.food@example.co.th | getTicket FPR-2610-0013 (awaiting_sales_ack)
 PASS | sales.food2@example.co.th | getTicket FPR-2610-0014 (doc_check)
 PASS | mgr.food@example.co.th | getTicket FPR-2610-0014 (doc_check)
 PASS | mgr.food@example.co.th | getBootstrap

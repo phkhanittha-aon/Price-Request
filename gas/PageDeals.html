@@ -11,7 +11,7 @@
 -->
 <script>
 Pages.deals = (function () {
-  let data = null, user = '';
+  let data = null, user = '', months = null;   // M7: null = Settings list_months · 0 = everything
   const f = { filter: 'open', q: '', sales: '', sr: '', group: '', view: 'jobs', dueOnly: false };
   const ST = {
     '': { cls: 'grey', label: 'รอติดตาม' }, follow: { cls: 'blue', label: 'กำลังติดตาม' }, sample: { cls: 'purple', label: 'ส่งตัวอย่าง / ทดลองสินค้า' },
@@ -229,7 +229,7 @@ Pages.deals = (function () {
       kpi('won', 'ปิดการขายได้', fmtInt(won.length), baht0(won.reduce(function (s, r) { return s + r.monthly_value_thb; }, 0)) + '/เดือน', 'ok') +
       kpi('lost', 'ไม่ได้งาน', fmtInt(lost.length), 'ดูเหตุผลเพื่อปรับราคา / สินค้า') +
       kpi('all', 'อัตราปิดการขาย', all.length ? Math.round(won.length / all.length * 100) + '%' : '–', (won.length + lost.length ? 'ชนะ ' + Math.round(won.length / (won.length + lost.length) * 100) + '% ของที่ตัดสินแล้ว · ' : '') + all.length + ' รายการ') +
-      '</div>';
+      '</div>' + (data.older_hidden ? '<div class="period-note">' + periodNoteHtml(data, 'งาน') + '</div>' : '');
     if (f.view === 'team' && teamMode()) {
       html += teamHtml(all);
     } else if (f.view === 'sourcing' && teamMode()) {
@@ -245,6 +245,8 @@ Pages.deals = (function () {
         '<div class="card empty"><div class="big">📭</div>' + (data.rows.length ? 'ไม่มีงานในหมวดนี้' : 'ยังไม่มีรายการที่ได้ราคาจาก GM — เมื่อราคาส่งถึง Sales แล้ว รายการจะมาอยู่ที่นี่') + '</div>';
     }
     view.innerHTML = html;
+    const pa = $('[data-period-all]', view);
+    if (pa) pa.onclick = function () { months = 0; pa.disabled = true; fetchDeals(view, function () { return true; }); };
     bind(view);
   }
 
@@ -342,20 +344,25 @@ Pages.deals = (function () {
     });
   }
 
+  function fetchDeals(view, isCurrent) {
+    const who = state.me.email;
+    if (user !== who) months = null;
+    (months === null ? api('listDeals') : api('listDeals', { months: months })).then(function (d) {
+      if (!data || user !== who) {
+        f.sales = ''; f.q = ''; f.group = '';
+        f.sr = d.default_sr || '';      // SR opens on the prices they made
+        f.view = 'jobs';
+        f.filter = d.rows.some(function (r) { return r.is_due && r.can_edit; }) ? 'update' : 'open';
+      }
+      data = d; user = who;
+      if (isCurrent()) draw(view);
+    }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+  }
+
   return {
     render: function (view, route, isCurrent) {
       if (data && user === state.me.email) draw(view); else view.innerHTML = loadingHtml('กำลังโหลดงานติดตามการขาย...');
-      const who = state.me.email;
-      api('listDeals').then(function (d) {
-        if (!data || user !== who) {
-          f.sales = ''; f.q = ''; f.group = '';
-          f.sr = d.default_sr || '';      // SR opens on the prices they made
-          f.view = 'jobs';
-          f.filter = d.rows.some(function (r) { return r.is_due && r.can_edit; }) ? 'update' : 'open';
-        }
-        data = d; user = who;
-        if (isCurrent()) draw(view);
-      }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+      fetchDeals(view, isCurrent);
     }
   };
 })();

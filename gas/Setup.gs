@@ -22,18 +22,30 @@ const NUMBER_COLS_ = ['qty', 'target_price', 'unit_price', 'fx_rate', 'vat_rate'
   'sort_order', 'size_bytes', 'log_id', 'stage_duration_sec', 'last_no', 'lark_attempts'];
 const BOOL_COLS_ = ['is_active', 'is_selected', 'is_deleted', 'is_checked', 'is_required', 'is_read'];
 
-/** Create / repair the database. Owner only. */
+const DB_FILE_NAME_ = 'MGS Food Price Request — DATABASE (do not share)';
+
+/** The database ID from Script Properties, or stop with guidance (M11 — never create a new one silently). */
+function requireDbId_(id) {
+  if (id) return id;
+  const found = existingDbFiles_();
+  throw new Error('ไม่พบ Script Property ' + CFG.PROP.DB_ID + ' — setupDatabase จะไม่สร้างฐานข้อมูลใหม่เอง\n' +
+    (found.length ? 'พบไฟล์ฐานข้อมูลเดิมใน Drive: ' + found.map(function (f) { return f.id + ' (' + f.url + ')'; }).join(', ') +
+      '\n→ ใส่ ID นี้ใน Project Settings › Script Properties › ' + CFG.PROP.DB_ID + ' แล้วรัน setupDatabase อีกครั้ง'
+      : '→ ถ้ามีฐานข้อมูลเดิมอยู่แล้ว: ใส่ ID ของชีตใน Script Properties › ' + CFG.PROP.DB_ID + ' แล้วรันใหม่\n' +
+        '→ ถ้าเป็นการติดตั้งครั้งแรกจริง ๆ: รัน createNewDatabase()'));
+}
+
+/**
+ * Create / repair the database. Owner only.
+ * M11: never creates a database by itself any more. If DB_SPREADSHEET_ID is missing (e.g. a copied script
+ * project, or the property was deleted) a silent new empty database would make every request "disappear".
+ * → stop with guidance. A real first install runs createNewDatabase() once (it then runs this function).
+ */
 function setupDatabase() {
   requireOwner_();
   const props = PropertiesService.getScriptProperties();
-  let ss;
-  const id = props.getProperty(CFG.PROP.DB_ID);
-  if (id) {
-    ss = SpreadsheetApp.openById(id);
-  } else {
-    ss = SpreadsheetApp.create('MGS Food Price Request — DATABASE (do not share)');
-    props.setProperty(CFG.PROP.DB_ID, ss.getId());
-  }
+  const id = requireDbId_(props.getProperty(CFG.PROP.DB_ID));
+  const ss = SpreadsheetApp.openById(id);   // a wrong / inaccessible ID fails here — nothing new is created
   useDatabase_(ss);
   const report = setupSchema_(ss, { protect: true });
 
@@ -73,6 +85,41 @@ function setupDatabase() {
   console.log(report.join('\n'));
   console.log('Database URL: ' + ss.getUrl());
   return report;
+}
+
+/**
+ * First install only: creates the database spreadsheet, stores its ID in Script Properties and runs setupDatabase().
+ * Refuses when an ID is already set, or when a database file with the standard name already exists in the
+ * owner's Drive (set its ID instead — or rename / trash that file first if it really is unwanted).
+ */
+function createNewDatabase() {
+  requireOwner_();
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty(CFG.PROP.DB_ID);
+  if (id) throw new Error('มีฐานข้อมูลอยู่แล้ว (' + CFG.PROP.DB_ID + ' = ' + id + ') — ไม่สร้างใหม่ · ถ้าต้องการซ่อม/เพิ่มคอลัมน์ให้รัน setupDatabase()');
+  const found = existingDbFiles_();
+  if (found.length) {
+    throw new Error('พบไฟล์ฐานข้อมูลเดิมใน Drive: ' + found.map(function (f) { return f.id; }).join(', ') +
+      ' — ใส่ ID นี้ใน Script Properties › ' + CFG.PROP.DB_ID + ' แล้วรัน setupDatabase() แทน (ถ้าไฟล์นั้นไม่ใช้แล้วจริง ๆ ให้เปลี่ยนชื่อหรือย้ายลงถังขยะก่อน)');
+  }
+  const ss = SpreadsheetApp.create(DB_FILE_NAME_);
+  props.setProperty(CFG.PROP.DB_ID, ss.getId());
+  console.log('Created database ' + ss.getUrl());
+  return setupDatabase();
+}
+
+/** Database files with the standard name in the owner's Drive (not in the trash). */
+function existingDbFiles_() {
+  const out = [];
+  try {
+    const it = DriveApp.getFilesByName(DB_FILE_NAME_);
+    while (it.hasNext() && out.length < 5) {
+      const f = it.next();
+      if (f.isTrashed && f.isTrashed()) continue;
+      out.push({ id: f.getId(), url: f.getUrl() });
+    }
+  } catch (e) { /* Drive search is a hint only */ }
+  return out;
 }
 
 /** Tabs, headers, formats, validation, protection, default settings. */
@@ -305,7 +352,7 @@ function seedDemoTickets_() {
       const x = go(U.gm, id, 'gm_approve', comment || '');
       const t1 = ticketById_(id);
       if (t1.srs.length === 1 && t1.srs[0] === sr && t1.stage !== 'pending_assign') return x;
-      return go(U.srManager, id, 'assign', '', { sr_email: sr });
+      return go(U.srManager, id, 'assign', '', { sr_email: sr, confirm_whole: true });
     }
     if (toBool_(setting_('gm_assigns_sr', true))) return go(U.gm, id, 'gm_approve', comment || '', { sr_email: sr });
     go(U.gm, id, 'gm_approve', comment || '');
@@ -349,7 +396,7 @@ function seedDemoTickets_() {
     { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว Vannamei HLSO', net_weight: '80%', size: '31/40', packing_size: '1 kg/pack', qty: 500, uom: 'กก.', target_price: 0 }
   ]);
   if (toBool_(setting_('assign_by_group', true)) || toBool_(setting_('gm_assigns_sr', true))) toSr(t.ticket_id, U.sr1);
-  else { go(U.gm, t.ticket_id, 'gm_approve'); go(U.srManager, t.ticket_id, 'assign', '', { sr_email: U.sr1 }); }
+  else { go(U.gm, t.ticket_id, 'gm_approve'); go(U.srManager, t.ticket_id, 'assign', '', { sr_email: U.sr1, confirm_whole: true }); }
   go(U.sr1, t.ticket_id, 'request_info', 'ขอ % glazing และรูปแบบ packing ของกุ้ง', { missing_items: ['glazing', 'packing'] });
 
   // (C) Squid — waiting for GM (no Sales Manager → step skipped)

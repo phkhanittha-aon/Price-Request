@@ -153,7 +153,7 @@ create ─► pending_manager ──manager_approve──► pending_gm ──gm
 3. Project Settings (⚙️) → ติ๊ก **Show "appsscript.json" manifest file** → เปิด `appsscript.json` แล้ววางเนื้อหาจาก `gas/appsscript.json`
 4. สร้างไฟล์สคริปต์ตามชื่อ แล้ววางเนื้อหาจาก repo ให้ครบ: `Config`, `Util`, `Db`, `Audit`, `Auth`, `Pricing`, `Notify`, `Workflow`, `Editing`, `Setup`, `Tests`
 5. ใน `Setup.gs` แก้ `DEMO_DOMAIN` เป็นโดเมนบริษัท (ถ้าจะใช้ demo data)
-6. เมนู Run → `setupDatabase` → อนุญาตสิทธิ์ → ดู Execution log จะได้ URL ของชีตฐานข้อมูล
+6. เมนู Run → `createNewDatabase` (ติดตั้งครั้งแรกเท่านั้น — ครั้งต่อไปใช้ `setupDatabase`) → อนุญาตสิทธิ์ → ดู Execution log จะได้ URL ของชีตฐานข้อมูล
 7. Run → `runAcceptanceTests` → ต้องเห็น `✅ ALL TESTS PASSED` (Phase 1 = 79 ข้อ; รวม Phase 2 = 132 ข้อ) (ใช้ชีตชั่วคราว ไม่แตะข้อมูลจริง)
 8. (UAT) Run → `seedDemoData` → ได้ users ทุก role + ใบตัวอย่าง 4 ใบ
    (Production) แทนที่จะ seed demo ให้รัน `seedMasterData` แล้วกรอกแท็บ **Users** และ `manager_email` ในแท็บ **Departments** เอง

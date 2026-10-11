@@ -103,12 +103,28 @@ Pages.home = (function () {
         const box = $('#admin-health', view);
         if (!box) return;
         const line = function (bad, text) { return '<li class="' + (bad ? 'bad' : 'ok') + '">' + (bad ? '⚠ ' : '✓ ') + text + '</li>'; };
+        const tlinks = function (list) { return list.map(function (x) { return '<a href="#" data-ticket="' + esc(x.ticket_id) + '">' + esc(x.ticket_no) + '</a>'; }).join(', '); };
+        const DM_LABEL = { sla_warning: 'ใกล้ครบ SLA', sla_breach: 'เกิน SLA', deal_due: 'ต้องติดตามลูกค้า', '*': 'ทุกประเภท' };
+        const dmOn = h.dm.types.length > 0;
         box.innerHTML = '<h3>สถานะระบบ (24 ชม.)</h3><ul class="health">' +
-          line(!h.lark_configured, h.lark_configured ? 'เชื่อมต่อ Lark แล้ว' : 'ยังไม่ได้ตั้งค่า Lark (LARK_APP_ID / SECRET)') +
-          line(h.lark_failed > 0, 'แจ้งเตือน Lark ส่งไม่สำเร็จ ' + h.lark_failed + ' รายการ') +
-          line(h.lark_no_user > 0, 'ผู้ใช้ที่ไม่พบบัญชี Lark ' + h.lark_no_user + ' รายการ') +
-          line(h.lark_no_group > 0, 'ข้อความกลุ่มที่ยังไม่ได้ตั้งกลุ่ม ' + h.lark_no_group + ' รายการ') +
-          '</ul><p class="small muted">ตรวจละเอียด: เปิด Apps Script แล้ว Run <code>runSelfTest</code></p>';
+          h.bots.map(function (b) {
+            const set = b.url_set && b.secret_set;
+            return line(!set || b.failed > 0 || b.not_configured > 0, esc(b.name) + ': ' + (set ? 'ตั้ง Webhook + Secret แล้ว' : 'ยังตั้งค่าไม่ครบ') +
+              ' · ส่งสำเร็จ ' + b.sent + (b.failed ? ' · <b>ไม่สำเร็จ ' + b.failed + '</b>' : '') + (b.not_configured ? ' · ไม่ได้ส่งเพราะยังไม่ตั้งค่า ' + b.not_configured : ''));
+          }).join('') +
+          line(!h.webapp_url_set, h.webapp_url_set ? 'ตั้งลิงก์เว็บแอปสำหรับปุ่มในการ์ดแล้ว' : 'ยังไม่ได้ตั้งลิงก์เว็บแอป (ปุ่มในการ์ดใช้ลิงก์ deployment ปัจจุบัน)') +
+          (dmOn ? line(!h.dm.app_configured || h.dm.failed > 0, 'Lark DM ติดตามงาน (' + h.dm.types.map(function (t) { return esc(DM_LABEL[t] || t); }).join(', ') + '): ' +
+              (h.dm.app_configured ? 'พร้อมส่ง' : 'ยังไม่ได้ตั้ง Lark App (LARK_APP_ID / SECRET) — DM จะไม่ถูกส่ง แต่ยังเห็นในกระดิ่ง') +
+              (h.dm.failed ? ' · ส่งไม่สำเร็จ ' + h.dm.failed : '') + (h.dm.no_user ? ' · ไม่พบบัญชี Lark ' + h.dm.no_user + ' คน' : ''))
+            : '<li class="ok">✓ Lark DM ปิดอยู่ (lark_dm_types ว่าง)</li>') +
+          line(h.stuck_owner_count > 0, h.stuck_owner_count ? 'ใบที่ค้างเพราะผู้รับผิดชอบไม่ได้ใช้งาน/ไม่มีในระบบ ' + h.stuck_owner_count + ' ใบ: ' + tlinks(h.stuck_owner) : 'ไม่มีใบที่ค้างเพราะผู้รับผิดชอบไม่ได้ใช้งาน') +
+          line(h.no_sr_count > 0, h.no_sr_count ? 'ใบที่มีสินค้ายังไม่มี SR (รอ SR Manager แบ่งงาน) ' + h.no_sr_count + ' ใบ: ' + tlinks(h.no_sr) : 'สินค้าทุกรายการมี SR รับผิดชอบแล้ว') +
+          line(h.sla_breach > 0, 'ใบที่เกิน SLA ตอนนี้ ' + h.sla_breach + ' ใบ') +
+          line(h.errors_24h > 0, 'ข้อผิดพลาดของระบบ ' + h.errors_24h + ' ครั้ง' + (h.errors_24h ? ' (ดูแท็บ ErrorLog)' : '')) +
+          '</ul><p class="small muted">ฐานข้อมูล: <a href="' + esc(h.db_url) + '" target="_blank" rel="noopener">เปิด Google Sheet</a> · v' + esc(h.db_version) +
+          ' · ตั้งค่าบอท: <a href="#" data-go-admin>⚙️ ตั้งค่า Lark Bot</a> · ตรวจละเอียด: Run <code>runSelfTest</code></p>';
+        $all('[data-ticket]', box).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-ticket') }); }; });
+        const ga = $('[data-go-admin]', box); if (ga) ga.onclick = function (e) { e.preventDefault(); go({ page: 'admin' }); };
       }).catch(function (e) { const box = $('#admin-health', view); if (box) box.innerHTML = '<h3>สถานะระบบ</h3>' + errorHtml(e); });
     }
   }

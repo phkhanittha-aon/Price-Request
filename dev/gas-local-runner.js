@@ -8,7 +8,7 @@
  * can be verified before pasting code into the Apps Script editor.
  *
  *   node dev/gas-local-runner.js tests      # runAcceptanceTests()
- *   node dev/gas-local-runner.js seed       # setupDatabase() + seedDemoData() and print tab sizes
+ *   node dev/gas-local-runner.js seed       # createNewDatabase() (first run) / setupDatabase() + seedDemoData() and print tab sizes
  *
  * The mocks implement only the API surface this project uses.
  */
@@ -218,7 +218,7 @@ function createSandbox() {
   };
   vm.createContext(sandbox);
   vm.runInContext(source + `
-;globalThis.__api = { runAcceptanceTests, setupDatabase, seedDemoData, rows_, TAB, demoUsers_ };
+;globalThis.__api = { runAcceptanceTests, setupDatabase, createNewDatabase, initDatabase: function () { return PropertiesService.getScriptProperties().getProperty(CFG.PROP.DB_ID) ? setupDatabase() : createNewDatabase(); }, seedDemoData, rows_, TAB, demoUsers_ };
 globalThis.__call = function (fn, args, email) {
   if (!/^[A-Za-z][A-Za-z0-9]*$/.test(fn) || typeof globalThis[fn] !== 'function') return { ok: false, code: 'NO_FN', error: 'unknown function ' + fn };
   return withIdentity_(email, function () { return globalThis[fn].apply(null, args || []); });
@@ -235,7 +235,7 @@ if (cmd === 'tests') {
   const res = sandbox.__api.runAcceptanceTests();
   process.exit(res.failed ? 1 : 0);
 } else if (cmd === 'seed') {
-  sandbox.__api.setupDatabase();
+  sandbox.__api.initDatabase();
   sandbox.__api.seedDemoData();
   const T = sandbox.__api.TAB;
   Object.keys(T).forEach((k) => console.log(T[k].padEnd(15), sandbox.__api.rows_(T[k]).length));

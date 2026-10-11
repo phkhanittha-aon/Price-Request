@@ -45,11 +45,22 @@ const ItemAssign = (function () {
         return '<tr><td data-label="#">' + it.line_no + '</td><td class="main">' + esc(it.product_name) + (it.sr_submitted ? ' <span class="sla ok">✓ ส่งแล้ว</span>' : '') + '</td>' +
           '<td data-label="กลุ่มสินค้า">' + esc(it.product_group_name) + '</td>' +
           '<td data-label="SR"><select data-ia="' + esc(it.item_id) + '" data-cur="' + esc(it.sr_email || '') + '">' + srOptions(it.sr_email, !it.sr_email) + '</select></td></tr>';
-      }).join('') + '</tbody></table></div><div class="actions"><button class="btn primary" id="ia-save">💾 บันทึกการแบ่งงาน</button></div></div>';
+      }).join('') + '</tbody></table></div><div class="actions">' +
+      (items.filter(function (it) { return !it.sr_submitted; }).length > 1 ? '<label class="small">ตั้งทุกรายการที่ยังไม่ส่งเป็น <select id="ia-all">' + srOptions('', true) + '</select></label><span class="sep"></span>' : '') +
+      '<button class="btn primary" id="ia-save">💾 บันทึกการแบ่งงาน</button></div></div>';
   }
   function bindPanel(view, d, done) {
     const btn = $('#ia-save', view);
     if (!btn) return;
+    // M14: one SR for the whole request = fill every row, the SR Manager sees the item list before saving
+    const all = $('#ia-all', view);
+    if (all) all.onchange = function () {
+      if (!all.value) return;
+      const sent = {};
+      (d.items || []).forEach(function (it) { if (it.sr_submitted) sent[it.item_id] = true; });
+      $all('[data-ia]', view).forEach(function (s) { if (!sent[s.getAttribute('data-ia')] && !s.disabled) s.value = all.value; });
+      toast('ตั้ง SR ให้ทุกรายการแล้ว — ตรวจรายการแล้วกด “บันทึกการแบ่งงาน”', 'ok');
+    };
     btn.onclick = function () {
       const list = $all('[data-ia]', view).filter(function (s) { return s.value && s.value !== s.getAttribute('data-cur'); })
         .map(function (s) { return { item_id: s.getAttribute('data-ia'), sr_email: s.value }; });
@@ -75,7 +86,7 @@ Pages.ticket = (function () {
     claim: { label: '✅ รับงาน', cls: 'primary', comment: 'none', confirm: 'รับงานใบ {no}? ระบบจะบันทึกคุณเป็น SR ผู้รับผิดชอบ' },
     queue_return: { label: '↩ ตีกลับ — ข้อมูลไม่ครบ', cls: 'danger', comment: 'required', commentLabel: 'ข้อมูลที่ขาด / สิ่งที่ต้องการให้ Sales เพิ่ม', fields: true,
       confirm: 'ส่งใบ {no} กลับให้ Sales เพิ่มข้อมูล — เมื่อ Sales ตอบ งานจะกลับเข้าคิวรอรับงาน' },
-    assign: { label: 'มอบหมายทั้งใบให้ SR คนเดียว', cls: '', comment: 'optional', select: 'sr' },
+    assign: { label: 'มอบหมายงานให้ SR', cls: '', comment: 'optional', select: 'sr' },
     srm_approve: { label: 'อนุมัติราคา (SR Manager)', cls: 'primary', comment: 'optional', confirm: 'ยืนยันราคาใบ {no} ส่งต่อให้ GM อนุมัติฝั่งซื้อ?' },
     srm_return: { label: 'ส่งกลับให้ SR แก้ราคา', cls: '', comment: 'required', commentLabel: 'สิ่งที่ต้องการให้ SR แก้ไข' },
     srm_reject: { label: 'ปฏิเสธ (ปิดใบ)', cls: 'danger', comment: 'required', commentLabel: 'เหตุผลที่ปฏิเสธ', confirm: 'ปฏิเสธใบ {no}? ใบจะถูกปิดและแก้ไขต่อไม่ได้' },

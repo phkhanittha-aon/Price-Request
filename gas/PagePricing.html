@@ -185,9 +185,11 @@ Pages.pricing = (function () {
         return '<div class="chk"><label><input type="checkbox" data-chk="' + esc(c.check_id) + '"' + (c.is_checked ? ' checked' : '') + (editable ? '' : ' disabled') + '> ' +
           esc(c.label) + (c.is_required ? ' <span class="req">*</span>' : ' <span class="muted small">(ไม่บังคับ)</span>') + '</label>' +
           '<input type="text" class="chk-note" data-note="' + esc(c.check_id) + '" placeholder="หมายเหตุ" value="' + esc(c.note) + '"' + (editable ? '' : ' disabled') + '>' +
-          (c.checked_by ? '<div class="small muted">✓ ' + esc(c.checked_by) + ' · ' + esc(fmtDateTime(c.checked_at)) + '</div>' : '') + '</div>';
+          (c.checked_by === 'from_form' ? '<div class="small muted">✓ ติ๊กให้อัตโนมัติ — Sales กรอกมาในใบขอราคาแล้ว (ตรวจค่าในหมายเหตุ ถ้าไม่ถูกต้องให้เอาติ๊กออก)</div>'
+            : c.checked_by ? '<div class="small muted">✓ ' + esc(c.checked_by) + ' · ' + esc(fmtDateTime(c.checked_at)) + '</div>' : '') + '</div>';
       }).join('') + '</div>' +
-      (editable ? '<div class="actions" style="margin-top:12px"><button class="btn" id="pc-save">บันทึกการตรวจ</button>' +
+      (editable ? '<div class="actions" style="margin-top:12px">' + (done < d.checklist.length ? '<button class="btn" id="pc-all">☑ ครบทั้งหมด</button>' : '') +
+        '<button class="btn" id="pc-save">บันทึกการตรวจ</button>' +
         '<button class="btn" id="pc-info">ขอข้อมูลเพิ่มจาก Sales</button><span class="sep"></span>' +
         '<button class="btn primary" id="pc-done">ยืนยันเอกสารครบ → ไปกรอกราคา</button></div>' : '') + '</details>';
   }
@@ -620,6 +622,11 @@ Pages.pricing = (function () {
         return d.checklist.map(function (c) {
           return { check_id: c.check_id, is_checked: $('[data-chk="' + c.check_id + '"]', view).checked, note: $('[data-note="' + c.check_id + '"]', view).value };
         });
+      };
+      if ($('#pc-all', view)) $('#pc-all', view).onclick = function () {
+        // tick every line on screen; the SR still presses “บันทึก” or “ยืนยันเอกสารครบ”
+        $all('[data-chk]', view).forEach(function (cb) { cb.checked = true; });
+        toast('ติ๊กครบทุกรายการแล้ว — กด “บันทึกการตรวจ” หรือ “ยืนยันเอกสารครบ”', 'ok');
       };
       $('#pc-save', view).onclick = function () {
         api('saveChecklist', d.ticket.ticket_id, rows()).then(function (r) { toast('บันทึกการตรวจเอกสารแล้ว (' + r.changes + ' รายการ)', 'ok'); reload(); })

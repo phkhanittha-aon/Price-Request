@@ -9,7 +9,7 @@
 -->
 <script>
 Pages.gp = (function () {
-  let data = null, user = '';
+  let data = null, user = '', loadedMonths = null;   // M7: what the server sent (null = Settings list_months)
   const f = { period: '6', group: '', sales: '' };
   const PERIODS = [['3', '3 เดือน'], ['6', '6 เดือน'], ['12', '12 เดือน'], ['year', 'ปีนี้'], ['all', 'ทั้งหมด']];
 
@@ -185,22 +185,36 @@ Pages.gp = (function () {
     }
     view.innerHTML = html;
     bindReportTabs(view);
-    $all('[data-period]', view).forEach(function (b) { b.onclick = function () { f.period = b.getAttribute('data-period'); draw(view); }; });
+    $all('[data-period]', view).forEach(function (b) {
+      b.onclick = function () {
+        f.period = b.getAttribute('data-period');
+        // the server sends the last list_months months (+ open deals); a longer period loads the rest first
+        const need = { '3': 3, '6': 6, '12': 12, year: 12, all: 0 }[f.period];
+        if (data.period_months && (need === 0 || need > data.period_months)) {
+          view.innerHTML = loadingHtml('กำลังโหลดข้อมูลย้อนหลัง...');
+          fetchGp(view, function () { return true; }, need);
+        } else draw(view);
+      };
+    });
     if ($('#gp-group', view)) $('#gp-group', view).onchange = function (e) { f.group = e.target.value; draw(view); };
     if ($('#gp-sales', view)) $('#gp-sales', view).onchange = function (e) { f.sales = e.target.value; draw(view); };
     if ($('#gp-csv', view)) $('#gp-csv', view).onclick = function () { csv(rows); };
     $all('[data-ticket]', view).forEach(function (a) { a.onclick = function (e) { e.preventDefault(); go({ page: 'ticket', id: a.getAttribute('data-ticket') }); }; });
   }
 
+  function fetchGp(view, isCurrent, months) {
+    const who = state.me.email;
+    (months === null || months === undefined ? api('getGpSummary') : api('getGpSummary', { months: months })).then(function (d) {
+      data = d; user = who; loadedMonths = months === undefined ? null : months;
+      if (isCurrent()) draw(view);
+    }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+  }
+
   return {
     render: function (view, route, isCurrent) {
       if (!state.ref.can_view_gp) { go({ page: 'home' }, true); return; }
       if (data && user === state.me.email) draw(view); else view.innerHTML = loadingHtml('กำลังสรุป GP...');
-      const who = state.me.email;
-      api('getGpSummary').then(function (d) {
-        data = d; user = who;
-        if (isCurrent()) draw(view);
-      }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
+      fetchGp(view, isCurrent, user === state.me.email ? loadedMonths : null);
     }
   };
 })();

@@ -58,7 +58,7 @@ Apps Script → ⚙️ Project Settings → **Script properties**
 
 | Key | ตั้งโดย | ค่า |
 |---|---|---|
-| `DB_SPREADSHEET_ID` | `setupDatabase()` อัตโนมัติ | ID ชีตฐานข้อมูล |
+| `DB_SPREADSHEET_ID` | `createNewDatabase()` (ครั้งแรก) | ID ชีตฐานข้อมูล |
 | `DRIVE_ROOT_FOLDER_ID` | `setupDatabase()` อัตโนมัติ | โฟลเดอร์ไฟล์แนบ (มีโฟลเดอร์ย่อยต่อใบ + `Backups`) |
 | `LARK_APP_ID` | Admin | `cli_xxx` จาก Lark Developer Console |
 | `LARK_APP_SECRET` | Admin | App Secret (**ความลับ** — อย่าวางในแชท/เอกสาร) |
@@ -75,7 +75,7 @@ Apps Script → ⚙️ Project Settings → **Script properties**
 1. **สร้างโปรเจกต์**: script.google.com → New project → ตั้งชื่อ `MGS Price Request`
 2. ⚙️ Project Settings → ติ๊ก *Show "appsscript.json"* → วาง `gas/appsscript.json`
 3. **วางไฟล์ทั้งหมด** จากโฟลเดอร์ `gas/` (ชื่อไฟล์ต้องตรง ไม่ต้องใส่นามสกุล): Script 16 ไฟล์ (`Config` `Util` `Db` `Audit` `Auth` `Pricing` `Notify` `Workflow` `Editing` `Api` `Files` `Lark` `Jobs` `Code` `Setup` `Tests`) และ HTML 7 ไฟล์ (`Index` `App` `PageDashboard` `PageTickets` `PageTicket` `PageForm` `PagePricing`)
-4. Run `setupDatabase` → อนุญาตสิทธิ์ (Sheets, Drive, ส่ง HTTP, triggers)
+4. ติดตั้งครั้งแรก: Run `createNewDatabase` · อัปเดต: Run `setupDatabase` (ไม่สร้างฐานข้อมูลใหม่เองถ้าไม่พบ `DB_SPREADSHEET_ID`) → อนุญาตสิทธิ์ (Sheets, Drive, ส่ง HTTP, triggers)
 5. Run `runAcceptanceTests` → ต้องได้ **`✅ ALL TESTS PASSED — 132/132 passed`** (ใช้ชีตชั่วคราว ไม่เรียก Lark/Drive จริง)
 6. **ข้อมูลตั้งต้น**: Production → Run `seedMasterData` แล้วกรอกแท็บ **Users** (email, ชื่อ, role, department_code, is_active=TRUE) และ `manager_email` ในแท็บ **Departments** · UAT → แก้ `DEMO_DOMAIN` ใน `Setup.gs` แล้ว Run `seedDemoData`
 7. **Lark** (ดูข้อ 5) → ใส่ Script Properties → Run `testLarkConnection` ต้องได้ DM ทดสอบ

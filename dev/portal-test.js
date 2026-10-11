@@ -54,7 +54,7 @@ function mechRows(today) {
 /** Food demo database → { tab: [row objects] } (with schema headers). */
 function foodTables() {
   const sb = createSandbox();
-  sb.__api.setupDatabase();
+  sb.__api.initDatabase();
   sb.__api.seedDemoData();
   const out = {};
   ['Tickets', 'TicketItems', 'Quotations', 'Settings', 'Users'].forEach((tab) => {
@@ -106,7 +106,7 @@ if (require.main === module) {
   ok(f.configured && f.stages.req === count(['pending_manager', 'returned', 'pending_gm']) && f.stages.wip === count(['pending_assign', 'doc_check', 'need_info', 'sourcing']) &&
     f.stages.approval === count(['pending_sr_manager', 'pending_gm_price']), 'Food: stage counts match the Food tickets');
   ok(f.waiting_total === count(['pending_gm', 'pending_sr_manager', 'pending_gm_price']) && f.waiting.every((w) => w.doc_no && w.label), 'Food: waiting-for-management list');
-  const sbFood = createSandbox(); sbFood.__api.setupDatabase(); sbFood.__api.seedDemoData();
+  const sbFood = createSandbox(); sbFood.__api.initDatabase(); sbFood.__api.seedDemoData();
   const gp = sbFood.__call('getGpSummary', [], 'gm@example.co.th');
   const lines = gp.data.rows;
   const won = lines.filter((r) => r.deal_status === 'won');

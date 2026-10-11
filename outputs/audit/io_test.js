@@ -24,7 +24,7 @@ for (let i = 0; i < N; i++) {
     const id = r.data.ticket.ticket_id;
     const go = (w, a, x) => A.call('transitionTicket', [id, a, '', Object.assign({ expected_version: T(id).version }, x || {})], w);
     go(U.gm, 'gm_approve');
-    if (T(id).stage === 'pending_assign') go(U.srManager, 'assign', { sr_email: U.sr1 });
+    if (T(id).stage === 'pending_assign') go(U.srManager, 'assign', { sr_email: U.sr1, confirm_whole: true });
     const srs = T(id).srs;
     const sr0 = srs[0];
     A.call('getTicket', [id], sr0).data.checklist.filter((c) => c.is_required).forEach((c) => A.call('updateChecklist', [c.check_id, true, ''], sr0));

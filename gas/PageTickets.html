@@ -107,7 +107,7 @@ Pages.tickets = (function () {
       '<div class="tabs" role="tablist" id="t-tabs"></div>' +
       '<div class="list-tools"><input type="search" id="f-q" placeholder="ค้นหา เลขที่ใบ / ลูกค้า / สินค้า / Sales / SR" value="' + esc(f.q) + '" aria-label="ค้นหา">' +
       '<button class="btn" id="f-adv" aria-expanded="false">⚙ ตัวกรองเพิ่มเติม <span class="count" id="f-adv-n" hidden></span></button></div>' +
-      '<div class="chips" id="t-chips"></div></div>' +
+      '<div class="chips" id="t-chips"></div><div id="t-period" class="period-note"></div></div>' +
       '<div id="t-results" class="t-results">' + loadingHtml() + '</div>';
   }
 
@@ -233,6 +233,7 @@ Pages.tickets = (function () {
         const list = base.filter(tab.test).sort(SORTS[f.sort] || SORTS.smart);
         $('#t-results', pg).innerHTML = tableHtml(list, f, shown);
         $('#t-chips', pg).innerHTML = chipsHtml(f);
+        $('#t-period', pg).innerHTML = periodNoteHtml(board.meta, 'ใบ');
         const nAdv = ['stage', 'outcome', 'sla', 'requestor', 'sr', 'group', 'prio', 'sort'].filter(function (k) { return f[k]; }).length + (f.from || f.to ? 1 : 0);
         const badge = $('#f-adv-n', pg);
         badge.hidden = !nAdv; badge.textContent = nAdv;
@@ -246,9 +247,10 @@ Pages.tickets = (function () {
 
       // one delegated handler: survives every redraw of tabs / chips / table
       pg.addEventListener('click', function (e) {
-        const t = e.target.closest('[data-tab], [data-unchip], [data-clear], [data-more], [data-new], tr.click');
+        const t = e.target.closest('[data-tab], [data-unchip], [data-clear], [data-more], [data-new], [data-period-all], tr.click');
         if (!t) return;
-        if (t.hasAttribute('data-tab')) update({ tab: t.getAttribute('data-tab') });
+        if (t.hasAttribute('data-period-all')) { state.boardMonths = 0; load(); }
+        else if (t.hasAttribute('data-tab')) update({ tab: t.getAttribute('data-tab') });
         else if (t.hasAttribute('data-unchip')) {
           const k = t.getAttribute('data-unchip');
           if (k === 'q') $('#f-q', pg).value = '';
@@ -273,13 +275,14 @@ Pages.tickets = (function () {
       // A late answer never overwrites a newer one.
       if (board.user !== state.me.email) { board.rows = null; board.user = state.me.email; }
       if (board.rows) draw();
-      {
+      function load() {
         const seq = ++board.seq;
         const res = $('#t-results', pg);
         if (board.rows && res) res.classList.add('refreshing');
         boardData().then(function (d) {
           if (seq !== board.seq) return;
           board.rows = d.rows;
+          board.meta = { period_months: d.period_months, older_hidden: d.older_hidden };
           board.at = Date.now();
           draw();
         }).catch(function (e) {
@@ -291,6 +294,7 @@ Pages.tickets = (function () {
           if (r) r.classList.remove('refreshing');
         });
       }
+      load();
     }
   };
 })();

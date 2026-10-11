@@ -26,7 +26,7 @@ const head = `/**
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
- * First install: Run setupDatabase → Run runAcceptanceTests → Deploy (see the end of docs/ or the README).
+ * First install: Run createNewDatabase (once; later updates: setupDatabase) → Run runAcceptanceTests → Deploy (see the end of docs/ or the README).
  */
 `;
 const code = head + ORDER.filter((f) => files.indexOf(f) !== -1)

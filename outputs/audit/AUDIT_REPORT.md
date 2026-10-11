@@ -194,7 +194,7 @@ All decisions are made on the server (`doTransition_`, `can*_`, `ticketForUser_`
 
 ---
 
-## Fix status (v2026.10.12-1)
+## Fix status (v2026.10.14-1)
 
 | ID | Status | What changed |
 |---|---|---|
@@ -206,4 +206,13 @@ All decisions are made on the server (`doTransition_`, `can*_`, `ticketForUser_`
 | M2 | Fixed (decision 7) | Sales may edit until GM approves or returns |
 | M5 | Fixed (decision 5) | Lark DM only for SLA / deal follow-up reminders (`lark_dm_types`); new daily "ติดตามลูกค้า" DM |
 | M12, M13 + retention | Fixed (decision 3) | monthly `runRetention` (notifications, NotifLog, ErrorLog, SlaAlerts, UsageLog roll-up, losing-supplier photos, TicketLogs archive with chain anchor) |
-| Others (M3, M4, M6–M11, M14, L1–L5) | Open | not in this round |
+| M3 | Fixed (v2026.10.13-1) | request form kept on the phone (localStorage `mgs.draft.new.<email>`, 7 days, no pictures) |
+| M4 | Fixed (v2026.10.13-1) | supplier-shortfall note removed from the Sales payload |
+| M6 | Fixed (v2026.10.14-1) | Admin home: FPR bot health (NotifLog 24 h), web-app link, DM-for-reminders status, stuck requests (owner inactive), items without SR, SLA breaches, errors, DB link — old LARK_APP_ID warning removed |
+| M7 | Fixed (v2026.10.14-1) | board / deals / GP load the last `list_months` (6) months + all open work; "แสดงทั้งหมด" / longer GP period loads the rest |
+| M8 | Fixed (v2026.10.14-1) | `updateRow_` / `insertRows_` patch the per-execution cache inside the lock (values typed like a sheet read) instead of re-reading whole tabs |
+| M9 | Fixed (v2026.10.14-1) | `getPoll` cached per user, keyed by DATA_VERSION + new NOTIF_VERSION (2 min TTL) |
+| M10 | Fixed (v2026.10.14-1) | checklist lines answered in the form are pre-ticked (`from_form`, value in the note; SR confirmation re-stamps) + "☑ ครบทั้งหมด" |
+| M11 | Fixed (v2026.10.14-1) | `setupDatabase` never creates a DB; `createNewDatabase` for first install (refuses if an ID or a same-name file exists); DB link on Admin pages |
+| M14 | Fixed (v2026.10.14-1) | by product group: no whole-request assign button; server needs `confirm_whole`; panel "ตั้งทุกรายการที่ยังไม่ส่งเป็น" fills every row for review |
+| L1–L5 | Open | not in this round |

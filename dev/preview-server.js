@@ -18,7 +18,7 @@ const { createSandbox } = require('./gas-local-runner');
 const PORT = Number(process.env.PORT || 8787);
 const gasDir = path.join(__dirname, '..', 'gas');
 const sandbox = createSandbox();
-sandbox.__api.setupDatabase();
+sandbox.__api.initDatabase();
 sandbox.__api.seedDemoData();
 const U = sandbox.__api.demoUsers_();
 

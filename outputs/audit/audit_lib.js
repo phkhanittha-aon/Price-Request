@@ -14,7 +14,7 @@ function boot(opts) {
   const o = opts || {};
   const sb = createSandbox();
   sb.__setActiveEmail('owner@example.co.th');   // script owner runs setup, like in the editor
-  sb.__api.setupDatabase();
+  sb.__api.initDatabase();   // first run: createNewDatabase (v2026.10.14 setupDatabase never creates one)
   if (o.seed !== false) sb.__api.seedDemoData();
   const run = function (code) { return vm.runInContext(code, sb); };
   run('TEST_HTTP_ = fakeHttp_(); TEST_DRIVE_ = fakeDrive_();');

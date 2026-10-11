@@ -101,7 +101,13 @@ function toCell_(v) {
 /** Tabs whose change makes cached ticket lists stale (see listTicketBoard). */
 const BOARD_TABS_ = ['Tickets', 'TicketItems', 'Users', 'Departments', 'ProductGroups', 'Settings'];
 let DATA_DIRTY_ = false;
+let NOTIF_DIRTY_ = false;
 function markDataChanged_(tab) {
+  if (tab === TAB.NOTIFICATIONS) {   // only the bell / poll counts depend on it (M9)
+    if (LOCK_DEPTH_ > 0) NOTIF_DIRTY_ = true;
+    else bumpNotifVersion_();
+    return;
+  }
   if (BOARD_TABS_.indexOf(tab) === -1) return;
   if (LOCK_DEPTH_ > 0) DATA_DIRTY_ = true;   // bumped once when the lock is released
   else bumpDataVersion_();
@@ -113,6 +119,14 @@ function bumpDataVersion_() {
 }
 function dataVersion_() {
   return PropertiesService.getScriptProperties().getProperty('DATA_VERSION') || '0';
+}
+/** Same idea for the Notifications tab: a new value = every cached poll answer is ignored. */
+function bumpNotifVersion_() {
+  NOTIF_DIRTY_ = false;
+  PropertiesService.getScriptProperties().setProperty('NOTIF_VERSION', String(Date.now()) + '-' + Math.floor(Math.random() * 1e6));
+}
+function notifVersion_() {
+  return PropertiesService.getScriptProperties().getProperty('NOTIF_VERSION') || '0';
 }
 
 function insertRows_(tab, objs) {
@@ -128,8 +142,20 @@ function insertRows_(tab, objs) {
     return row;
   });
   const sh = meta.sheet;
-  sh.getRange(sh.getLastRow() + 1, 1, data.length, width).setValues(data);
-  meta.rows = null;
+  const first = sh.getLastRow() + 1;
+  sh.getRange(first, 1, data.length, width).setValues(data);
+  if (meta.rows && LOCK_DEPTH_ > 0) {
+    // inside the lock the cache is fresh (dropped on entry) → append instead of re-reading the whole tab (M8)
+    const keyCol = meta.idx[SCHEMA[tab].key];
+    data.forEach(function (r, i) {
+      if (r[keyCol] === '' || r[keyCol] === null) return;
+      const o = { _row: first + i };
+      meta.headers.forEach(function (h, c) { if (h) o[h] = sheetLike_(h, cellUnsafe_(r[c])); });
+      meta.rows.push(o);
+    });
+  } else {
+    meta.rows = null;
+  }
   return objs;
 }
 
@@ -139,35 +165,77 @@ function insertRow_(tab, obj) {
 }
 
 /**
- * Update one row located by its primary key (looked up fresh, not from cache).
- * Returns the merged row object.
+ * Update one row located by its primary key. Returns the merged row object.
+ * Inside the lock with the tab already read this execution, the cached row is current (the cache is dropped on
+ * lock entry and every write below keeps it in step) → no extra reads, and the cache is patched in place
+ * instead of being thrown away (M8: saving a pricing page used to re-read whole tabs after every quote).
+ * Otherwise the row is looked up fresh, as before.
  */
 function updateRow_(tab, keyValue, patch) {
   markDataChanged_(tab);
   const meta = headers_(tab);
   const sh = meta.sheet;
-  const lastRow = sh.getLastRow();
-  if (lastRow < 2) throw appError_('NOT_FOUND', 'ไม่พบข้อมูลที่ต้องการแก้ไข');
-  const keyCol = meta.idx[SCHEMA[tab].key] + 1;
-  const keys = sh.getRange(2, keyCol, lastRow - 1, 1).getValues();
-  let rowNo = -1;
-  for (let i = 0; i < keys.length; i++) {
-    if (String(keys[i][0]) === String(keyValue)) { rowNo = i + 2; break; }
-  }
-  if (rowNo === -1) throw appError_('NOT_FOUND', 'ไม่พบข้อมูลที่ต้องการแก้ไข');
-
   const width = meta.headers.length;
-  const current = sh.getRange(rowNo, 1, 1, width).getValues()[0];
-  const merged = { _row: rowNo };
-  meta.headers.forEach(function (h, c) { if (h) merged[h] = cellUnsafe_(current[c]); });
+  const keyName = SCHEMA[tab].key;
   Object.keys(patch).forEach(function (k) {
     if (meta.idx[k] === undefined) throw new Error('updateRow_: unknown column ' + tab + '.' + k);
-    merged[k] = patch[k];
   });
+
+  let rowNo = -1, cachedAt = -1, current = null;
+  if (meta.rows && LOCK_DEPTH_ > 0) {
+    for (let i = 0; i < meta.rows.length; i++) {
+      if (String(meta.rows[i][keyName]) === String(keyValue)) { cachedAt = i; rowNo = meta.rows[i]._row; break; }
+    }
+  }
+  const merged = { _row: 0 };
+  if (cachedAt !== -1) {
+    const c = meta.rows[cachedAt];
+    meta.headers.forEach(function (h) { if (h) merged[h] = c[h]; });
+  } else {
+    const lastRow = sh.getLastRow();
+    if (lastRow < 2) throw appError_('NOT_FOUND', 'ไม่พบข้อมูลที่ต้องการแก้ไข');
+    const keys = sh.getRange(2, meta.idx[keyName] + 1, lastRow - 1, 1).getValues();
+    for (let i = 0; i < keys.length; i++) {
+      if (String(keys[i][0]) === String(keyValue)) { rowNo = i + 2; break; }
+    }
+    if (rowNo === -1) throw appError_('NOT_FOUND', 'ไม่พบข้อมูลที่ต้องการแก้ไข');
+    current = sh.getRange(rowNo, 1, 1, width).getValues()[0];
+    meta.headers.forEach(function (h, c) { if (h) merged[h] = cellUnsafe_(current[c]); });
+  }
+  merged._row = rowNo;
+  Object.keys(patch).forEach(function (k) { merged[k] = patch[k]; });
   const out = meta.headers.map(function (h) { return h ? toCell_(merged[h]) : ''; });
   sh.getRange(rowNo, 1, 1, width).setValues([out]);
-  meta.rows = null;
+
+  if (cachedAt !== -1) {
+    // a new object (callers may still hold the old one); values as the sheet would return them
+    const fresh = { _row: rowNo };
+    meta.headers.forEach(function (h, c) { if (h) fresh[h] = sheetLike_(h, cellUnsafe_(out[c])); });
+    meta.rows[cachedAt] = fresh;
+  } else {
+    meta.rows = null;
+  }
   return merged;
+}
+
+/**
+ * A written value as Sheets hands it back on the next read (column formats from setupSchema_): date strings in
+ * date columns become Dates, numeric strings in number columns become numbers, TRUE/FALSE become booleans.
+ * Keeps the patched cache identical to a fresh read.
+ */
+function sheetLike_(h, v) {
+  if (typeof v !== 'string' || v === '') return v;
+  if (DATE_COLS_.indexOf(h) !== -1 || DAY_COLS_.indexOf(h) !== -1) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(v);
+    if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)) - 7 * 3600000);   // Asia/Bangkok
+    return v;
+  }
+  if (NUMBER_COLS_.indexOf(h) !== -1) return /^-?\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : v;
+  if (BOOL_COLS_.indexOf(h) !== -1) {
+    if (/^true$/i.test(v)) return true;
+    if (/^false$/i.test(v)) return false;
+  }
+  return v;
 }
 
 /**
@@ -210,6 +278,7 @@ function withLock_(fn) {
     LOCK_DEPTH_--;
     invalidate_();
     if (DATA_DIRTY_) bumpDataVersion_();
+    if (NOTIF_DIRTY_) bumpNotifVersion_();
     lock.releaseLock();
   }
 }

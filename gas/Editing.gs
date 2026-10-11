@@ -140,11 +140,13 @@ function updateChecklist(checkId, isChecked, note) {
         note: note === undefined ? String(row.note || '') : cleanText_(note, 500),
         updated_at: new Date()
       };
-      if (checked !== toBool_(row.is_checked)) {
+      const confirm = checked && String(row.checked_by) === CHECK_FROM_FORM_;   // SR confirms a line pre-ticked from the form
+      if (checked !== toBool_(row.is_checked) || confirm) {
         patch.checked_by = checked ? u.email : '';
         patch.checked_at = checked ? new Date() : '';
       }
       const d = diff_({ is_checked: toBool_(row.is_checked), note: String(row.note || '') }, patch, ['is_checked', 'note']);
+      if (confirm) d.checked_by = { old: CHECK_FROM_FORM_, 'new': u.email };
       if (!Object.keys(d).length) return { changed: false };
       updateRow_(TAB.CHECKLIST, row.check_id, patch);
       appendLog_({ ticket_id: t.ticket_id, action: 'checklist_updated', actor_email: u.email, actor_role: u.role,
@@ -514,9 +516,11 @@ function saveChecklist(ticketId, rows) {
         const checked = toBool_(r.is_checked);
         const note = r.note === undefined ? String(row.note || '') : cleanText_(r.note, 500);
         const d = diff_({ is_checked: toBool_(row.is_checked), note: String(row.note || '') }, { is_checked: checked, note: note }, ['is_checked', 'note']);
+        const confirm = checked && String(row.checked_by) === CHECK_FROM_FORM_;   // SR confirms a line pre-ticked from the form
+        if (confirm) d.checked_by = { old: CHECK_FROM_FORM_, 'new': u.email };
         if (!Object.keys(d).length) return;
         const patch = { is_checked: checked, note: note, updated_at: new Date() };
-        if (checked !== toBool_(row.is_checked)) {
+        if (checked !== toBool_(row.is_checked) || confirm) {
           patch.checked_by = checked ? u.email : '';
           patch.checked_at = checked ? new Date() : '';
         }

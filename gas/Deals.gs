@@ -23,7 +23,8 @@ function dealFollowDays_() {
 }
 
 /** Quoted lines (items with a GM-approved selling price) of tickets `u` may see. Cost fields only for GP_ROLES_. */
-function dealRows_(u, withCost) {
+function dealRows_(u, withCost, period) {
+  const cut = period ? period.cutoff : 0;   // M7: closed deals (won / lost) quoted before this are left out
   const ctx = listContext_();
   const tickets = {};
   rows_(TAB.TICKETS).map(normTicket_).forEach(function (t) {
@@ -46,6 +47,7 @@ function dealRows_(u, withCost) {
       const quotedAt = new Date(t.gm_price_approved_at);
       const quotedYmd = fmtDate_(quotedAt);
       const open = it.deal_status !== 'won' && it.deal_status !== 'lost';
+      if (cut && !open && quotedAt.getTime() < cut) { period.hidden++; return; }
       // same rule as the MGS Sales app: an open deal needs an update when the follow-up date has come,
       // or nobody updated it for deal_follow_days (counted from the price / the last update)
       const lastTouch = it.deal_updated_at ? new Date(it.deal_updated_at) : quotedAt;
@@ -100,11 +102,13 @@ function canEditDeal_(u, t) {
 }
 
 /** Follow-up list (no cost data for anyone — the GP view is getGpSummary). */
-function listDeals() {
+function listDeals(opts) {
   return api_('listDeals', function () {
     const u = currentUser_();
+    const period = listPeriod_(opts);
     return {
-      rows: dealRows_(u, false),
+      rows: dealRows_(u, false, period),
+      period_months: period.months, older_hidden: period.hidden,
       today: todayBkk_(),
       follow_days: dealFollowDays_(),
       lost_reasons: setting_('deal_lost_reasons', []),
@@ -192,12 +196,14 @@ function updateDeal(itemId, patch) {
  * GP & close-rate summary (GM / SR Manager / Admin): every quoted line with its cost, GP and deal status.
  * The browser groups by month / customer group / Sales so filters never call the server again.
  */
-function getGpSummary() {
+function getGpSummary(opts) {
   return api_('getGpSummary', function () {
     const u = currentUser_();
     requireRole_(u, GP_ROLES_, 'สรุป GP ดูได้เฉพาะ GM, SR Manager และผู้ดูแลระบบ');
+    const period = listPeriod_(opts);
     return {
-      rows: dealRows_(u, true),
+      rows: dealRows_(u, true, period),
+      period_months: period.months, older_hidden: period.hidden,
       today: todayBkk_(),
       lost_reasons: setting_('deal_lost_reasons', []),
       customer_groups: setting_('customer_groups', []),

@@ -241,8 +241,28 @@ function getPoll(views) {
   return api_('getPoll', function () {
     const u = currentUser_();
     logUsage_(u, views);
-    return pollData_(u);
+    return cachedPoll_(u);
   });
+}
+
+const POLL_TTL_SEC_ = 120;
+/**
+ * M9: every open page polls once a minute; the counts only change when tickets / items / users / settings
+ * (DATA_VERSION) or notifications (NOTIF_VERSION) change → answer from CacheService until then.
+ * server_time is always fresh. The 2-minute TTL covers counts that depend on the date (deals due today).
+ */
+function cachedPoll_(u) {
+  const cache = CacheService.getScriptCache();
+  const key = 'pol:' + dataVersion_() + ':' + notifVersion_() + ':' + u.email;
+  let hit = null;
+  try { hit = cache.get(key); } catch (e) { hit = null; }
+  if (hit) {
+    const o = parseJson_(hit, null);
+    if (o) { o.server_time = new Date().toISOString(); o.cached = true; return o; }
+  }
+  const out = pollData_(u);
+  try { cache.put(key, JSON.stringify(out), POLL_TTL_SEC_); } catch (e) { /* cache is optional */ }
+  return out;
 }
 
 function logUsage_(u, views) {
@@ -256,16 +276,61 @@ function logUsage_(u, views) {
   }
 }
 
-/** Admin home card: delivery problems in the last 24 h. */
+/**
+ * Admin home card (M6): what actually runs today —
+ *   FPR Bot / FPR Reminder webhooks (Script Properties set? cards failed / not configured in 24 h, NotifLog)
+ *   Lark DM for follow-up reminders (only the types in lark_dm_types; needs the Lark app keys)
+ *   stuck work: open requests whose current owner is missing / inactive, items nobody prices yet
+ *   errors in 24 h, database link (Admin only — the sheet itself is shared with Admin / owner only).
+ */
 function getAdminHealth() {
   return api_('getAdminHealth', function () {
     const u = currentUser_();
     if (u.role !== 'admin') throw appError_('FORBIDDEN', 'เฉพาะผู้ดูแลระบบ');
     const since = Date.now() - 86400000;
+    const p = PropertiesService.getScriptProperties();
+    const log = rows_(TAB.NOTIF_LOG).filter(function (n) { return new Date(n.ts).getTime() > since && String(n.event) !== 'config_changed'; });
+    const bots = Object.keys(BOT_PROPS_).map(function (k) {
+      const c = BOT_PROPS_[k];
+      const mine = log.filter(function (n) { return String(n.bot) === c.name; });
+      return { key: k, name: c.name, url_set: !!p.getProperty(c.url), secret_set: !!p.getProperty(c.secret),
+        sent: mine.filter(function (n) { return String(n.status) === 'sent'; }).length,
+        failed: mine.filter(function (n) { return String(n.status) === 'failed'; }).length,
+        not_configured: mine.filter(function (n) { return String(n.status) === 'not_configured'; }).length };
+    });
+    const dmTypes = setting_('lark_dm_types', ['sla_warning', 'sla_breach', 'deal_due']);
     const recent = rows_(TAB.NOTIFICATIONS).filter(function (n) { return new Date(n.created_at).getTime() > since; });
     const count = function (st) { return recent.filter(function (n) { return String(n.lark_status) === st; }).length; };
-    return { lark_failed: count('failed'), lark_no_user: count('no_lark_user'), lark_no_group: count('no_group'), lark_pending: count('pending'),
-      lark_configured: larkConfigured_(), db_version: APP_VERSION };
+
+    // stuck work
+    const ctx = listContext_();
+    const active = {};
+    rows_(TAB.USERS).map(normUser_).forEach(function (x) { if (x.is_active) active[x.email] = x; });
+    const stuckOwner = [], noSr = [];
+    rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return OPEN_STATUSES.indexOf(t.status) !== -1; }).forEach(function (t) {
+      const owners = stageAssignees_(t).map(function (e) { return String(e || '').trim().toLowerCase(); }).filter(String);
+      if (owners.length && !owners.some(function (e) { return active[e]; })) {
+        stuckOwner.push({ ticket_id: t.ticket_id, ticket_no: t.ticket_no, stage_label: STAGE_LABEL_TH[t.stage] || t.stage, owners: owners.join(', ') });
+      } else if (!owners.length && STAGE_STATUS[t.stage] && ['pending_manager', 'pending_gm', 'pending_assign', 'pending_sr_manager', 'pending_gm_price'].indexOf(t.stage) !== -1) {
+        stuckOwner.push({ ticket_id: t.ticket_id, ticket_no: t.ticket_no, stage_label: STAGE_LABEL_TH[t.stage] || t.stage, owners: '(ไม่มีผู้ใช้ role นี้ที่ใช้งานอยู่)' });
+      }
+      if ((t.stage === 'doc_check' || t.stage === 'sourcing') && activeItemsOf_(t.ticket_id).some(function (it) { return !it.quote_status && !itemOwner_(t, it); })) {
+        noSr.push({ ticket_id: t.ticket_id, ticket_no: t.ticket_no });
+      }
+    });
+    const breach = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return OPEN_STATUSES.indexOf(t.status) !== -1 && slaInfo_(t, ctx, new Date()).status === 'breach'; }).length;
+    let errors = 0;
+    try { errors = rows_(TAB.ERRORS).filter(function (e) { return new Date(e.ts).getTime() > since; }).length; } catch (e) { errors = 0; }
+
+    return {
+      bots: bots,
+      webapp_url_set: !!p.getProperty(CFG.PROP.WEBAPP_URL),
+      dm: { types: Array.isArray(dmTypes) ? dmTypes : [], app_configured: larkConfigured_(), failed: count('failed'), no_user: count('no_lark_user') },
+      stuck_owner: stuckOwner.slice(0, 20), stuck_owner_count: stuckOwner.length,
+      no_sr: noSr.slice(0, 20), no_sr_count: noSr.length,
+      sla_breach: breach, errors_24h: errors,
+      db_url: db_().getUrl(), db_version: APP_VERSION
+    };
   });
 }
 
@@ -417,6 +482,22 @@ function myOpenFollowUps_(u) {
 // searches and counts in the browser (no round trip per filter = no lag, no race).
 // =============================================================================
 
+/**
+ * M7: how far back the list pages load. opts.months: a number (0 = everything) or missing → Settings list_months
+ * (default 6). Open work is never cut — only finished / closed rows older than the cut-off.
+ * Returns { months, cutoff (ms, 0 = none), hidden (counter filled by the caller) }.
+ */
+function listPeriod_(opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  let m = o.months === undefined || o.months === null || o.months === '' ? Number(setting_('list_months', 6)) : Number(o.months);
+  if (!isFinite(m) || m < 0) m = 6;
+  m = Math.min(Math.floor(m), 120);
+  if (!m) return { months: 0, cutoff: 0, hidden: 0 };
+  const d = new Date();
+  d.setMonth(d.getMonth() - m);
+  return { months: m, cutoff: d.getTime(), hidden: 0 };
+}
+
 const BOARD_TTL_SEC_ = 300;
 const BOARD_CHUNK_ = 90000;   // CacheService: 100 KB per value
 
@@ -425,15 +506,21 @@ const BOARD_CHUNK_ = 90000;   // CacheService: 100 KB per value
  * Cached per user for 5 minutes; any write to tickets / items / users / settings starts a
  * new data version, so a cached list is never older than the last change.
  */
-function listTicketBoard() {
+function listTicketBoard(opts) {
   return api_('listTicketBoard', function () {
     const u = currentUser_();
-    const key = 'brd:' + dataVersion_() + ':' + u.email;
+    const period = listPeriod_(opts);
+    const key = 'brd:' + dataVersion_() + ':' + period.months + ':' + u.email;
     const cached = boardCacheGet_(key);
     if (cached) { cached.cached = true; return cached; }
     const now = new Date();
     const ctx = listContext_();
-    const rows = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return canSeeTicket_(u, t); }).map(function (t) {
+    const rows = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) {
+      if (!canSeeTicket_(u, t)) return false;
+      // M7: closed / rejected / cancelled / deleted requests whose last change is older than the period stay on the server
+      if (period.cutoff && OPEN_STATUSES.indexOf(t.status) === -1 && new Date(t.updated_at || t.created_at).getTime() < period.cutoff) { period.hidden++; return false; }
+      return true;
+    }).map(function (t) {
       const r = summaryRow_(t, ctx, now);
       r.is_inbox = isAssignee_(u, t, ctx);
       r.is_mine = u.role === 'sr' ? isSr_(t, u.email) : t.requestor_email === u.email;
@@ -442,7 +529,7 @@ function listTicketBoard() {
       r.priority = String(t.priority);
       return r;
     });
-    const out = { rows: rows, generated_at: now.toISOString(), cached: false };
+    const out = { rows: rows, generated_at: now.toISOString(), cached: false, period_months: period.months, older_hidden: period.hidden };
     boardCachePut_(key, out);
     return out;
   });

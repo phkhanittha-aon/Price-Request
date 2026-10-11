@@ -52,7 +52,7 @@ const backend = `
 ${mocks}
 ${gs}
   const PUBLIC = { ${publicFns.map((n) => `${n}: ${n}`).join(', ')} };
-  setupDatabase();
+  createNewDatabase();
   seedDemoData();
   TEST_HTTP_ = fakeHttp_();     // uploads go to a fake Drive
   TEST_DRIVE_ = fakeDrive_();

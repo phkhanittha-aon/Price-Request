@@ -1,3 +1,4 @@
+Created database https://docs.google.com/spreadsheets/d/2c5a282a-c525-4bab-a2b2-6e215515348a
 Created tab Users
 Users: added columns email, full_name, role, department_code, is_active, lark_open_id, phone, created_at, updated_at, updated_by
 Created tab Departments
@@ -36,10 +37,10 @@ Created tab Holidays
 Holidays: added columns date, name
 Created tab ErrorLog
 ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
-Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
-Created Drive folder folder-58434cf9-3fb9-4e9f-bd2c-ceb4e081beac
+Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, list_months, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
+Created Drive folder folder-d275dd4e-643f-42c7-9b9c-1dc1b528e1bb
 Suppliers from old quotations: +0 created, 0 quotations linked
-Database URL: https://docs.google.com/spreadsheets/d/86631ae9-dc5a-4980-9c41-074d892d081f
+Database URL: https://docs.google.com/spreadsheets/d/2c5a282a-c525-4bab-a2b2-6e215515348a
 departments +3
 product groups +6
 vendors +6
@@ -55,7 +56,8 @@ PASS every ticket has a create log (no half-written ticket)
 PASS status matches stage on every ticket
 PASS audit log hash chain intact — 557 rows
 PASS no Lark messages failed permanently in 24 h
-FAIL lark configured — LARK_APP_ID / LARK_APP_SECRET not set
+FAIL FPR Bot + FPR Reminder webhooks configured — FPR_BOT_SECRET, FPR_REMINDER_URL, FPR_REMINDER_SECRET not set (Admin › ⚙️ ตั้งค่า Lark Bot)
+FAIL Lark DM for follow-up reminders — lark_dm_types is on but LARK_APP_ID / LARK_APP_SECRET not set — DMs are skipped (bell only)
 submitted: sent
 assigned: sent
 queued: sent

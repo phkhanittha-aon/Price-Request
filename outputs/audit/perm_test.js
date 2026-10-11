@@ -30,7 +30,7 @@ function toStage(stage, sales) {
   const t = newTicket(sales);
   const go = (e, a, x) => { const v = tk(t.ticket_no).version; const r = A.call('transitionTicket', [t.ticket_id, a, '', Object.assign({ expected_version: v }, x || {})], e); if (!r.ok) throw new Error(a + ' ' + JSON.stringify(r)); };
   go(U.gm, 'gm_approve');
-  if (tk(t.ticket_no).stage === 'pending_assign') go(U.srManager, 'assign', { sr_email: U.sr1 });
+  if (tk(t.ticket_no).stage === 'pending_assign') go(U.srManager, 'assign', { sr_email: U.sr1, confirm_whole: true });
   const owner = tk(t.ticket_no).sr_email;
   A.call('getTicket', [t.ticket_id], owner).data.checklist.filter((c) => c.is_required).forEach((c) => A.call('updateChecklist', [c.check_id, true, ''], owner));
   go(owner, 'doc_complete');
