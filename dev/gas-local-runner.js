@@ -198,7 +198,9 @@ const ScriptApp = {
   WeekDay: { MONDAY: 'MONDAY' }
 };
 
-const UrlFetchApp = { fetch: () => { throw new Error('Real network call attempted in local test'); } };
+const REAL_CALLS = [];
+const UrlFetchApp = { fetch: (url) => { REAL_CALLS.push(String(url).slice(0, 80)); throw new Error('Real network call attempted in local test'); } };
+process.on('exit', () => { if (REAL_CALLS.length) console.log('REAL NETWORK CALLS ATTEMPTED: ' + REAL_CALLS.length + '\n' + Array.from(new Set(REAL_CALLS)).join('\n')); });
 
 const DriveApp = {
   createFolder: (name) => ({ getId: () => 'folder-' + crypto.randomUUID(), getName: () => name }),

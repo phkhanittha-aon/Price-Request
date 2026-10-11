@@ -12,6 +12,7 @@ function runAcceptanceTests() {
   requireAdminOrOwner_();
   const results = [];
   const tmp = SpreadsheetApp.create('MGS Food Price Request — TEST ' + fmtDate_(new Date(), 'yyyy-MM-dd HH:mm:ss'));
+  IN_TESTS_ = true;   // no real Lark card / DM / web call from here on (see http_)
   try {
     useDatabase_(tmp);
     setupSchema_(tmp, { protect: false });
@@ -47,6 +48,7 @@ function runAcceptanceTests() {
     TEST_HTTP_ = null;
     TEST_DRIVE_ = null;
     TEST_LARK_ = null;
+    IN_TESTS_ = false;
     DB_SS_ = null;
     TABLE_CACHE_ = {};
     try { DriveApp.getFileById(tmp.getId()).setTrashed(true); } catch (e) { console.warn('could not trash temp file', e); }
@@ -2637,6 +2639,15 @@ function runGmRequestCases_(results) {
       setTestSettings_({ gm_assigns_sr: 'false' });
       const q = must(as(U.gm, function () { return createTicket(form()); })).ticket;
       ok(q.stage === 'pending_assign', 'GM request (queue mode): goes to the SR queue');
+    });
+
+    wrap('NO_REAL_NETWORK', function () {
+      const keep = TEST_HTTP_, keepBots = TEST_BOTS_;
+      TEST_HTTP_ = null; TEST_BOTS_ = null;   // a test without its own fakes …
+      let blocked = false;
+      try { http_().fetch('https://open.larksuite.com/open-apis/bot/v2/hook/real'); } catch (e) { blocked = /network blocked/.test(e.message); }
+      finally { TEST_HTTP_ = keep; TEST_BOTS_ = keepBots; }
+      ok(IN_TESTS_ && blocked, 'Tests never reach the real Lark group / DM (network blocked while runAcceptanceTests runs)');
     });
 
     wrap('GM_REQUEST_RULES', function () {

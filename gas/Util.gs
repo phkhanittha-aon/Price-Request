@@ -10,7 +10,14 @@ let TEST_HTTP_ = null;     // fake UrlFetchApp
 let TEST_DRIVE_ = null;    // fake DriveApp
 let TEST_LARK_ = null;     // fake Lark config { app_id, app_secret, host, group_chat_id }
 
-function http_() { return TEST_HTTP_ || UrlFetchApp; }
+/**
+ * While runAcceptanceTests runs, NOTHING may leave the test sandbox: a test without its own fake would
+ * otherwise post real Lark cards / DMs about test-only requests (their links open "ไม่พบใบขอราคา").
+ */
+let IN_TESTS_ = false;
+const NO_NETWORK_IN_TESTS_ = { fetch: function (url) { throw new Error('network blocked during runAcceptanceTests: ' + String(url).slice(0, 60)); } };
+
+function http_() { return TEST_HTTP_ || (IN_TESTS_ ? NO_NETWORK_IN_TESTS_ : UrlFetchApp); }
 function drive_() { return TEST_DRIVE_ || DriveApp; }
 
 // ---------------------------------------------------------------- Errors & results
