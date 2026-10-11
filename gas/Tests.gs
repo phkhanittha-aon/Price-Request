@@ -2641,6 +2641,17 @@ function runGmRequestCases_(results) {
       ok(q.stage === 'pending_assign', 'GM request (queue mode): goes to the SR queue');
     });
 
+    wrap('GM_APPROVE_BY_GROUP', function () {
+      setTestSettings_({ sales_manager_step: 'false', assign_by_group: 'true', gm_assigns_sr: 'true' });
+      withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-SHRIMP', { sr_email: U.sr2 }); });
+      const t = must(as(U.salesFood1, function () { return createTicket(form()); })).ticket;
+      const dv = as(U.gm, function () { return must(getTicket(t.ticket_id)); });
+      ok(t.stage === 'pending_gm' && dv.items[0].route_sr_name === userByEmail_(U.sr2).full_name, 'GM approve (by product group): the request page shows which SR each item goes to');
+      must(go(U.gm, t.ticket_id, 'gm_approve', ''));   // no sr_email — GM does not pick the SR in this mode
+      ok(ticketById_(t.ticket_id).stage === 'doc_check' && activeItemsOf_(t.ticket_id)[0].sr_email === U.sr2, 'GM approve (by product group): no SR to choose, item goes to the group SR');
+      withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-SHRIMP', { sr_email: '' }); });
+    });
+
     wrap('NO_REAL_NETWORK', function () {
       const keep = TEST_HTTP_, keepBots = TEST_BOTS_;
       TEST_HTTP_ = null; TEST_BOTS_ = null;   // a test without its own fakes …

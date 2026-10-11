@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-4
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-5
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-4';
+const APP_VERSION = '2026.10.14-5';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -2524,6 +2524,11 @@ function ticketDetail_(u, t) {
       out.sr_name = owner ? (function () { const x = userByEmail_(owner); return x ? x.full_name : owner; })() : '';
       out.sr_submitted = !!it.sr_submitted_at;
       delete out.sr_submitted_at;
+      // before GM approval (by product group): who the item will go to — shown in GM's approve dialog
+      if (t.stage === 'pending_gm' || t.stage === 'pending_manager' || t.stage === 'returned') {
+        const next = groupSrOf_(it.product_group_code);
+        out.route_sr_name = next ? (function () { const x = userByEmail_(next); return x ? x.full_name : next; })() : '';
+      }
       out.can_edit_quotes = canEditItem_(u, t, it);
       out.can_transfer = canTransferItem_(u, t, it);
       if (it.follow_up_ticket_id) {
@@ -9744,6 +9749,17 @@ function runGmRequestCases_(results) {
       setTestSettings_({ gm_assigns_sr: 'false' });
       const q = must(as(U.gm, function () { return createTicket(form()); })).ticket;
       ok(q.stage === 'pending_assign', 'GM request (queue mode): goes to the SR queue');
+    });
+
+    wrap('GM_APPROVE_BY_GROUP', function () {
+      setTestSettings_({ sales_manager_step: 'false', assign_by_group: 'true', gm_assigns_sr: 'true' });
+      withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-SHRIMP', { sr_email: U.sr2 }); });
+      const t = must(as(U.salesFood1, function () { return createTicket(form()); })).ticket;
+      const dv = as(U.gm, function () { return must(getTicket(t.ticket_id)); });
+      ok(t.stage === 'pending_gm' && dv.items[0].route_sr_name === userByEmail_(U.sr2).full_name, 'GM approve (by product group): the request page shows which SR each item goes to');
+      must(go(U.gm, t.ticket_id, 'gm_approve', ''));   // no sr_email — GM does not pick the SR in this mode
+      ok(ticketById_(t.ticket_id).stage === 'doc_check' && activeItemsOf_(t.ticket_id)[0].sr_email === U.sr2, 'GM approve (by product group): no SR to choose, item goes to the group SR');
+      withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-SHRIMP', { sr_email: '' }); });
     });
 
     wrap('NO_REAL_NETWORK', function () {

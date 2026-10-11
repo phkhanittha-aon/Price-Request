@@ -419,7 +419,15 @@ Pages.ticket = (function () {
     const t = d.ticket;
     const ui = ACTION_UI[action];
     let html = '';
-    const pickSr = ui.select === 'sr' || (ui.select === 'sr_gm' && state.ref.gm_assigns_sr) || (action === 'claim' && d.me.role === 'admin');
+    // by product group the SR comes from the product group (Sheet ProductGroups › sr_email) — GM does not pick one
+    const pickSr = ui.select === 'sr' || (ui.select === 'sr_gm' && state.ref.gm_assigns_sr && !state.ref.assign_by_group) || (action === 'claim' && d.me.role === 'admin');
+    if (ui.select === 'sr_gm' && state.ref.assign_by_group) {
+      html = '<p class="small"><b>ส่งให้ SR ตามกลุ่มสินค้าอัตโนมัติ</b> (ไม่ต้องเลือก)</p><ul class="small" style="margin:4px 0 0;padding-left:18px">' +
+        d.items.filter(function (it) { return !it.quote_status; }).map(function (it) {
+          return '<li>#' + it.line_no + ' ' + esc(it.product_name) + ' <span class="muted">(' + esc(it.product_group_name || '–') + ')</span> → ' +
+            (it.route_sr_name ? '<b>' + esc(it.route_sr_name) + '</b>' : '<span class="sla warning">SR Manager แบ่งงาน</span>') + '</li>';
+        }).join('') + '</ul>';
+    }
     if (pickSr) {
       html = '<label class="field"><span>' + (ui.select === 'sr_gm' ? 'Sourcing ผู้ทำราคา' : 'มอบหมายให้ SR') + ' <span class="req">*</span></span><select id="dlg-sr"><option value="">— เลือก SR —</option>' +
         state.ref.sr_users.filter(function (u) { return u.email !== t.sr_email; })

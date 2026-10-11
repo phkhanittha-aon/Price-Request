@@ -972,7 +972,7 @@ var HtmlService = {};
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-4';
+const APP_VERSION = '2026.10.14-5';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -3457,6 +3457,11 @@ function ticketDetail_(u, t) {
       out.sr_name = owner ? (function () { const x = userByEmail_(owner); return x ? x.full_name : owner; })() : '';
       out.sr_submitted = !!it.sr_submitted_at;
       delete out.sr_submitted_at;
+      // before GM approval (by product group): who the item will go to — shown in GM's approve dialog
+      if (t.stage === 'pending_gm' || t.stage === 'pending_manager' || t.stage === 'returned') {
+        const next = groupSrOf_(it.product_group_code);
+        out.route_sr_name = next ? (function () { const x = userByEmail_(next); return x ? x.full_name : next; })() : '';
+      }
       out.can_edit_quotes = canEditItem_(u, t, it);
       out.can_transfer = canTransferItem_(u, t, it);
       if (it.follow_up_ticket_id) {
@@ -8243,7 +8248,7 @@ function fakeDrive_() {
     </aside>
     <div class="content">
       <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.14-4 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.14-5 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
     </div>
   </div>
   <div class="side-ov" id="side-ov"></div>
@@ -10534,7 +10539,15 @@ Pages.ticket = (function () {
     const t = d.ticket;
     const ui = ACTION_UI[action];
     let html = '';
-    const pickSr = ui.select === 'sr' || (ui.select === 'sr_gm' && state.ref.gm_assigns_sr) || (action === 'claim' && d.me.role === 'admin');
+    // by product group the SR comes from the product group (Sheet ProductGroups › sr_email) — GM does not pick one
+    const pickSr = ui.select === 'sr' || (ui.select === 'sr_gm' && state.ref.gm_assigns_sr && !state.ref.assign_by_group) || (action === 'claim' && d.me.role === 'admin');
+    if (ui.select === 'sr_gm' && state.ref.assign_by_group) {
+      html = '<p class="small"><b>ส่งให้ SR ตามกลุ่มสินค้าอัตโนมัติ</b> (ไม่ต้องเลือก)</p><ul class="small" style="margin:4px 0 0;padding-left:18px">' +
+        d.items.filter(function (it) { return !it.quote_status; }).map(function (it) {
+          return '<li>#' + it.line_no + ' ' + esc(it.product_name) + ' <span class="muted">(' + esc(it.product_group_name || '–') + ')</span> → ' +
+            (it.route_sr_name ? '<b>' + esc(it.route_sr_name) + '</b>' : '<span class="sla warning">SR Manager แบ่งงาน</span>') + '</li>';
+        }).join('') + '</ul>';
+    }
     if (pickSr) {
       html = '<label class="field"><span>' + (ui.select === 'sr_gm' ? 'Sourcing ผู้ทำราคา' : 'มอบหมายให้ SR') + ' <span class="req">*</span></span><select id="dlg-sr"><option value="">— เลือก SR —</option>' +
         state.ref.sr_users.filter(function (u) { return u.email !== t.sr_email; })

@@ -780,6 +780,11 @@ function ticketDetail_(u, t) {
       out.sr_name = owner ? (function () { const x = userByEmail_(owner); return x ? x.full_name : owner; })() : '';
       out.sr_submitted = !!it.sr_submitted_at;
       delete out.sr_submitted_at;
+      // before GM approval (by product group): who the item will go to — shown in GM's approve dialog
+      if (t.stage === 'pending_gm' || t.stage === 'pending_manager' || t.stage === 'returned') {
+        const next = groupSrOf_(it.product_group_code);
+        out.route_sr_name = next ? (function () { const x = userByEmail_(next); return x ? x.full_name : next; })() : '';
+      }
       out.can_edit_quotes = canEditItem_(u, t, it);
       out.can_transfer = canTransferItem_(u, t, it);
       if (it.follow_up_ticket_id) {
