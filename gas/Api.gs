@@ -108,7 +108,8 @@ function listContext_() {
   rows_(TAB.TICKETS).forEach(function (r) { ticketNos[String(r.ticket_id)] = String(r.ticket_no); });
   return {
     itemsByTicket: itemsByTicket, groups: groups, names: names, deptMgr: deptMgr, ticketNos: ticketNos,
-    sla: setting_('sla_hours', {}), warn: Number(setting_('sla_warning_ratio', 0.8))
+    sla: setting_('sla_hours', {}), warn: Number(setting_('sla_warning_ratio', 0.8)),
+    byGroup: toBool_(setting_('assign_by_group', true)), wh: workHours_(), hol: holidaySet_(), fpr: setting_('fpr_sla', {})
   };
 }
 
@@ -119,34 +120,44 @@ function rootGroup_(code, groups) {
   return c;
 }
 
-/** Is this user the one who must act now? (no per-row sheet reads) */
+/**
+ * Is this user the one who must act now? (no per-row sheet reads) — exactly the people with work to do:
+ *   doc_check: the first SR of the request (one owner for the document check)
+ *   sourcing:  each SR that still has items to send (an SR who already sent drops out)
+ *   + SR Manager while items have no SR (assign_by_group) · pending_assign: SR Manager (by group) / any SR (queue)
+ */
 function isAssignee_(u, t, ctx) {
+  const items = (ctx.itemsByTicket[t.ticket_id] || []).filter(function (it) { return !it.quote_status; });
+  const unassigned = ctx.byGroup && items.some(function (it) { return !itemOwner_(t, it); });
+  if (unassigned && u.role === 'sr_manager' && (t.stage === 'doc_check' || t.stage === 'sourcing')) return true;
   switch (t.stage) {
     case 'pending_manager': return u.role === 'manager' && (ctx.deptMgr[t.department_code] || t.manager_email) === u.email;
     case 'returned':
     case 'need_info':
     case 'awaiting_sales_ack': return t.requestor_email === u.email;
     case 'pending_gm': return u.role === 'gm' && t.manager_email !== u.email;
-    case 'pending_assign': return u.role === 'sr';
-    case 'doc_check':
-    case 'sourcing': return isSr_(t, u.email);
+    case 'pending_assign': return ctx.byGroup ? u.role === 'sr_manager' : u.role === 'sr';
+    case 'doc_check': return u.role === 'sr' && (t.sr_email === u.email || (!t.sr_email && isSr_(t, u.email)));
+    case 'sourcing': return u.role === 'sr' && items.some(function (it) { return !it.sr_submitted_at && itemOwner_(t, it) === u.email; });
     case 'pending_sr_manager': return u.role === 'sr_manager' && !isSr_(t, u.email);
     case 'pending_gm_price': return u.role === 'gm';
     default: return false;
   }
 }
 
+/** List / home / dashboard SLA badge — the same engine as the request page and the reminders (Bots.gs stageSla_). */
 function slaInfo_(t, ctx, now) {
   const open = OPEN_STATUSES.indexOf(t.status) !== -1;
   const entered = t.stage_entered_at ? new Date(t.stage_entered_at) : new Date(t.created_at);
   const ageH = hoursBetween_(entered, now);
-  const slaH = Number(ctx.sla[t.stage] || 0);
+  const s = open ? stageSla_(t, ctx.wh, ctx.hol, { fpr: ctx.fpr, hours: ctx.sla }) : null;
   let status = 'none';
   if (!open) status = 'done';
-  else if (slaH > 0 && ageH >= slaH) status = 'breach';
-  else if (slaH > 0 && ageH >= slaH * ctx.warn) status = 'warning';
-  else if (slaH > 0) status = 'ok';
-  return { stage_age_hours: round_(ageH, 1), sla_hours: slaH || null, sla_status: status };
+  else if (s && now >= s.due) status = 'breach';
+  else if (s && workMinutesBetween_(s.start, now, ctx.wh, ctx.hol) >= s.minutes * ctx.warn) status = 'warning';
+  else if (s) status = 'ok';
+  return { stage_age_hours: round_(ageH, 1), sla_hours: s ? round_(s.minutes / 60, 1) : null, sla_status: status,
+    sla_due: s ? fmtDate_(s.due, 'dd/MM HH:mm') : '' };
 }
 
 function summaryRow_(t, ctx, now) {

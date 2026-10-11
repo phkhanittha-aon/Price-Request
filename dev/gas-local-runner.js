@@ -88,6 +88,8 @@ class MockSheet {
   }
   getDataRange() { return this.getRange(1, 1, Math.max(this.getLastRow(), 1), Math.max(this.getLastColumn(), 1)); }
   appendRow(values) { this.getRange(this.getLastRow() + 1, 1, 1, values.length).setValues([values]); return this; }
+  deleteRows(rowPosition, howMany) { this.data.splice(rowPosition - 1, howMany || 1); return this; }
+  deleteRow(rowPosition) { return this.deleteRows(rowPosition, 1); }
   setFrozenRows() { return this; }
   getProtections() { return []; }
   protect() {

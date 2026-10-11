@@ -650,6 +650,10 @@ function runPhase2Cases_(results) {
       const sla = setting_('sla_hours', {});
       sla.pending_manager = 0.0001;
       updateRow_(TAB.SETTINGS, 'sla_hours', { value: JSON.stringify(sla) });
+      // weekends are not counted → put the waiting requests a full week back so the test does not depend on today's weekday
+      rows_(TAB.TICKETS).filter(function (r) { return r.stage === 'pending_manager'; }).forEach(function (r) {
+        updateRow_(TAB.TICKETS, r.ticket_id, { stage_entered_at: new Date(Date.now() - 7 * 86400000) });
+      });
     });
     const r1 = checkSlaAlerts();
     const r2 = checkSlaAlerts();
@@ -2126,12 +2130,16 @@ function runGroupAssignCases_(results) {
     const card = botLog_(id, 'assigned')[0].summary;
     ok(/<at email=sr1@/.test(card) && /<at email=sr2@/.test(card) && /<at email=sr\.manager@/.test(card) && /รอ SR Manager แบ่งงาน: #3 ซอสพอนสึ/.test(card),
       'Group: card tags both SRs + SR Manager (Others waiting) and lists who prices what');
-    ok(as(U.sr2, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id && r.is_inbox && r.is_mine; }), 'Group: the request is in both SRs’ inbox');
+    const inboxOf = function (e) { return as(e, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id && r.is_inbox; }); };
+    ok(inboxOf(U.sr1) && !inboxOf(U.sr2) && as(U.sr2, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id && r.is_mine; }),
+      'Ownership: document check is in the first SR’s “รอฉัน” only (sr2 sees it under “ของฉัน”)');
+    ok(inboxOf(U.srManager), 'Ownership: SR Manager has it in “รอฉัน” while the Others item has no SR');
     const v1 = as(U.sr1, function () { return must(getTicket(id)); });
     ok(v1.items[0].can_transfer && !v1.items[1].can_transfer && v1.items[1].sr_name.length > 0, 'Group: SR may transfer only their own item; sees the other SR name');
     expectErr(go(U.sr1, id, 'assign_items', '', { assignments: [{ item_id: itemOf(id, 3).item_id, sr_email: U.sr1 }] }), 'FORBIDDEN', 'Group: an SR cannot split the work');
     expectErr(go(U.sr2, id, 'transfer_item', '', { item_id: itemOf(id, 1).item_id, sr_email: U.sr2 }), 'FORBIDDEN', 'Group: an SR cannot take another SR’s item');
     must(go(U.srManager, id, 'assign_items', '', { assignments: [{ item_id: itemOf(id, 3).item_id, sr_email: U.sr2 }] }));
+    ok(!inboxOf(U.srManager), 'Ownership: after the split the SR Manager’s “รอฉัน” is clear');
     ok(owner(id, 3) === U.sr2 && /<at email=sr2@/.test(botLog_(id, 'assigned')[1].summary) && !/<at email=sr1@/.test(botLog_(id, 'assigned')[1].summary.split('ผู้ดำเนินการ')[1] || ''),
       'Group: SR Manager gives the Others item to sr2 (card tags sr2)');
     must(go(U.sr2, id, 'transfer_item', 'sr1 รู้จักผู้ขายซอส', { item_id: itemOf(id, 3).item_id, sr_email: U.sr1 }));
@@ -2146,6 +2154,7 @@ function runGroupAssignCases_(results) {
     ok(p1.stage === 'sourcing' && itemOf(id, 1).sr_submitted_at && itemOf(id, 3).sr_submitted_at && !itemOf(id, 2).sr_submitted_at,
       'Group: sr1 sends their 2 items — request waits for sr2');
     ok(!botLog_(id, 'sm_review').length, 'Group: no SM card yet');
+    ok(!inboxOf(U.sr1) && inboxOf(U.sr2), 'Ownership: sr1 sent everything → out of “รอฉัน”; sr2 still has it');
     expectErr(price(U.sr1, id, 1, 190), 'FORBIDDEN', 'Group: sr1 cannot change an item already sent');
     expectErr(go(U.sr1, id, 'submit_quote'), 'ALREADY_SUBMITTED', 'Group: sr1 submitting again is refused');
     ok(as(U.sr1, function () { return must(getTicket(id)); }).permissions.actions.indexOf('submit_quote') === -1 &&
@@ -2164,6 +2173,9 @@ function runGroupAssignCases_(results) {
         { product_group_code: 'FOOD-OTHERS', product_name: 'สาหร่ายโนริ', net_weight: '100%', size: 'A4', packing_size: '100 แผ่น', qty: 10, uom: 'แพ็ค', target_price: 0 }] });
     })).ticket;
     must(go(U.gm, o.ticket_id, 'gm_approve'));
+    const inboxO = function (e) { return as(e, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === o.ticket_id && r.is_inbox; }); };
+    ok(inboxO(U.srManager) && !inboxO(U.sr1) && as(U.sr1, function () { return must(getTicket(o.ticket_id)); }).permissions.actions.indexOf('claim') === -1,
+      'Ownership: waiting for the split → only the SR Manager has it; SRs have no “รับงาน”');
     ok(ticketById_(o.ticket_id).stage === 'pending_assign' && /<at email=sr\.manager@/.test(botLog_(o.ticket_id, 'queued')[0].summary),
       'Group: only Others → waits for SR Manager (card tags SR Manager)');
     ok(as(U.srManager, function () { return must(getTicket(o.ticket_id)); }).permissions.can_assign_items, 'Group: SR Manager gets the split panel');

@@ -36,20 +36,21 @@ function checkSlaAlerts() {
   requireJobContext_();
   try {
     const result = withLock_(function () {
-      const sla = setting_('sla_hours', {});
       const warn = Number(setting_('sla_warning_ratio', 0.8));
+      const wh = workHours_(), hol = holidaySet_();
       const now = new Date();
       const existing = {};
       rows_(TAB.SLA_ALERTS).forEach(function (a) { existing[String(a.alert_key)] = true; });
       const breaches = [];
       let queued = 0;
       rows_(TAB.TICKETS).map(normTicket_).forEach(function (t) {
-        if (OPEN_STATUSES.indexOf(t.status) === -1) return;
-        const slaH = Number(sla[t.stage] || 0);
-        if (!(slaH > 0) || !t.stage_entered_at) return;
-        const entered = new Date(t.stage_entered_at);
-        const ageH = hoursBetween_(entered, now);
-        const level = ageH >= slaH ? 'breach' : ageH >= slaH * warn ? 'warning' : '';
+        // same SLA as the list / request page / FPR Reminder (calendar hours, Sat–Sun + Holidays not counted)
+        const s = stageSla_(t, wh, hol);
+        if (!s) return;
+        const entered = s.start;
+        const ageH = workMinutesBetween_(s.start, now, wh, hol) / 60;
+        const slaH = round_(s.minutes / 60, 1);
+        const level = now >= s.due ? 'breach' : ageH >= slaH * warn ? 'warning' : '';
         if (!level) return;
         const key = t.ticket_id + '|' + t.stage + '|' + entered.toISOString() + '|' + level;
         if (existing[key]) return;
@@ -58,15 +59,13 @@ function checkSlaAlerts() {
         const recipients = stageAssignees_(t).concat(level === 'breach' ? stageEscalation_(t) : []);
         enqueueNotifications_(recipients, t, 'sla_' + level,
           '[' + t.ticket_no + '] ' + (level === 'breach' ? '⛔ เกิน SLA' : '⚠️ ใกล้ครบ SLA') + ': ' + STAGE_LABEL_TH[t.stage],
-          t.title + '\nค้างใน stage นี้ ' + round_(ageH, 1) + ' ชม. (SLA ' + slaH + ' ชม.)', ticketLink_(t));
+          t.title + '\nค้างในขั้นนี้ ' + round_(ageH, 1) + ' ชม. (SLA ' + slaH + ' ชม. ไม่นับเสาร์-อาทิตย์)', ticketLink_(t));
         queued++;
         if (level === 'breach') breaches.push(t.ticket_no + ' — ' + STAGE_LABEL_TH[t.stage] + ' (' + round_(ageH, 0) + '/' + slaH + ' ชม.)');
       });
       return { queued: queued, breaches: breaches };
     });
-    if (result.breaches.length) {
-      larkGroupText_('⛔ ใบขอราคาเกิน SLA ' + result.breaches.length + ' ใบ\n' + result.breaches.slice(0, 20).join('\n'));
-    }
+    // the group hears about overdue jobs from the FPR Reminder bot (sendSlaReminders) — this job only DMs the people concerned
     return result;
   } catch (e) {
     logError_('checkSlaAlerts', e);

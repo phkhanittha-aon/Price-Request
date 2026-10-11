@@ -107,6 +107,8 @@ MockSheet_.prototype.getRange = function (row, col, numRows, numCols) {
   return new MockRange_(this, row, col, numRows || 1, numCols || 1);
 };
 MockSheet_.prototype.appendRow = function (values) { this.getRange(this.getLastRow() + 1, 1, 1, values.length).setValues([values]); return this; };
+MockSheet_.prototype.deleteRows = function (rowPosition, howMany) { this.data.splice(rowPosition - 1, howMany || 1); return this; };
+MockSheet_.prototype.deleteRow = function (rowPosition) { return this.deleteRows(rowPosition, 1); };
 MockSheet_.prototype.setFrozenRows = function () { return this; };
 MockSheet_.prototype.getProtections = function () { return []; };
 MockSheet_.prototype.protect = function () {

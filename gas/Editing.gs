@@ -247,6 +247,10 @@ function validateQuoteFields_(p, t) {
     fx = toNumber_(p.fx_rate === undefined || p.fx_rate === '' ? 1 : p.fx_rate, 'อัตราแลกเปลี่ยน', { gt: 0 });
     if (fx !== 1) throw appError_('VALIDATION', 'สกุลเงิน THB ต้องใช้อัตราแลกเปลี่ยน = 1');
   } else {
+    // "35,5" would be read as 355 (comma = thousands) → a 10× price: the rate must use a decimal point
+    if (/,/.test(String(p.fx_rate == null ? '' : p.fx_rate))) {
+      throw appError_('VALIDATION', 'อัตราแลกเปลี่ยน (' + currency + ' → THB) ใช้จุดทศนิยม เช่น 35.50 (ห้ามใช้จุลภาค)');
+    }
     fx = toNumber_(p.fx_rate, 'อัตราแลกเปลี่ยน (' + currency + ' → THB)', { gt: 0, max: 100000 });
   }
 
@@ -380,7 +384,7 @@ function selectQuotationCore_(u, quoteId, reason) {
  * - completely blank vendor columns are ignored (draft may be incomplete)
  * - every row is validated BEFORE anything is written, so a bad row never leaves a half-saved draft
  */
-function saveSourcingDraft(ticketId, items) {
+function saveSourcingDraft(ticketId, items, loadedAt) {
   return api_('saveSourcingDraft', function () {
     return withLock_(function () {
       const u = currentUser_();
@@ -389,6 +393,7 @@ function saveSourcingDraft(ticketId, items) {
       const byId = {};
       activeItemsOf_(t.ticket_id).forEach(function (it) { byId[it.item_id] = it; });
       const list = Array.isArray(items) ? items : [];
+      requireFreshDraft_(u, t, list, loadedAt, byId);
 
       // 1) validate everything
       const plan = list.map(function (row) {
@@ -467,6 +472,30 @@ function saveSourcingDraft(ticketId, items) {
       return { changes: changes, detail: ticketDetail_(u, ticketById_(t.ticket_id)) };
     });
   });
+}
+
+/**
+ * Stale page guard: the page was loaded at `loadedAt`; if someone ELSE changed a price / supplier / winner / GP
+ * of one of these items since then, saving the old page would silently delete or overwrite their work → refuse.
+ */
+function requireFreshDraft_(u, t, list, loadedAt, byId) {
+  const at = loadedAt ? new Date(loadedAt).getTime() : NaN;
+  if (!isFinite(at)) return;   // older pages without the timestamp
+  const since = Math.floor(at / 1000) * 1000;   // log timestamps are whole seconds
+  const ids = {};
+  list.forEach(function (r) { if (r && r.item_id) ids[String(r.item_id)] = true; });
+  const clash = findAll_(TAB.LOGS, 'ticket_id', t.ticket_id).filter(function (l) {
+    if (COST_LOG_ACTIONS_.indexOf(String(l.action)) === -1 || String(l.actor_email).toLowerCase() === u.email) return false;
+    if (new Date(l.ts).getTime() < since) return false;
+    const m = parseJson_(l.metadata_json, {});
+    return !m.item_id || ids[String(m.item_id)];
+  });
+  if (!clash.length) return;
+  const who = userByEmail_(String(clash[clash.length - 1].actor_email));
+  const lines = [];
+  clash.forEach(function (l) { const it = byId[String(parseJson_(l.metadata_json, {}).item_id)]; if (it && lines.indexOf(it.line_no) === -1) lines.push(it.line_no); });
+  throw appError_('STALE_DRAFT', (who ? who.full_name : String(clash[0].actor_email)) + ' แก้ราคา' + (lines.length ? 'รายการที่ ' + lines.join(', ') : 'ในใบนี้') +
+    ' หลังจากคุณเปิดหน้านี้ — กรุณาโหลดหน้าใหม่ก่อนบันทึก (เพื่อไม่ให้ลบหรือทับราคาของคนอื่น)', { lines: lines });
 }
 
 /** rows: [{ check_id, is_checked, note }] — SR ticks several documents in one call. */

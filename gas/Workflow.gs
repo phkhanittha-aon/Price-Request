@@ -683,6 +683,7 @@ function validateQuotesForSubmit_(t, onlyItemIds) {
   const today = todayBkk_();
   const minSup = Math.max(1, Number(setting_('min_suppliers', 3)) || 1);
   const fewSup = [];
+  const zeroPrice = [];
   let grand = 0;
   items.forEach(function (it) {
     if (it.quote_status) return;   // 'not_offered' / 'follow_up': answered without a price (follow-up = its own ticket)
@@ -696,6 +697,7 @@ function validateQuotesForSubmit_(t, onlyItemIds) {
     }
     if (w.length === 0) { noWinner.push(it.line_no); return; }
     const win = w[0];
+    if (!(Number(win.unit_price) > 0)) zeroPrice.push(it.line_no);   // a 0 price never happens in practice → stop it before Sales sees it
     if (!win.is_cheapest && !win.selection_reason) noReason.push(it.line_no);
     if (win.valid_until && win.valid_until < today) expired.push(it.line_no);
     grand += win.total_cost_thb;
@@ -709,6 +711,7 @@ function validateQuotesForSubmit_(t, onlyItemIds) {
     throw appError_('FEW_SUPPLIERS', 'ต้องมีราคา supplier อย่างน้อย ' + minSup + ' ราย หรือกรอกเหตุผลที่มีไม่ถึง: ลำดับที่ ' + fewSup.join(', '),
       { lines: fewSup, min: minSup });
   }
+  if (zeroPrice.length) throw appError_('ZERO_PRICE', 'ราคาผู้ชนะเป็น 0 — ตรวจราคาอีกครั้ง: ลำดับที่ ' + zeroPrice.join(', '), { lines: zeroPrice });
   if (noWinner.length) throw appError_('MISSING_WINNER', 'รายการที่ยังไม่ได้เลือกผู้ชนะ: ลำดับที่ ' + noWinner.join(', '), { lines: noWinner });
   if (noReason.length) {
     throw appError_('REASON_REQUIRED', 'เลือกผู้ชนะที่ไม่ใช่ราคาต่ำสุด ต้องระบุเหตุผล: ลำดับที่ ' + noReason.join(', '), { lines: noReason });
@@ -809,6 +812,7 @@ function ticketDetail_(u, t) {
       },
       me: { email: u.email, full_name: u.full_name, role: u.role },
       sla: fprSlaInfo_(t),
+      loaded_at: new Date().toISOString(),   // the pricing page sends it back: saves refuse prices changed by someone else since
       vat_rate: vatRate_(),
       app_version: APP_VERSION
     };
@@ -818,9 +822,9 @@ function ticketDetail_(u, t) {
 /** SLA deadline of the current FPR step for the web page (working time, Bangkok), or null. */
 function fprSlaInfo_(t) {
   try {
-    const s = slaDue_(t, workHours_(), holidaySet_());
+    const s = stageSla_(t, workHours_(), holidaySet_());
     if (!s) return null;
-    return { key: s.key, label: SLA_LABEL_[s.key], due: s.due.toISOString(), due_text: fmtDate_(s.due, 'dd/MM/yyyy HH:mm'),
+    return { key: s.key, label: s.label, due: s.due.toISOString(), due_text: fmtDate_(s.due, 'dd/MM/yyyy HH:mm'),
       hours: Math.round(s.minutes / 6) / 10, overdue: new Date() > s.due };
   } catch (e) { return null; }
 }
@@ -849,7 +853,7 @@ function allowedActions_(u, t) {
     if (d && d.manager_email === u.email) a.push('manager_approve', 'manager_reject', 'manager_return');
   }
   if (u.role === 'gm' && t.stage === 'pending_gm' && t.manager_email !== u.email) a.push('gm_approve', 'gm_return', 'gm_reject');
-  if (u.role === 'sr' && t.stage === 'pending_assign') a.push('claim');
+  if (u.role === 'sr' && t.stage === 'pending_assign' && !toBool_(setting_('assign_by_group', true))) a.push('claim');   // by group: the SR Manager splits
   if ((u.role === 'sr' || u.role === 'sr_manager') && t.stage === 'pending_assign') a.push('queue_return');
   if (u.role === 'sr_manager' && t.stage === 'pending_sr_manager' && !isSr_(t, u.email)) a.push('srm_approve', 'srm_return', 'srm_reject');
   if (u.role === 'gm' && t.stage === 'pending_gm_price') a.push('gm_price_approve', 'gm_price_return', 'gm_price_reject');

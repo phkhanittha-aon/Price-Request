@@ -83,9 +83,9 @@ function fprLink_(t) {
 // ---------------------------------------------------------------- working time (SLA)
 
 function workHours_() {
-  const w = setting_('work_hours', { start: '08:30', end: '17:30', days: [1, 2, 3, 4, 5] }) || {};
-  const min = function (hhmm, d) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : d; };
-  const s = min(w.start, 510), e = min(w.end, 1050);
+  const w = setting_('work_hours', { start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }) || {};
+  const min = function (hhmm, d) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '')); return m ? Math.min(1440, Number(m[1]) * 60 + Number(m[2])) : d; };
+  const s = min(w.start, 0), e = min(w.end, 1440);
   return { start: s, end: e > s ? e : s + 540, days: Array.isArray(w.days) && w.days.length ? w.days.map(Number) : [1, 2, 3, 4, 5] };
 }
 
@@ -142,15 +142,27 @@ function slaMinutes_(rule, wh) {
   return Math.round((Number(r.hours) || 0) * 60);
 }
 
-/** SLA deadline of the ticket's current FPR step, or null. */
-function slaDue_(t, wh, hol) {
-  const key = SLA_KEY_OF_STAGE_[t.stage];
-  if (!key || OPEN_STATUSES.indexOf(t.status) === -1) return null;
-  const rule = (setting_('fpr_sla', {}) || {})[key];
-  const mins = slaMinutes_(rule, wh);
+/**
+ * THE SLA of a ticket's current stage (one engine for the list, home, request page, SLA DMs and the FPR Reminder):
+ * calendar hours, 24 h a day, Sat–Sun (Settings work_hours) and Holidays not counted.
+ * FPR steps use Settings fpr_sla; every other open stage uses Settings sla_hours (hours). null = no SLA.
+ */
+function stageSla_(t, wh, hol, opts) {
+  if (OPEN_STATUSES.indexOf(t.status) === -1) return null;
+  const key = SLA_KEY_OF_STAGE_[t.stage] || '';
+  let mins;
+  if (key) mins = slaMinutes_((opts && opts.fpr || setting_('fpr_sla', {}) || {})[key], wh);
+  else mins = (Number(((opts && opts.hours) || setting_('sla_hours', {}) || {})[t.stage]) || 0) * 60;
   const start = key === 'PRICING' ? (t.pricing_started_at || t.stage_entered_at) : t.stage_entered_at;
   if (!mins || !start) return null;
-  return { key: key, start: new Date(start), due: addWorkMinutes_(start, mins, wh, hol), minutes: mins };
+  return { key: key, label: key ? SLA_LABEL_[key] : (STAGE_LABEL_TH[t.stage] || t.stage), start: new Date(start),
+    due: addWorkMinutes_(start, mins, wh, hol), minutes: mins };
+}
+
+/** SLA of the current FPR step only (FPR Reminder bot), or null. */
+function slaDue_(t, wh, hol) {
+  const s = stageSla_(t, wh, hol);
+  return s && s.key ? s : null;
 }
 
 // ---------------------------------------------------------------- cards
@@ -307,8 +319,8 @@ function sendSlaReminders() {
       const who = stageAssignees_(t);
       const title = '⏰ งานค้างเกิน SLA — ' + facts.no;
       const card = buildCard_({ color: 'yellow', title: title, facts: facts, mentions: who, link: fprLink_(t),
-        extra: ['**ขั้นที่ค้าง:** ' + SLA_LABEL_[sla.key] + ' · SLA ' + Math.round(sla.minutes / 60 * 10) / 10 + ' ชม.ทำงาน',
-          '**เกินกำหนดมาแล้ว:** ' + Math.floor(late / 60) + ' ชม. ' + (late % 60) + ' นาที (นับเฉพาะเวลาทำงาน)'] });
+        extra: ['**ขั้นที่ค้าง:** ' + SLA_LABEL_[sla.key] + ' · SLA ' + Math.round(sla.minutes / 60 * 10) / 10 + ' ชม.',
+          '**เกินกำหนดมาแล้ว:** ' + Math.floor(late / 60) + ' ชม. ' + (late % 60) + ' นาที (ไม่นับเสาร์-อาทิตย์)'] });
       updateRow_(TAB.TICKETS, t.ticket_id, { last_reminded_at: now });
       BOT_QUEUE_.push({ bot: 'reminder', event: 'sla_' + sla.key, ticket_id: t.ticket_id, ticket_no: facts.no, card: card, summary: cardText_(card) });
       sent.push(facts.no);
@@ -480,7 +492,7 @@ function testBots() {
     out.push(k + ': ' + sendBot_('fpr', card, { event: 'test_' + k, ticket_no: f.no, summary: 'testBots ' + k }).status);
   });
   const rem = buildCard_({ color: 'yellow', title: '[ทดสอบ] ⏰ งานค้างเกิน SLA — FPR-TEST-0001', facts: facts, mentions: [me], link: link,
-    extra: ['**ขั้นที่ค้าง:** ' + SLA_LABEL_.GM_REVIEW + ' · SLA 4 ชม.ทำงาน', '**เกินกำหนดมาแล้ว:** 1 ชม. 20 นาที (นับเฉพาะเวลาทำงาน)'] });
+    extra: ['**ขั้นที่ค้าง:** ' + SLA_LABEL_.GM_REVIEW + ' · SLA 4 ชม.', '**เกินกำหนดมาแล้ว:** 1 ชม. 20 นาที (ไม่นับเสาร์-อาทิตย์)'] });
   out.push('reminder: ' + sendBot_('reminder', rem, { event: 'test_reminder', ticket_no: 'FPR-TEST-0001', summary: 'testBots reminder' }).status);
   console.log(out.join('\n'));
   return out;

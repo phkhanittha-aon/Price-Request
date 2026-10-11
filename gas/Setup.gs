@@ -43,6 +43,15 @@ function setupDatabase() {
     report.push('Created Drive folder ' + folder.getId());
   }
   const mig = withLock_(function () { return migrateSuppliersCore_(); });
+  // v2026.10.12-1: SLA in calendar hours (24 h a day), Sat–Sun not counted — replace the old 08:30–17:30 default once
+  withLock_(function () {
+    const wh = findOne_(TAB.SETTINGS, 'key', 'work_hours');
+    const old = wh ? parseJson_(wh.value, {}) : null;
+    if (old && old.start === '08:30' && old.end === '17:30') {
+      updateRow_(TAB.SETTINGS, 'work_hours', { value: JSON.stringify({ start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }), updated_at: new Date(), updated_by: 'setup' });
+      report.push('Settings work_hours: SLA นับชั่วโมงปฏิทิน 24 ชม. ไม่นับเสาร์-อาทิตย์');
+    }
+  });
   // v2026.10.11-1: product group "Others" (items without an SR → SR Manager splits the work)
   withLock_(function () {
     if (!findOne_(TAB.PRODUCT_GROUPS, 'code', 'FOOD-OTHERS') && findOne_(TAB.PRODUCT_GROUPS, 'code', 'FOOD')) {
