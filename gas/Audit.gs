@@ -34,8 +34,10 @@ function appendLog_(entry) {
   const meta = headers_(TAB.LOGS);
   const sh = meta.sheet;
   const last = sh.getLastRow();
-  let prevHash = 'GENESIS';
-  let nextId = 1;
+  // after an archive run the chain continues from the anchor (last archived row) — Jobs.gs archiveLogs_
+  const anchor = logAnchor_();
+  let prevHash = anchor ? String(anchor.last_hash) : 'GENESIS';
+  let nextId = anchor ? Number(anchor.last_log_id) + 1 : 1;
   if (last >= 2) {
     const lastRow = sh.getRange(last, 1, 1, meta.headers.length).getValues()[0];
     prevHash = String(lastRow[meta.idx.hash] || 'GENESIS');
@@ -108,10 +110,12 @@ function verifyLogChain() {
 
 function verifyLogChainCore_() {
   const list = rows_(TAB.LOGS).slice().sort(function (a, b) { return Number(a.log_id) - Number(b.log_id); });
-  let prev = 'GENESIS';
+  const anchor = logAnchor_();   // rows moved to the archive: the chain must continue exactly from the last archived hash
+  let prev = anchor ? String(anchor.last_hash) : 'GENESIS';
+  const base = anchor ? Number(anchor.last_log_id) : 0;
   for (let i = 0; i < list.length; i++) {
     const r = list[i];
-    if (Number(r.log_id) !== i + 1) {
+    if (Number(r.log_id) !== base + i + 1) {
       return { valid: false, rows: list.length, brokenAt: r.log_id, reason: 'log_id ไม่ต่อเนื่อง (มีการลบหรือแทรกแถว)' };
     }
     if (String(r.prev_hash) !== prev) {

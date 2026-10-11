@@ -36,17 +36,17 @@ Created tab Holidays
 Holidays: added columns date, name
 Created tab ErrorLog
 ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
-Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
-Created Drive folder folder-b331b52a-3baa-4d2c-8674-d8e9f6eb8385
+Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
+Created Drive folder folder-fec7914d-eec4-4869-98e3-3a894430b457
 Suppliers from old quotations: +0 created, 0 quotations linked
-Database URL: https://docs.google.com/spreadsheets/d/b90509cf-ac44-4521-8baa-d270365182bd
+Database URL: https://docs.google.com/spreadsheets/d/678543e9-d457-4a00-a553-b24e1aa7805c
 departments +3
 product groups +6
 vendors +6
 users +9
 demo tickets +14
-pending_assign (Others only): stage=pending_assign | SR1 buttons: claim/queue_return | SR2: claim/queue_return | SRMgr: queue_return/assign/panel
-  badge delta → SRMgr 0 · SR1 1  (notified: sr.manager@example.co.th)
-doc_check with Others unassigned: SRMgr badge delta = 0 (SR Manager must split, but is it in their “รอฉัน”?)
+pending_assign (Others only): stage=pending_assign | SR1 buttons: queue_return | SR2: queue_return | SRMgr: queue_return/assign/panel
+  badge delta → SRMgr 1 · SR1 0  (notified: sr.manager@example.co.th)
+doc_check with Others unassigned: SRMgr badge delta = 1 (SR Manager must split, but is it in their “รอฉัน”?)
 one new request → in-app/Lark-DM rows: 1 · group-card rows: 1 (GM gets: bell + Lark DM (if Lark app set) + @mention in group card)
-SLA after 30 calendar hours in GM_REVIEW → list/badge: breach (Settings sla_hours.pending_gm=24 h) · request page: overdue=false due 12/10/2026 10:58 (fpr_sla 4 working h)
+SLA after 30 calendar hours in GM_REVIEW → list/badge: ok (Settings sla_hours.pending_gm=24 h) · request page: overdue=false due 12/10/2026 04:00 (fpr_sla 4 working h)

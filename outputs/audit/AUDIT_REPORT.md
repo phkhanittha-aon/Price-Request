@@ -191,3 +191,19 @@ All decisions are made on the server (`doTransition_`, `can*_`, `ticketForUser_`
 2. **Mobile Sales:** on a phone (Chrome/Safari) create a request with 2 items + 3 photos; check no sideways scroll, photo upload progress, and the success toast with the FPR number.
 3. **Lark mentions:** after setting the 2 webhooks, run "ส่งการ์ดทดสอบ" in ⚙️ ตั้งค่า Lark Bot; the names in "ผู้ขอ" / "ผู้ดำเนินการ" must be blue.
 4. **Sheet hand edits:** reorder rows of the Tickets tab with a filter-sort, then approve a request → the right row changes (proved in `edge_test`, worth a one-time check on the real Sheet copy).
+
+---
+
+## Fix status (v2026.10.12-1)
+
+| ID | Status | What changed |
+|---|---|---|
+| H1, H2 | **Skipped by decision** | No delegation; nobody approves on behalf of anyone (Admin approval buttons removed) |
+| H3 (+M1) | Fixed | `isAssignee_`: doc check = first SR; pricing = SRs with unsent items; SR Manager while items have no SR; no "claim" in by-group mode |
+| H4 | Fixed | pricing page sends `loaded_at`; `saveSourcingDraft` refuses with STALE_DRAFT if someone else changed those items since |
+| H5 | Fixed | winner price 0 → ZERO_PRICE; FX with a comma refused; on-screen warning for 0 and FX ±20 % |
+| H6 | Fixed | one engine `stageSla_` (calendar hours, 24 h/day, Sat–Sun + Holidays excluded) for list, home, request page, SLA DM, FPR Reminder |
+| M2 | Fixed (decision 7) | Sales may edit until GM approves or returns |
+| M5 | Fixed (decision 5) | Lark DM only for SLA / deal follow-up reminders (`lark_dm_types`); new daily "ติดตามลูกค้า" DM |
+| M12, M13 + retention | Fixed (decision 3) | monthly `runRetention` (notifications, NotifLog, ErrorLog, SlaAlerts, UsageLog roll-up, losing-supplier photos, TicketLogs archive with chain anchor) |
+| Others (M3, M4, M6–M11, M14, L1–L5) | Open | not in this round |

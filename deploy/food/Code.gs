@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.11-1
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.12-1
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.11-1';
+const APP_VERSION = '2026.10.12-1';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -304,10 +304,13 @@ const DEFAULT_SETTINGS = [
   ['min_suppliers', '3', 'จำนวน supplier ขั้นต่ำต่อรายการก่อนส่งราคา (น้อยกว่านี้ต้องกรอกเหตุผล)'],
   ['min_gp_percent', '10', 'GP % ขั้นต่ำ — ต่ำกว่านี้แสดงเตือนสีแดงในหน้าทำราคาและหน้าอนุมัติ'],
   ['fpr_sla', JSON.stringify({ GM_REVIEW: { hours: 4 }, PRICING: { days: 2 }, SM_REVIEW: { hours: 4 }, GM_FINAL_REVIEW: { hours: 4 } }),
-    'SLA ของ FPR นับเฉพาะเวลาทำงาน (work_hours) ไม่นับเสาร์-อาทิตย์และวันในแท็บ Holidays · hours = ชั่วโมงทำงาน, days = วันทำการ'],
-  ['work_hours', JSON.stringify({ start: '08:30', end: '17:30', days: [1, 2, 3, 4, 5] }), 'เวลาทำงานสำหรับนับ SLA (days: 1 = จันทร์ … 6 = เสาร์, 7 = อาทิตย์)'],
+    'SLA ของ FPR (ชั่วโมงปฏิทิน 24 ชม./วัน ไม่นับเสาร์-อาทิตย์และวันในแท็บ Holidays) · hours = ชั่วโมง, days = วัน (1 วัน = 24 ชม.) · ขั้นอื่นใช้ sla_hours แบบเดียวกัน'],
+  ['work_hours', JSON.stringify({ start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }), 'ช่วงเวลาที่นับ SLA: 00:00–24:00 จันทร์–ศุกร์ = ชั่วโมงปฏิทินไม่นับเสาร์-อาทิตย์ (days: 1 = จันทร์ … 7 = อาทิตย์)'],
   ['fpr_mention_owner', 'true', 'การ์ด Lark ทุกใบ (FPR Bot + Reminder) แท็กเจ้าของคำขอ (Sales ผู้ขอราคา) ด้วย — false = แท็กเฉพาะผู้ต้องดำเนินการ'],
-  ['reminder_repeat_work_hours', '8', 'FPR Reminder แจ้งซ้ำรายการเดิมได้ไม่เกิน 1 ครั้งต่อกี่ชั่วโมงทำงาน'],
+  ['retention', JSON.stringify({ notifications_read_days: 180, notif_log_days: 180, sla_alerts_days: 90, usage_raw_days: 90, error_log_days: 180, log_archive_months: 18, loser_photo_days: 180 }),
+    'ล้างข้อมูลรายเดือน (runRetention): แจ้งเตือนที่อ่านแล้ว / NotifLog / ErrorLog 6 เดือน · SlaAlerts 3 เดือนหลังปิดงาน · UsageLog รวมเป็นรายเดือนหลัง 3 เดือน · TicketLogs ย้ายไปไฟล์ archive หลังปิดงาน 18 เดือน · รูป supplier ที่ไม่ได้รับเลือก ลบหลังปิดงาน 6 เดือน'],
+  ['lark_dm_types', JSON.stringify(['sla_warning', 'sla_breach', 'deal_due']), 'Lark DM รายคน ส่งเฉพาะการแจ้งเตือนเพื่อติดตามงาน (เกิน / ใกล้ครบ SLA, ต้องติดตามลูกค้า) — แจ้งเตือนอื่นอยู่ที่กระดิ่งในเว็บ + การ์ดในกลุ่ม · ["*"] = ส่งทุกประเภท'],
+  ['reminder_repeat_work_hours', '8', 'FPR Reminder แจ้งซ้ำรายการเดิมได้ไม่เกิน 1 ครั้งต่อกี่ชั่วโมง (นับแบบเดียวกับ SLA: ไม่นับเสาร์-อาทิตย์)'],
   ['max_photos_per_quote', '10', 'จำนวนรูปสินค้าสูงสุดต่อ Supplier 1 เจ้า (ต่อใบเสนอราคา 1 รายการ)'],
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
   ['fx_defaults', JSON.stringify({ USD: 35 }), 'อัตราแลกเปลี่ยนเริ่มต้น (บาทต่อ 1 หน่วย) ที่เติมให้ในหน้าใบเสนอราคา · SR แก้ได้ทุกใบ · สกุลที่ไม่มีในนี้ SR กรอกเอง'],
@@ -700,6 +703,26 @@ function updateRow_(tab, keyValue, patch) {
 }
 
 /**
+ * Delete every row of `tab` for which pred(row) is true (retention only — business rows are never deleted).
+ * Row numbers come from a fresh read inside the lock; deleted bottom-up in contiguous blocks.
+ */
+function deleteRowsWhere_(tab, pred) {
+  if (LOCK_DEPTH_ === 0) throw new Error('deleteRowsWhere_ must run inside withLock_');
+  invalidate_(tab);
+  const meta = headers_(tab);
+  const nums = rows_(tab).filter(pred).map(function (r) { return r._row; }).sort(function (a, b) { return b - a; });
+  let i = 0;
+  while (i < nums.length) {
+    let start = nums[i], count = 1;
+    while (i + count < nums.length && nums[i + count] === start - 1) { start--; count++; }
+    meta.sheet.deleteRows(start, count);
+    i += count;
+  }
+  if (nums.length) { markDataChanged_(tab); invalidate_(tab); }
+  return nums.length;
+}
+
+/**
  * Run fn while holding the script-wide lock. Cache is dropped on entry so that
  * every read inside the lock sees the latest committed data.
  */
@@ -792,8 +815,10 @@ function appendLog_(entry) {
   const meta = headers_(TAB.LOGS);
   const sh = meta.sheet;
   const last = sh.getLastRow();
-  let prevHash = 'GENESIS';
-  let nextId = 1;
+  // after an archive run the chain continues from the anchor (last archived row) — Jobs.gs archiveLogs_
+  const anchor = logAnchor_();
+  let prevHash = anchor ? String(anchor.last_hash) : 'GENESIS';
+  let nextId = anchor ? Number(anchor.last_log_id) + 1 : 1;
   if (last >= 2) {
     const lastRow = sh.getRange(last, 1, 1, meta.headers.length).getValues()[0];
     prevHash = String(lastRow[meta.idx.hash] || 'GENESIS');
@@ -866,10 +891,12 @@ function verifyLogChain() {
 
 function verifyLogChainCore_() {
   const list = rows_(TAB.LOGS).slice().sort(function (a, b) { return Number(a.log_id) - Number(b.log_id); });
-  let prev = 'GENESIS';
+  const anchor = logAnchor_();   // rows moved to the archive: the chain must continue exactly from the last archived hash
+  let prev = anchor ? String(anchor.last_hash) : 'GENESIS';
+  const base = anchor ? Number(anchor.last_log_id) : 0;
   for (let i = 0; i < list.length; i++) {
     const r = list[i];
-    if (Number(r.log_id) !== i + 1) {
+    if (Number(r.log_id) !== base + i + 1) {
       return { valid: false, rows: list.length, brokenAt: r.log_id, reason: 'log_id ไม่ต่อเนื่อง (มีการลบหรือแทรกแถว)' };
     }
     if (String(r.prev_hash) !== prev) {
@@ -1062,8 +1089,9 @@ function canViewSellPrice_(u, t) {
 /** Sales may edit header/items only before Manager approval (or after Manager returned it). */
 function canEditRequest_(u, t) {
   if (u.role === 'admin') return ['pending_manager', 'returned', 'pending_gm'].indexOf(t.stage) !== -1;   // Admin fixes it for Sales until GM approves
+  // the requester may fix the request until GM approves or returns it
   return u.role === 'sales' && t.requestor_email === u.email &&
-    (t.stage === 'pending_manager' || t.stage === 'returned');
+    (t.stage === 'pending_manager' || t.stage === 'returned' || t.stage === 'pending_gm');
 }
 
 /**
@@ -1072,7 +1100,7 @@ function canEditRequest_(u, t) {
  * so a reviewer can fix the price and approve, instead of sending it back to the SR.
  */
 function canEditQuotes_(u, t) {
-  if (u.role === 'admin') return ['sourcing', 'pending_sr_manager', 'pending_gm_price'].indexOf(t.stage) !== -1;
+  if (u.role === 'admin') return t.stage === 'sourcing';   // for the SR; never inside an approver's step
   if (u.role === 'sr') return isSr_(t, u.email) && t.stage === 'sourcing';
   if (u.role === 'sr_manager') return t.stage === 'pending_sr_manager' && !isSr_(t, u.email);
   if (u.role === 'gm') return t.stage === 'pending_gm_price';
@@ -1128,6 +1156,9 @@ function canTransferItem_(u, t, it) {
 /** Actions Admin does as Admin (not on behalf of anyone). */
 const ADMIN_OWN_ACTIONS_ = ['assign', 'assign_items', 'transfer_item', 'admin_cancel', 'admin_delete', 'admin_restore'];
 const SALES_ACTIONS_ = ['resubmit', 'cancel', 'respond_info', 'accept', 'request_revision'];
+/** Approval decisions are personal: nobody (Admin included) approves, returns or rejects on behalf of the approver. */
+const APPROVAL_ACTIONS_ = ['manager_approve', 'manager_reject', 'manager_return', 'gm_approve', 'gm_reject', 'gm_return',
+  'srm_approve', 'srm_return', 'srm_reject', 'gm_price_approve', 'gm_price_return', 'gm_price_reject'];
 const SR_ACTIONS_ = ['request_info', 'doc_complete', 'submit_quote'];
 
 function asUser_(email, role) {
@@ -1452,6 +1483,9 @@ function enqueueNotifications_(emails, t, type, title, body, link) {
   const seen = {};
   const rowsToInsert = [];
   const now = new Date();
+  // Lark DM only for follow-up reminders (Settings lark_dm_types); everything else = web bell + group card
+  const dm = setting_('lark_dm_types', ['sla_warning', 'sla_breach', 'deal_due']);
+  const viaLark = Array.isArray(dm) && (dm.indexOf('*') !== -1 || dm.indexOf(type) !== -1);
   (emails || []).forEach(function (raw) {
     const email = String(raw || '').trim().toLowerCase();
     if (!email || seen[email] || email === actor) return;
@@ -1469,7 +1503,7 @@ function enqueueNotifications_(emails, t, type, title, body, link) {
       is_read: false,
       read_at: '',
       created_at: now,
-      lark_status: 'pending',
+      lark_status: viaLark ? 'pending' : 'off',
       lark_attempts: 0,
       lark_error: '',
       lark_sent_at: ''
@@ -1806,6 +1840,9 @@ function doTransition_(ticketId, action, comment, payload) {
   }
   // Admin may do any step: it runs as the responsible person (all rules apply), logged as Admin
   let u = actor;
+  if (actor.role === 'admin' && APPROVAL_ACTIONS_.indexOf(action) !== -1) {
+    throw appError_('FORBIDDEN', 'ไม่มีการอนุมัติแทน — การอนุมัติ / ตีกลับ / ปฏิเสธ ต้องทำโดยผู้อนุมัติขั้นนั้นเท่านั้น');
+  }
   if (actor.role === 'admin' && ADMIN_OWN_ACTIONS_.indexOf(action) === -1) {
     if (t.stage === 'deleted') throw appError_('INVALID_STATE', 'ใบนี้ถูกลบแล้ว — กู้คืนก่อนจึงจะทำรายการต่อได้');
     u = proxyUserFor_(t, action, payload);
@@ -2306,6 +2343,7 @@ function validateQuotesForSubmit_(t, onlyItemIds) {
   const today = todayBkk_();
   const minSup = Math.max(1, Number(setting_('min_suppliers', 3)) || 1);
   const fewSup = [];
+  const zeroPrice = [];
   let grand = 0;
   items.forEach(function (it) {
     if (it.quote_status) return;   // 'not_offered' / 'follow_up': answered without a price (follow-up = its own ticket)
@@ -2319,6 +2357,7 @@ function validateQuotesForSubmit_(t, onlyItemIds) {
     }
     if (w.length === 0) { noWinner.push(it.line_no); return; }
     const win = w[0];
+    if (!(Number(win.unit_price) > 0)) zeroPrice.push(it.line_no);   // a 0 price never happens in practice → stop it before Sales sees it
     if (!win.is_cheapest && !win.selection_reason) noReason.push(it.line_no);
     if (win.valid_until && win.valid_until < today) expired.push(it.line_no);
     grand += win.total_cost_thb;
@@ -2332,6 +2371,7 @@ function validateQuotesForSubmit_(t, onlyItemIds) {
     throw appError_('FEW_SUPPLIERS', 'ต้องมีราคา supplier อย่างน้อย ' + minSup + ' ราย หรือกรอกเหตุผลที่มีไม่ถึง: ลำดับที่ ' + fewSup.join(', '),
       { lines: fewSup, min: minSup });
   }
+  if (zeroPrice.length) throw appError_('ZERO_PRICE', 'ราคาผู้ชนะเป็น 0 — ตรวจราคาอีกครั้ง: ลำดับที่ ' + zeroPrice.join(', '), { lines: zeroPrice });
   if (noWinner.length) throw appError_('MISSING_WINNER', 'รายการที่ยังไม่ได้เลือกผู้ชนะ: ลำดับที่ ' + noWinner.join(', '), { lines: noWinner });
   if (noReason.length) {
     throw appError_('REASON_REQUIRED', 'เลือกผู้ชนะที่ไม่ใช่ราคาต่ำสุด ต้องระบุเหตุผล: ลำดับที่ ' + noReason.join(', '), { lines: noReason });
@@ -2432,6 +2472,7 @@ function ticketDetail_(u, t) {
       },
       me: { email: u.email, full_name: u.full_name, role: u.role },
       sla: fprSlaInfo_(t),
+      loaded_at: new Date().toISOString(),   // the pricing page sends it back: saves refuse prices changed by someone else since
       vat_rate: vatRate_(),
       app_version: APP_VERSION
     };
@@ -2441,9 +2482,9 @@ function ticketDetail_(u, t) {
 /** SLA deadline of the current FPR step for the web page (working time, Bangkok), or null. */
 function fprSlaInfo_(t) {
   try {
-    const s = slaDue_(t, workHours_(), holidaySet_());
+    const s = stageSla_(t, workHours_(), holidaySet_());
     if (!s) return null;
-    return { key: s.key, label: SLA_LABEL_[s.key], due: s.due.toISOString(), due_text: fmtDate_(s.due, 'dd/MM/yyyy HH:mm'),
+    return { key: s.key, label: s.label, due: s.due.toISOString(), due_text: fmtDate_(s.due, 'dd/MM/yyyy HH:mm'),
       hours: Math.round(s.minutes / 6) / 10, overdue: new Date() > s.due };
   } catch (e) { return null; }
 }
@@ -2455,7 +2496,9 @@ function allowedActions_(u, t) {
     if (t.stage === 'deleted') return ['admin_restore'];
     const all = [];
     proxyCandidates_(t).forEach(function (p) {
-      allowedActions_(p, t).forEach(function (x) { if (all.indexOf(x) === -1 && ADMIN_OWN_ACTIONS_.indexOf(x) === -1) all.push(x); });
+      allowedActions_(p, t).forEach(function (x) {
+        if (all.indexOf(x) === -1 && ADMIN_OWN_ACTIONS_.indexOf(x) === -1 && APPROVAL_ACTIONS_.indexOf(x) === -1) all.push(x);
+      });
     });
     if (OPEN_STATUSES.indexOf(t.status) !== -1) all.push('admin_cancel');
     if (['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1) all.push('assign');
@@ -2472,7 +2515,7 @@ function allowedActions_(u, t) {
     if (d && d.manager_email === u.email) a.push('manager_approve', 'manager_reject', 'manager_return');
   }
   if (u.role === 'gm' && t.stage === 'pending_gm' && t.manager_email !== u.email) a.push('gm_approve', 'gm_return', 'gm_reject');
-  if (u.role === 'sr' && t.stage === 'pending_assign') a.push('claim');
+  if (u.role === 'sr' && t.stage === 'pending_assign' && !toBool_(setting_('assign_by_group', true))) a.push('claim');   // by group: the SR Manager splits
   if ((u.role === 'sr' || u.role === 'sr_manager') && t.stage === 'pending_assign') a.push('queue_return');
   if (u.role === 'sr_manager' && t.stage === 'pending_sr_manager' && !isSr_(t, u.email)) a.push('srm_approve', 'srm_return', 'srm_reject');
   if (u.role === 'gm' && t.stage === 'pending_gm_price') a.push('gm_price_approve', 'gm_price_return', 'gm_price_reject');
@@ -2639,7 +2682,11 @@ function checklistOf_(ticketId) {
 function timelineOf_(ticketId) {
   const names = {};
   rows_(TAB.USERS).forEach(function (r) { names[String(r.email).toLowerCase()] = String(r.full_name); });
-  return findAll_(TAB.LOGS, 'ticket_id', ticketId)
+  // requests older than the archive anchor: their first log rows live in the archive spreadsheet
+  const anchor = logAnchor_();
+  const t0 = anchor ? ticketById_(ticketId) : null;
+  const archived = t0 && t0.created_at && Math.floor(new Date(t0.created_at).getTime() / 1000) * 1000 <= new Date(anchor.last_ts).getTime() ? archivedLogsOf_(ticketId) : [];
+  return archived.concat(findAll_(TAB.LOGS, 'ticket_id', ticketId))
     .sort(function (a, b) { return Number(a.log_id) - Number(b.log_id); })
     .map(function (l) {
       return {
@@ -2992,6 +3039,10 @@ function validateQuoteFields_(p, t) {
     fx = toNumber_(p.fx_rate === undefined || p.fx_rate === '' ? 1 : p.fx_rate, 'อัตราแลกเปลี่ยน', { gt: 0 });
     if (fx !== 1) throw appError_('VALIDATION', 'สกุลเงิน THB ต้องใช้อัตราแลกเปลี่ยน = 1');
   } else {
+    // "35,5" would be read as 355 (comma = thousands) → a 10× price: the rate must use a decimal point
+    if (/,/.test(String(p.fx_rate == null ? '' : p.fx_rate))) {
+      throw appError_('VALIDATION', 'อัตราแลกเปลี่ยน (' + currency + ' → THB) ใช้จุดทศนิยม เช่น 35.50 (ห้ามใช้จุลภาค)');
+    }
     fx = toNumber_(p.fx_rate, 'อัตราแลกเปลี่ยน (' + currency + ' → THB)', { gt: 0, max: 100000 });
   }
 
@@ -3125,7 +3176,7 @@ function selectQuotationCore_(u, quoteId, reason) {
  * - completely blank vendor columns are ignored (draft may be incomplete)
  * - every row is validated BEFORE anything is written, so a bad row never leaves a half-saved draft
  */
-function saveSourcingDraft(ticketId, items) {
+function saveSourcingDraft(ticketId, items, loadedAt) {
   return api_('saveSourcingDraft', function () {
     return withLock_(function () {
       const u = currentUser_();
@@ -3134,6 +3185,7 @@ function saveSourcingDraft(ticketId, items) {
       const byId = {};
       activeItemsOf_(t.ticket_id).forEach(function (it) { byId[it.item_id] = it; });
       const list = Array.isArray(items) ? items : [];
+      requireFreshDraft_(u, t, list, loadedAt, byId);
 
       // 1) validate everything
       const plan = list.map(function (row) {
@@ -3212,6 +3264,30 @@ function saveSourcingDraft(ticketId, items) {
       return { changes: changes, detail: ticketDetail_(u, ticketById_(t.ticket_id)) };
     });
   });
+}
+
+/**
+ * Stale page guard: the page was loaded at `loadedAt`; if someone ELSE changed a price / supplier / winner / GP
+ * of one of these items since then, saving the old page would silently delete or overwrite their work → refuse.
+ */
+function requireFreshDraft_(u, t, list, loadedAt, byId) {
+  const at = loadedAt ? new Date(loadedAt).getTime() : NaN;
+  if (!isFinite(at)) return;   // older pages without the timestamp
+  const since = Math.floor(at / 1000) * 1000;   // log timestamps are whole seconds
+  const ids = {};
+  list.forEach(function (r) { if (r && r.item_id) ids[String(r.item_id)] = true; });
+  const clash = findAll_(TAB.LOGS, 'ticket_id', t.ticket_id).filter(function (l) {
+    if (COST_LOG_ACTIONS_.indexOf(String(l.action)) === -1 || String(l.actor_email).toLowerCase() === u.email) return false;
+    if (new Date(l.ts).getTime() < since) return false;
+    const m = parseJson_(l.metadata_json, {});
+    return !m.item_id || ids[String(m.item_id)];
+  });
+  if (!clash.length) return;
+  const who = userByEmail_(String(clash[clash.length - 1].actor_email));
+  const lines = [];
+  clash.forEach(function (l) { const it = byId[String(parseJson_(l.metadata_json, {}).item_id)]; if (it && lines.indexOf(it.line_no) === -1) lines.push(it.line_no); });
+  throw appError_('STALE_DRAFT', (who ? who.full_name : String(clash[0].actor_email)) + ' แก้ราคา' + (lines.length ? 'รายการที่ ' + lines.join(', ') : 'ในใบนี้') +
+    ' หลังจากคุณเปิดหน้านี้ — กรุณาโหลดหน้าใหม่ก่อนบันทึก (เพื่อไม่ให้ลบหรือทับราคาของคนอื่น)', { lines: lines });
 }
 
 /** rows: [{ check_id, is_checked, note }] — SR ticks several documents in one call. */
@@ -4072,7 +4148,8 @@ function listContext_() {
   rows_(TAB.TICKETS).forEach(function (r) { ticketNos[String(r.ticket_id)] = String(r.ticket_no); });
   return {
     itemsByTicket: itemsByTicket, groups: groups, names: names, deptMgr: deptMgr, ticketNos: ticketNos,
-    sla: setting_('sla_hours', {}), warn: Number(setting_('sla_warning_ratio', 0.8))
+    sla: setting_('sla_hours', {}), warn: Number(setting_('sla_warning_ratio', 0.8)),
+    byGroup: toBool_(setting_('assign_by_group', true)), wh: workHours_(), hol: holidaySet_(), fpr: setting_('fpr_sla', {})
   };
 }
 
@@ -4083,34 +4160,44 @@ function rootGroup_(code, groups) {
   return c;
 }
 
-/** Is this user the one who must act now? (no per-row sheet reads) */
+/**
+ * Is this user the one who must act now? (no per-row sheet reads) — exactly the people with work to do:
+ *   doc_check: the first SR of the request (one owner for the document check)
+ *   sourcing:  each SR that still has items to send (an SR who already sent drops out)
+ *   + SR Manager while items have no SR (assign_by_group) · pending_assign: SR Manager (by group) / any SR (queue)
+ */
 function isAssignee_(u, t, ctx) {
+  const items = (ctx.itemsByTicket[t.ticket_id] || []).filter(function (it) { return !it.quote_status; });
+  const unassigned = ctx.byGroup && items.some(function (it) { return !itemOwner_(t, it); });
+  if (unassigned && u.role === 'sr_manager' && (t.stage === 'doc_check' || t.stage === 'sourcing')) return true;
   switch (t.stage) {
     case 'pending_manager': return u.role === 'manager' && (ctx.deptMgr[t.department_code] || t.manager_email) === u.email;
     case 'returned':
     case 'need_info':
     case 'awaiting_sales_ack': return t.requestor_email === u.email;
     case 'pending_gm': return u.role === 'gm' && t.manager_email !== u.email;
-    case 'pending_assign': return u.role === 'sr';
-    case 'doc_check':
-    case 'sourcing': return isSr_(t, u.email);
+    case 'pending_assign': return ctx.byGroup ? u.role === 'sr_manager' : u.role === 'sr';
+    case 'doc_check': return u.role === 'sr' && (t.sr_email === u.email || (!t.sr_email && isSr_(t, u.email)));
+    case 'sourcing': return u.role === 'sr' && items.some(function (it) { return !it.sr_submitted_at && itemOwner_(t, it) === u.email; });
     case 'pending_sr_manager': return u.role === 'sr_manager' && !isSr_(t, u.email);
     case 'pending_gm_price': return u.role === 'gm';
     default: return false;
   }
 }
 
+/** List / home / dashboard SLA badge — the same engine as the request page and the reminders (Bots.gs stageSla_). */
 function slaInfo_(t, ctx, now) {
   const open = OPEN_STATUSES.indexOf(t.status) !== -1;
   const entered = t.stage_entered_at ? new Date(t.stage_entered_at) : new Date(t.created_at);
   const ageH = hoursBetween_(entered, now);
-  const slaH = Number(ctx.sla[t.stage] || 0);
+  const s = open ? stageSla_(t, ctx.wh, ctx.hol, { fpr: ctx.fpr, hours: ctx.sla }) : null;
   let status = 'none';
   if (!open) status = 'done';
-  else if (slaH > 0 && ageH >= slaH) status = 'breach';
-  else if (slaH > 0 && ageH >= slaH * ctx.warn) status = 'warning';
-  else if (slaH > 0) status = 'ok';
-  return { stage_age_hours: round_(ageH, 1), sla_hours: slaH || null, sla_status: status };
+  else if (s && now >= s.due) status = 'breach';
+  else if (s && workMinutesBetween_(s.start, now, ctx.wh, ctx.hol) >= s.minutes * ctx.warn) status = 'warning';
+  else if (s) status = 'ok';
+  return { stage_age_hours: round_(ageH, 1), sla_hours: s ? round_(s.minutes / 60, 1) : null, sla_status: status,
+    sla_due: s ? fmtDate_(s.due, 'dd/MM HH:mm') : '' };
 }
 
 function summaryRow_(t, ctx, now) {
@@ -5137,9 +5224,9 @@ function fprLink_(t) {
 // ---------------------------------------------------------------- working time (SLA)
 
 function workHours_() {
-  const w = setting_('work_hours', { start: '08:30', end: '17:30', days: [1, 2, 3, 4, 5] }) || {};
-  const min = function (hhmm, d) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : d; };
-  const s = min(w.start, 510), e = min(w.end, 1050);
+  const w = setting_('work_hours', { start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }) || {};
+  const min = function (hhmm, d) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '')); return m ? Math.min(1440, Number(m[1]) * 60 + Number(m[2])) : d; };
+  const s = min(w.start, 0), e = min(w.end, 1440);
   return { start: s, end: e > s ? e : s + 540, days: Array.isArray(w.days) && w.days.length ? w.days.map(Number) : [1, 2, 3, 4, 5] };
 }
 
@@ -5196,15 +5283,27 @@ function slaMinutes_(rule, wh) {
   return Math.round((Number(r.hours) || 0) * 60);
 }
 
-/** SLA deadline of the ticket's current FPR step, or null. */
-function slaDue_(t, wh, hol) {
-  const key = SLA_KEY_OF_STAGE_[t.stage];
-  if (!key || OPEN_STATUSES.indexOf(t.status) === -1) return null;
-  const rule = (setting_('fpr_sla', {}) || {})[key];
-  const mins = slaMinutes_(rule, wh);
+/**
+ * THE SLA of a ticket's current stage (one engine for the list, home, request page, SLA DMs and the FPR Reminder):
+ * calendar hours, 24 h a day, Sat–Sun (Settings work_hours) and Holidays not counted.
+ * FPR steps use Settings fpr_sla; every other open stage uses Settings sla_hours (hours). null = no SLA.
+ */
+function stageSla_(t, wh, hol, opts) {
+  if (OPEN_STATUSES.indexOf(t.status) === -1) return null;
+  const key = SLA_KEY_OF_STAGE_[t.stage] || '';
+  let mins;
+  if (key) mins = slaMinutes_((opts && opts.fpr || setting_('fpr_sla', {}) || {})[key], wh);
+  else mins = (Number(((opts && opts.hours) || setting_('sla_hours', {}) || {})[t.stage]) || 0) * 60;
   const start = key === 'PRICING' ? (t.pricing_started_at || t.stage_entered_at) : t.stage_entered_at;
   if (!mins || !start) return null;
-  return { key: key, start: new Date(start), due: addWorkMinutes_(start, mins, wh, hol), minutes: mins };
+  return { key: key, label: key ? SLA_LABEL_[key] : (STAGE_LABEL_TH[t.stage] || t.stage), start: new Date(start),
+    due: addWorkMinutes_(start, mins, wh, hol), minutes: mins };
+}
+
+/** SLA of the current FPR step only (FPR Reminder bot), or null. */
+function slaDue_(t, wh, hol) {
+  const s = stageSla_(t, wh, hol);
+  return s && s.key ? s : null;
 }
 
 // ---------------------------------------------------------------- cards
@@ -5361,8 +5460,8 @@ function sendSlaReminders() {
       const who = stageAssignees_(t);
       const title = '⏰ งานค้างเกิน SLA — ' + facts.no;
       const card = buildCard_({ color: 'yellow', title: title, facts: facts, mentions: who, link: fprLink_(t),
-        extra: ['**ขั้นที่ค้าง:** ' + SLA_LABEL_[sla.key] + ' · SLA ' + Math.round(sla.minutes / 60 * 10) / 10 + ' ชม.ทำงาน',
-          '**เกินกำหนดมาแล้ว:** ' + Math.floor(late / 60) + ' ชม. ' + (late % 60) + ' นาที (นับเฉพาะเวลาทำงาน)'] });
+        extra: ['**ขั้นที่ค้าง:** ' + SLA_LABEL_[sla.key] + ' · SLA ' + Math.round(sla.minutes / 60 * 10) / 10 + ' ชม.',
+          '**เกินกำหนดมาแล้ว:** ' + Math.floor(late / 60) + ' ชม. ' + (late % 60) + ' นาที (ไม่นับเสาร์-อาทิตย์)'] });
       updateRow_(TAB.TICKETS, t.ticket_id, { last_reminded_at: now });
       BOT_QUEUE_.push({ bot: 'reminder', event: 'sla_' + sla.key, ticket_id: t.ticket_id, ticket_no: facts.no, card: card, summary: cardText_(card) });
       sent.push(facts.no);
@@ -5534,7 +5633,7 @@ function testBots() {
     out.push(k + ': ' + sendBot_('fpr', card, { event: 'test_' + k, ticket_no: f.no, summary: 'testBots ' + k }).status);
   });
   const rem = buildCard_({ color: 'yellow', title: '[ทดสอบ] ⏰ งานค้างเกิน SLA — FPR-TEST-0001', facts: facts, mentions: [me], link: link,
-    extra: ['**ขั้นที่ค้าง:** ' + SLA_LABEL_.GM_REVIEW + ' · SLA 4 ชม.ทำงาน', '**เกินกำหนดมาแล้ว:** 1 ชม. 20 นาที (นับเฉพาะเวลาทำงาน)'] });
+    extra: ['**ขั้นที่ค้าง:** ' + SLA_LABEL_.GM_REVIEW + ' · SLA 4 ชม.', '**เกินกำหนดมาแล้ว:** 1 ชม. 20 นาที (ไม่นับเสาร์-อาทิตย์)'] });
   out.push('reminder: ' + sendBot_('reminder', rem, { event: 'test_reminder', ticket_no: 'FPR-TEST-0001', summary: 'testBots reminder' }).status);
   console.log(out.join('\n'));
   return out;
@@ -5559,7 +5658,7 @@ function testBots() {
  * Time triggers run as the owner: there is no "current user", so actions are stamped 'system'.
  */
 
-const JOB_HANDLERS_ = ['dispatchNotifications', 'checkSlaAlerts', 'runSelfTest', 'weeklyBackup', 'sendSlaReminders'];
+const JOB_HANDLERS_ = ['dispatchNotifications', 'checkSlaAlerts', 'runSelfTest', 'weeklyBackup', 'sendSlaReminders', 'sendDealFollowUps', 'runRetention'];
 const BACKUP_KEEP_ = 12;
 
 function installTriggers() {
@@ -5572,6 +5671,8 @@ function installTriggers() {
   ScriptApp.newTrigger('sendSlaReminders').timeBased().everyHours(1).create();   // FPR Reminder bot (Bots.gs)
   ScriptApp.newTrigger('runSelfTest').timeBased().everyDays(1).atHour(7).inTimezone(CFG.TZ).create();
   ScriptApp.newTrigger('weeklyBackup').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(6).inTimezone(CFG.TZ).create();
+  ScriptApp.newTrigger('sendDealFollowUps').timeBased().everyDays(1).atHour(8).nearMinute(45).inTimezone(CFG.TZ).create();   // Lark DM: deals to follow up
+  ScriptApp.newTrigger('runRetention').timeBased().onMonthDay(1).atHour(3).inTimezone(CFG.TZ).create();                      // monthly clean-up (Retention.gs)
   const msg = 'Installed triggers: ' + JOB_HANDLERS_.join(', ');
   console.log(msg);
   return msg;
@@ -5582,20 +5683,21 @@ function checkSlaAlerts() {
   requireJobContext_();
   try {
     const result = withLock_(function () {
-      const sla = setting_('sla_hours', {});
       const warn = Number(setting_('sla_warning_ratio', 0.8));
+      const wh = workHours_(), hol = holidaySet_();
       const now = new Date();
       const existing = {};
       rows_(TAB.SLA_ALERTS).forEach(function (a) { existing[String(a.alert_key)] = true; });
       const breaches = [];
       let queued = 0;
       rows_(TAB.TICKETS).map(normTicket_).forEach(function (t) {
-        if (OPEN_STATUSES.indexOf(t.status) === -1) return;
-        const slaH = Number(sla[t.stage] || 0);
-        if (!(slaH > 0) || !t.stage_entered_at) return;
-        const entered = new Date(t.stage_entered_at);
-        const ageH = hoursBetween_(entered, now);
-        const level = ageH >= slaH ? 'breach' : ageH >= slaH * warn ? 'warning' : '';
+        // same SLA as the list / request page / FPR Reminder (calendar hours, Sat–Sun + Holidays not counted)
+        const s = stageSla_(t, wh, hol);
+        if (!s) return;
+        const entered = s.start;
+        const ageH = workMinutesBetween_(s.start, now, wh, hol) / 60;
+        const slaH = round_(s.minutes / 60, 1);
+        const level = now >= s.due ? 'breach' : ageH >= slaH * warn ? 'warning' : '';
         if (!level) return;
         const key = t.ticket_id + '|' + t.stage + '|' + entered.toISOString() + '|' + level;
         if (existing[key]) return;
@@ -5604,21 +5706,46 @@ function checkSlaAlerts() {
         const recipients = stageAssignees_(t).concat(level === 'breach' ? stageEscalation_(t) : []);
         enqueueNotifications_(recipients, t, 'sla_' + level,
           '[' + t.ticket_no + '] ' + (level === 'breach' ? '⛔ เกิน SLA' : '⚠️ ใกล้ครบ SLA') + ': ' + STAGE_LABEL_TH[t.stage],
-          t.title + '\nค้างใน stage นี้ ' + round_(ageH, 1) + ' ชม. (SLA ' + slaH + ' ชม.)', ticketLink_(t));
+          t.title + '\nค้างในขั้นนี้ ' + round_(ageH, 1) + ' ชม. (SLA ' + slaH + ' ชม. ไม่นับเสาร์-อาทิตย์)', ticketLink_(t));
         queued++;
         if (level === 'breach') breaches.push(t.ticket_no + ' — ' + STAGE_LABEL_TH[t.stage] + ' (' + round_(ageH, 0) + '/' + slaH + ' ชม.)');
       });
       return { queued: queued, breaches: breaches };
     });
-    if (result.breaches.length) {
-      larkGroupText_('⛔ ใบขอราคาเกิน SLA ' + result.breaches.length + ' ใบ\n' + result.breaches.slice(0, 20).join('\n'));
-    }
+    // the group hears about overdue jobs from the FPR Reminder bot (sendSlaReminders) — this job only DMs the people concerned
     return result;
   } catch (e) {
     logError_('checkSlaAlerts', e);
     larkGroupText_('⚠️ checkSlaAlerts ล้มเหลว: ' + e.message);
     throw e;
   }
+}
+
+/**
+ * Daily (Mon–Fri): one Lark DM per Sales who has deals waiting for a customer follow-up (ติดตามการขาย).
+ * At most one per person per day; the list is the same as the "⏳ งานค้าง" view.
+ */
+function sendDealFollowUps() {
+  requireJobContext_();
+  const p = bkk_(Date.now());
+  if (workHours_().days.indexOf(p.dow) === -1 || holidaySet_()[p.ymd]) return { sent: 0, skipped: 'not a working day' };
+  const today = todayBkk_();
+  return withLock_(function () {
+    const already = {};
+    rows_(TAB.NOTIFICATIONS).forEach(function (n) { if (String(n.type) === 'deal_due' && fmtDate_(n.created_at) === today) already[String(n.user_email).toLowerCase()] = true; });
+    let sent = 0;
+    activeUsersByRole_('sales').forEach(function (u) {
+      if (already[u.email]) return;
+      const due = dealRows_(u, false).filter(function (r) { return r.is_due && r.can_edit && r.requestor_email === u.email; });
+      if (!due.length) return;
+      const lines = due.slice(0, 5).map(function (r) { return '• ' + r.customer_name + ' — ' + r.product_name + (r.deal_next_step ? ' (' + r.deal_next_step + ')' : ''); });
+      if (due.length > 5) lines.push('… และอีก ' + (due.length - 5) + ' รายการ');
+      let base = PropertiesService.getScriptProperties().getProperty(CFG.PROP.WEBAPP_URL) || '';
+      if (!base) { try { base = ScriptApp.getService().getUrl() || ''; } catch (e) { base = ''; } }
+      sent += enqueueNotifications_([u.email], null, 'deal_due', '🎯 ติดตามลูกค้า ' + due.length + ' รายการวันนี้', lines.join('\n'), base + '?page=deals&view=pending');
+    });
+    return { sent: sent };
+  });
 }
 
 /** Weekly copy of the database spreadsheet into <attachments root>/Backups. */
@@ -5702,7 +5829,10 @@ function runSelfTest() {
   t('every ticket has a create log (no half-written ticket)', function () {
     const withLog = {};
     rows_(TAB.LOGS).forEach(function (l) { if (l.action === 'create') withLog[String(l.ticket_id)] = true; });
-    const orphans = rows_(TAB.TICKETS).filter(function (r) { return !withLog[String(r.ticket_id)]; }).map(function (r) { return r.ticket_no; });
+    const anchor = logAnchor_();
+    const archivedUntil = anchor ? new Date(anchor.last_ts).getTime() : 0;   // create logs of older requests are in the archive
+    const orphans = rows_(TAB.TICKETS).filter(function (r) { return !withLog[String(r.ticket_id)] && !(Math.floor(new Date(r.created_at).getTime() / 1000) * 1000 <= archivedUntil); })
+      .map(function (r) { return r.ticket_no; });
     if (orphans.length) throw new Error('ใบที่ไม่มี log การสร้าง: ' + orphans.join(', '));
   });
   t('status matches stage on every ticket', function () {
@@ -5727,6 +5857,151 @@ function runSelfTest() {
   console.log(out.join('\n'));
   if (failedLines.length) larkGroupText_('⚠️ MGS Food Price Request self-test พบปัญหา ' + failedLines.length + ' ข้อ\n' + failedLines.join('\n'));
   return out;
+}
+
+// =============================================================================
+// Retention (monthly trigger, runRetention) — keeps the Sheet and Drive from growing forever
+// without losing anything needed for an audit. Durations: Settings › retention.
+//   Tickets / items / quotations / suppliers / users: kept forever.
+//   TicketLogs: rows older than log_archive_months whose request is closed move (oldest first, in log order)
+//     to the archive spreadsheet; the last archived hash is kept as the chain anchor (verifyLogChain still proves
+//     nothing was changed) and old timelines read the archive.
+// =============================================================================
+const RETENTION_DEFAULTS_ = { notifications_read_days: 180, notif_log_days: 180, sla_alerts_days: 90, usage_raw_days: 90,
+  error_log_days: 180, log_archive_months: 18, loser_photo_days: 180 };
+const LOG_ANCHOR_PROP_ = 'LOG_ARCHIVE_ANCHOR';
+
+function runRetention() {
+  requireJobContext_();
+  const cfg = Object.assign({}, RETENTION_DEFAULTS_, setting_('retention', {}) || {});
+  const now = Date.now();
+  const before = function (days) { return now - Number(days) * 86400000; };
+  const out = withLock_(function () {
+    const r = {};
+    r.notifications = deleteRowsWhere_(TAB.NOTIFICATIONS, function (n) {
+      return toBool_(n.is_read) && n.read_at && new Date(n.read_at).getTime() < before(cfg.notifications_read_days);
+    });
+    r.notif_log = deleteRowsWhere_(TAB.NOTIF_LOG, function (n) { return n.ts && new Date(n.ts).getTime() < before(cfg.notif_log_days); });
+    r.error_log = deleteRowsWhere_(TAB.ERRORS, function (n) { return n.ts && new Date(n.ts).getTime() < before(cfg.error_log_days); });
+    const open = {};
+    rows_(TAB.TICKETS).forEach(function (t) { if (OPEN_STATUSES.indexOf(String(t.status)) !== -1) open[String(t.ticket_id)] = true; });
+    r.sla_alerts = deleteRowsWhere_(TAB.SLA_ALERTS, function (a) {
+      return !open[String(a.ticket_id)] && a.created_at && new Date(a.created_at).getTime() < before(cfg.sla_alerts_days);
+    });
+    r.usage = rollUpUsage_(before(cfg.usage_raw_days));
+    r.loser_photos = purgeLoserPhotos_(before(cfg.loser_photo_days));
+    r.logs_archived = archiveLogs_(now - Number(cfg.log_archive_months) * 30.44 * 86400000, open);
+    return r;
+  });
+  console.log('runRetention: ' + JSON.stringify(out));
+  return out;
+}
+
+/** UsageLog: daily rows older than the cut-off → one row per month / person / page (day = yyyy-MM). */
+function rollUpUsage_(cutoff) {
+  const sum = {};
+  const old = rows_(TAB.USAGE_LOG).filter(function (u) {
+    const d = String(u.day || '');
+    return d.length === 10 && new Date(d + 'T00:00:00+07:00').getTime() < cutoff;
+  });
+  if (!old.length) return 0;
+  old.forEach(function (u) {
+    const k = [String(u.day).slice(0, 7), String(u.email), String(u.role), String(u.page)].join('|');
+    sum[k] = (sum[k] || 0) + (Number(u.views) || 0);
+  });
+  const monthly = {};
+  rows_(TAB.USAGE_LOG).forEach(function (u) { if (String(u.day).length === 7) monthly[[u.day, u.email, u.role, u.page].join('|')] = u; });
+  const ids = {};
+  old.forEach(function (u) { ids[String(u.log_id)] = true; });
+  const add = [];
+  Object.keys(sum).forEach(function (k) {
+    const m = monthly[k];
+    if (m) updateRow_(TAB.USAGE_LOG, m.log_id, { views: Number(m.views || 0) + sum[k] });
+    else { const p = k.split('|'); add.push({ log_id: uuid_(), day: p[0], email: p[1], role: p[2], page: p[3], views: sum[k] }); }
+  });
+  insertRows_(TAB.USAGE_LOG, add);
+  return deleteRowsWhere_(TAB.USAGE_LOG, function (u) { return ids[String(u.log_id)]; });
+}
+
+/** Supplier photos of offers that did NOT win, cut-off after the request closed → Drive trash + attachment marked deleted. */
+function purgeLoserPhotos_(cutoff) {
+  const tickets = {};
+  rows_(TAB.TICKETS).map(normTicket_).forEach(function (t) {
+    if (OPEN_STATUSES.indexOf(t.status) !== -1) return;
+    const end = t.closed_at || t.rejected_at || t.cancelled_at || t.updated_at;
+    if (end && new Date(end).getTime() < cutoff) tickets[t.ticket_id] = true;
+  });
+  const winners = {};
+  rows_(TAB.QUOTATIONS).forEach(function (q) { if (toBool_(q.is_selected) && !toBool_(q.is_deleted)) winners[String(q.quote_id)] = true; });
+  const byTicket = {};
+  const now = new Date();
+  rows_(TAB.ATTACHMENTS).filter(function (a) {
+    return String(a.category) === 'quote_photo' && !toBool_(a.is_deleted) && tickets[String(a.ticket_id)] && !winners[String(a.quote_id)];
+  }).forEach(function (a) {
+    try { drive_().getFileById(String(a.drive_file_id)).setTrashed(true); } catch (e) { console.warn('retention: trash failed', a.drive_file_id, e); }
+    updateRow_(TAB.ATTACHMENTS, a.attachment_id, { is_deleted: true, deleted_by: 'retention', deleted_at: now });
+    byTicket[String(a.ticket_id)] = (byTicket[String(a.ticket_id)] || 0) + 1;
+  });
+  let n = 0;
+  Object.keys(byTicket).forEach(function (id) {
+    n += byTicket[id];
+    appendLog_({ ticket_id: id, action: 'retention_photos', actor_email: 'system', actor_role: 'system',
+      metadata: { removed_supplier_photos: byTicket[id], rule: 'รูป supplier ที่ไม่ได้รับเลือก หลังปิดงาน' } });
+  });
+  return n;
+}
+
+function logAnchor_() {
+  return parseJson_(PropertiesService.getScriptProperties().getProperty(LOG_ANCHOR_PROP_), null);
+}
+
+/**
+ * Move the oldest TicketLogs rows (log order) to the archive spreadsheet while they are older than the cut-off
+ * AND their request is closed; stops at the first row that must stay, so the remaining chain starts right after
+ * the anchor (last archived log_id + hash).
+ */
+function archiveLogs_(cutoff, open) {
+  const list = rows_(TAB.LOGS).slice().sort(function (a, b) { return Number(a.log_id) - Number(b.log_id); });
+  const move = [];
+  for (let i = 0; i < list.length; i++) {
+    const l = list[i];
+    if (!l.ts || new Date(l.ts).getTime() >= cutoff || (l.ticket_id && open[String(l.ticket_id)])) break;
+    move.push(l);
+  }
+  if (!move.length) return 0;
+  const props = PropertiesService.getScriptProperties();
+  const anchor = logAnchor_() || {};
+  let ss;
+  if (anchor.spreadsheet_id) ss = SpreadsheetApp.openById(anchor.spreadsheet_id);
+  else ss = SpreadsheetApp.create('MGS Food Price Request — LOG ARCHIVE (do not edit)');
+  const cols = SCHEMA.TicketLogs.cols;
+  let sh = ss.getSheetByName(TAB.LOGS);
+  if (!sh) { sh = ss.insertSheet(TAB.LOGS); sh.getRange(1, 1, 1, cols.length).setValues([cols]); }
+  sh.getRange(sh.getLastRow() + 1, 1, move.length, cols.length).setValues(move.map(function (l) {
+    return cols.map(function (c) { return toCell_(l[c]); });
+  }));
+  const ids = {};
+  move.forEach(function (l) { ids[String(l.log_id)] = true; });
+  deleteRowsWhere_(TAB.LOGS, function (l) { return ids[String(l.log_id)]; });
+  const last = move[move.length - 1];
+  props.setProperty(LOG_ANCHOR_PROP_, JSON.stringify({ spreadsheet_id: ss.getId(), last_log_id: Number(last.log_id), last_hash: String(last.hash),
+    last_ts: new Date(last.ts).toISOString(), rows: (Number(anchor.rows) || 0) + move.length, updated_at: new Date().toISOString() }));
+  return move.length;
+}
+
+/** Archived timeline rows of one ticket (only opened for requests older than the anchor). */
+function archivedLogsOf_(ticketId) {
+  const a = logAnchor_();
+  if (!a || !a.spreadsheet_id) return [];
+  try {
+    const sh = SpreadsheetApp.openById(a.spreadsheet_id).getSheetByName(TAB.LOGS);
+    if (!sh || sh.getLastRow() < 2) return [];
+    const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+    const ti = head.indexOf('ticket_id');
+    return sh.getRange(2, 1, sh.getLastRow() - 1, head.length).getValues()
+      .filter(function (r) { return String(r[ti]) === String(ticketId); })
+      .map(function (r) { const o = {}; head.forEach(function (h, i) { o[h] = cellUnsafe_(r[i]); }); return o; });
+  } catch (e) { console.warn('archivedLogsOf_', e); return []; }
 }
 
 
@@ -5936,6 +6211,15 @@ function setupDatabase() {
     report.push('Created Drive folder ' + folder.getId());
   }
   const mig = withLock_(function () { return migrateSuppliersCore_(); });
+  // v2026.10.12-1: SLA in calendar hours (24 h a day), Sat–Sun not counted — replace the old 08:30–17:30 default once
+  withLock_(function () {
+    const wh = findOne_(TAB.SETTINGS, 'key', 'work_hours');
+    const old = wh ? parseJson_(wh.value, {}) : null;
+    if (old && old.start === '08:30' && old.end === '17:30') {
+      updateRow_(TAB.SETTINGS, 'work_hours', { value: JSON.stringify({ start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }), updated_at: new Date(), updated_by: 'setup' });
+      report.push('Settings work_hours: SLA นับชั่วโมงปฏิทิน 24 ชม. ไม่นับเสาร์-อาทิตย์');
+    }
+  });
   // v2026.10.11-1: product group "Others" (items without an SR → SR Manager splits the work)
   withLock_(function () {
     if (!findOne_(TAB.PRODUCT_GROUPS, 'code', 'FOOD-OTHERS') && findOne_(TAB.PRODUCT_GROUPS, 'code', 'FOOD')) {
@@ -6366,7 +6650,7 @@ function runAcceptanceTests() {
       // Tests run WITH a Sales Manager; the "no Sales Manager → skip to GM" path is tested separately
       updateRow_(TAB.DEPARTMENTS, 'SALES-FOOD', { manager_email: demoUsers_().mgrFood });
       // The original flow cases below run with the pre-FPR switches; runFprCases_ turns the FPR switches on
-      setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false' });
+      setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false', lark_dm_types: '["*"]' });
     });
     runCases_(results);
     runPhase2Cases_(results);
@@ -6383,6 +6667,7 @@ function runAcceptanceTests() {
     runFprCases_(results);
     runAdminCases_(results);
     runGroupAssignCases_(results);
+    runAuditFixCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -6557,11 +6842,13 @@ function runCases_(results) {
     ok(activeItemsOf_(id)[0].spec === 'รุ่น DZ-400 ห้องซีล 40 ซม.', 'Sales edits item while returned');
     ok(must(go(U.salesFood3, id, 'resubmit')).ticket.stage === 'pending_manager', 'Resubmit → pending_manager');
     ok(must(go(U.mgrFood, id, 'manager_approve')).ticket.stage === 'pending_gm', 'Manager approve → pending_gm');
-    expectErr(as(U.salesFood3, function () {
-      return saveItem(id, Object.assign({}, item1, { qty: 99 }), ver(id));
-    }), 'FORBIDDEN', 'Sales cannot edit items after Manager approval');
+    must(as(U.salesFood3, function () { return saveItem(id, Object.assign({}, item1, { qty: 99 }), ver(id)); }), 'Sales edits while waiting for GM');
+    ok(activeItemsOf_(id).filter(function (x) { return x.item_id === item1.item_id; })[0].qty === 99, 'Sales may still fix the request until GM approves or returns it');
 
     const g = must(go(U.gm, id, 'gm_approve')).ticket;
+    expectErr(as(U.salesFood3, function () {
+      return saveItem(id, Object.assign({}, item1, { qty: 98 }), ver(id));
+    }), 'FORBIDDEN', 'Sales cannot edit items after GM approval');
     ok(g.status === 'on_process' && g.stage === 'pending_assign', 'GM approve → On Process / pending_assign');
     expectErr(go(U.salesFood3, id, 'cancel'), 'INVALID_STATE', 'Sales cannot cancel after GM approval');
     expectErr(go(U.sr2, id, 'assign', '', { sr_email: U.sr1 }), 'FORBIDDEN', 'Normal SR cannot assign');
@@ -6995,6 +7282,10 @@ function runPhase2Cases_(results) {
       const sla = setting_('sla_hours', {});
       sla.pending_manager = 0.0001;
       updateRow_(TAB.SETTINGS, 'sla_hours', { value: JSON.stringify(sla) });
+      // weekends are not counted → put the waiting requests a full week back so the test does not depend on today's weekday
+      rows_(TAB.TICKETS).filter(function (r) { return r.stage === 'pending_manager'; }).forEach(function (r) {
+        updateRow_(TAB.TICKETS, r.ticket_id, { stage_entered_at: new Date(Date.now() - 7 * 86400000) });
+      });
     });
     const r1 = checkSlaAlerts();
     const r2 = checkSlaAlerts();
@@ -8330,18 +8621,14 @@ function runAdminCases_(results) {
         'Admin: creates a request for Sales (owned by that Sales, log says Admin on behalf of)');
       ok(as(U.salesFood2, function () { return getTicket(id).ok; }), 'Admin: the Sales sees the request created for them');
       const acts = must(A(function () { return getTicket(id); })).permissions.actions;
-      ok(['gm_approve', 'gm_return', 'gm_reject', 'cancel', 'admin_cancel', 'admin_delete'].every(function (a) { return acts.indexOf(a) !== -1; }),
-        'Admin: gets GM + Sales + Admin buttons at GM_REVIEW (' + acts.join(', ') + ')');
+      ok(['cancel', 'admin_cancel', 'admin_delete'].every(function (a) { return acts.indexOf(a) !== -1; }) && !acts.some(function (a) { return APPROVAL_ACTIONS_.indexOf(a) !== -1; }),
+        'Admin: Sales + Admin buttons at GM_REVIEW, no GM approve / return / reject (' + acts.join(', ') + ')');
       ok(must(A(function () { return getTicket(id); })).permissions.can_edit_request, 'Admin: can edit the request before GM approval');
       must(A(function () { return updateTicketRequest(id, { customer_name: 'ลูกค้า Admin (แก้)' }, ticketById_(id).version); }));
       ok(ticketById_(id).customer_name === 'ลูกค้า Admin (แก้)', 'Admin: edit saved');
-      expectErr(go(U.admin, id, 'gm_approve'), 'INVALID_ASSIGNEE', 'Admin approving for GM still has to pick the Sourcing person');
-      must(go(U.admin, id, 'gm_approve', '', { sr_email: U.sr2 }));
-      const g = lastLog(id, 'gm_approve');
-      ok(ticketById_(id).stage === 'doc_check' && g.actor_email === U.admin && parseJson_(g.metadata_json, {}).on_behalf_of === U.gm,
-        'Admin: approves for GM → ASSIGNED, log = Admin on behalf of GM');
-      ok(must(A(function () { return getTicket(id); })).timeline.some(function (l) { return l.action === 'gm_approve' && /GM/.test(l.on_behalf_name || ''); }),
-        'Admin: timeline shows “(แทน GM)”');
+      APPROVAL_ACTIONS_.forEach(function (a) { if (a.indexOf('gm_') === 0 && a.indexOf('price') === -1) expectErr(go(U.admin, id, a, 'x', { sr_email: U.sr2 }), 'FORBIDDEN', 'No approving on behalf: Admin ' + a); });
+      must(go(U.gm, id, 'gm_approve', '', { sr_email: U.sr2 }));
+      ok(ticketById_(id).stage === 'doc_check', 'GM approves himself → ASSIGNED');
       A(function () { checklistOf_(id).filter(function (x) { return x.is_required; }).forEach(function (x) { must(updateChecklist(x.check_id, true, '')); }); });
       must(go(U.admin, id, 'doc_complete'));
       ok(ticketById_(id).stage === 'sourcing' && ticketById_(id).sr_email === U.sr2, 'Admin: confirms documents for the SR (SR stays the owner)');
@@ -8350,9 +8637,17 @@ function runAdminCases_(results) {
       must(A(function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: qs, winner_quote_id: qs[0].quote_id }]); }));
       ok(activeQuotesOfItem_(it.item_id).length === 3, 'Admin: enters supplier prices for the SR');
       must(go(U.admin, id, 'submit_quote'));
-      must(go(U.admin, id, 'srm_approve'));
-      must(go(U.admin, id, 'gm_price_approve'));
-      ok(ticketById_(id).stage === 'awaiting_sales_ack', 'Admin: submits, approves for SR Manager and GM → APPROVED');
+      const sub = lastLog(id, 'submit_quote');
+      ok(sub.actor_email === U.admin && parseJson_(sub.metadata_json, {}).on_behalf_of === U.sr2 &&
+        must(A(function () { return getTicket(id); })).timeline.some(function (l) { return l.action === 'submit_quote' && l.on_behalf_name; }),
+        'Admin: submits the price for the SR (timeline “แทน SR”)');
+      expectErr(go(U.admin, id, 'srm_approve'), 'FORBIDDEN', 'No approving on behalf: Admin srm_approve');
+      expectErr(A(function () { return saveSourcingDraft(id, []); }), 'FORBIDDEN', 'Admin cannot edit prices inside the SR Manager step');
+      must(go(U.srManager, id, 'srm_approve'));
+      expectErr(go(U.admin, id, 'gm_price_approve'), 'FORBIDDEN', 'No approving on behalf: Admin gm_price_approve');
+      expectErr(go(U.admin, id, 'gm_price_return', 'x'), 'FORBIDDEN', 'No approving on behalf: Admin gm_price_return');
+      must(go(U.gm, id, 'gm_price_approve'));
+      ok(ticketById_(id).stage === 'awaiting_sales_ack', 'Approvers approve themselves → APPROVED');
       must(go(U.admin, id, 'accept'));
       ok(ticketById_(id).stage === 'closed' && parseJson_(lastLog(id, 'accept').metadata_json, {}).on_behalf_of === U.salesFood2, 'Admin: accepts the price for Sales → closed');
       ok(botLog_(id).some(function (n) { return n.event === 'approved'; }), 'Admin actions still post the group cards');
@@ -8373,7 +8668,7 @@ function runAdminCases_(results) {
       ok(!as(U.gm, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id; }), 'Delete: gone from GM list');
       const ad = must(A(function () { return getTicket(id); }));
       ok(ad.permissions.actions.join() === 'admin_restore', 'Delete: Admin still opens it, only “กู้คืน” is offered');
-      expectErr(go(U.admin, id, 'gm_approve', '', { sr_email: U.sr1 }), 'INVALID_STATE', 'Delete: no workflow step on a deleted request');
+      expectErr(go(U.admin, id, 'cancel', 'x'), 'INVALID_STATE', 'Delete: no workflow step on a deleted request');
       ok(A(function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id && r.stage === 'deleted'; }), 'Delete: Admin list has it (tab “🗑 ถูกลบ”)');
       const dash = A(function () { return must(getDashboard({})); });
       ok(!JSON.stringify(dash.by_stage).match(/"deleted"/), 'Delete: not counted in reports');
@@ -8471,12 +8766,16 @@ function runGroupAssignCases_(results) {
     const card = botLog_(id, 'assigned')[0].summary;
     ok(/<at email=sr1@/.test(card) && /<at email=sr2@/.test(card) && /<at email=sr\.manager@/.test(card) && /รอ SR Manager แบ่งงาน: #3 ซอสพอนสึ/.test(card),
       'Group: card tags both SRs + SR Manager (Others waiting) and lists who prices what');
-    ok(as(U.sr2, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id && r.is_inbox && r.is_mine; }), 'Group: the request is in both SRs’ inbox');
+    const inboxOf = function (e) { return as(e, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id && r.is_inbox; }); };
+    ok(inboxOf(U.sr1) && !inboxOf(U.sr2) && as(U.sr2, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id && r.is_mine; }),
+      'Ownership: document check is in the first SR’s “รอฉัน” only (sr2 sees it under “ของฉัน”)');
+    ok(inboxOf(U.srManager), 'Ownership: SR Manager has it in “รอฉัน” while the Others item has no SR');
     const v1 = as(U.sr1, function () { return must(getTicket(id)); });
     ok(v1.items[0].can_transfer && !v1.items[1].can_transfer && v1.items[1].sr_name.length > 0, 'Group: SR may transfer only their own item; sees the other SR name');
     expectErr(go(U.sr1, id, 'assign_items', '', { assignments: [{ item_id: itemOf(id, 3).item_id, sr_email: U.sr1 }] }), 'FORBIDDEN', 'Group: an SR cannot split the work');
     expectErr(go(U.sr2, id, 'transfer_item', '', { item_id: itemOf(id, 1).item_id, sr_email: U.sr2 }), 'FORBIDDEN', 'Group: an SR cannot take another SR’s item');
     must(go(U.srManager, id, 'assign_items', '', { assignments: [{ item_id: itemOf(id, 3).item_id, sr_email: U.sr2 }] }));
+    ok(!inboxOf(U.srManager), 'Ownership: after the split the SR Manager’s “รอฉัน” is clear');
     ok(owner(id, 3) === U.sr2 && /<at email=sr2@/.test(botLog_(id, 'assigned')[1].summary) && !/<at email=sr1@/.test(botLog_(id, 'assigned')[1].summary.split('ผู้ดำเนินการ')[1] || ''),
       'Group: SR Manager gives the Others item to sr2 (card tags sr2)');
     must(go(U.sr2, id, 'transfer_item', 'sr1 รู้จักผู้ขายซอส', { item_id: itemOf(id, 3).item_id, sr_email: U.sr1 }));
@@ -8491,6 +8790,7 @@ function runGroupAssignCases_(results) {
     ok(p1.stage === 'sourcing' && itemOf(id, 1).sr_submitted_at && itemOf(id, 3).sr_submitted_at && !itemOf(id, 2).sr_submitted_at,
       'Group: sr1 sends their 2 items — request waits for sr2');
     ok(!botLog_(id, 'sm_review').length, 'Group: no SM card yet');
+    ok(!inboxOf(U.sr1) && inboxOf(U.sr2), 'Ownership: sr1 sent everything → out of “รอฉัน”; sr2 still has it');
     expectErr(price(U.sr1, id, 1, 190), 'FORBIDDEN', 'Group: sr1 cannot change an item already sent');
     expectErr(go(U.sr1, id, 'submit_quote'), 'ALREADY_SUBMITTED', 'Group: sr1 submitting again is refused');
     ok(as(U.sr1, function () { return must(getTicket(id)); }).permissions.actions.indexOf('submit_quote') === -1 &&
@@ -8509,6 +8809,9 @@ function runGroupAssignCases_(results) {
         { product_group_code: 'FOOD-OTHERS', product_name: 'สาหร่ายโนริ', net_weight: '100%', size: 'A4', packing_size: '100 แผ่น', qty: 10, uom: 'แพ็ค', target_price: 0 }] });
     })).ticket;
     must(go(U.gm, o.ticket_id, 'gm_approve'));
+    const inboxO = function (e) { return as(e, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === o.ticket_id && r.is_inbox; }); };
+    ok(inboxO(U.srManager) && !inboxO(U.sr1) && as(U.sr1, function () { return must(getTicket(o.ticket_id)); }).permissions.actions.indexOf('claim') === -1,
+      'Ownership: waiting for the split → only the SR Manager has it; SRs have no “รับงาน”');
     ok(ticketById_(o.ticket_id).stage === 'pending_assign' && /<at email=sr\.manager@/.test(botLog_(o.ticket_id, 'queued')[0].summary),
       'Group: only Others → waits for SR Manager (card tags SR Manager)');
     ok(as(U.srManager, function () { return must(getTicket(o.ticket_id)); }).permissions.can_assign_items, 'Group: SR Manager gets the split panel');
@@ -8521,6 +8824,173 @@ function runGroupAssignCases_(results) {
   } finally {
     withLock_(function () { ['FOOD-SHRIMP', 'FOOD-FISH'].forEach(function (c) { updateRow_(TAB.PRODUCT_GROUPS, c, { sr_email: '' }); }); });
     setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false' });
+    TEST_BOTS_ = null;
+  }
+}
+
+// ===================================================================== audit fixes (v2026.10.12-1)
+function runAuditFixCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  const wrap = function (name, fn) {
+    try { fn(); } catch (e) { results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: ' + name + ' — ' + e.message + '\n' + e.stack); }
+  };
+  const q = function (n, p, x) { return Object.assign({ quote_id: Utilities.getUuid(), vendor_name: n, unit_price: p, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }, x || {}); };
+  TEST_HTTP_ = fakeHttp_();
+  TEST_DRIVE_ = fakeDrive_();
+  TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' }, reminder: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/rem', secret: 'sec-b' } };
+  setTestSettings_({ sales_manager_step: 'false', assign_by_group: 'false', gm_assigns_sr: 'true', min_suppliers: '1',
+    lark_dm_types: JSON.stringify(['sla_warning', 'sla_breach', 'deal_due']), work_hours: JSON.stringify({ start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }) });
+  const toPricing = function () {
+    const id = must(as(U.salesFood1, function () {
+      return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'Audit fix', due_date: inDays(3), items: [
+        { product_name: 'กุ้ง', net_weight: '80%', size: 'M', packing_size: '1 kg', qty: 10, uom: 'กก.', target_price: 0 }] });
+    })).ticket.ticket_id;
+    must(go(U.gm, id, 'gm_approve', '', { sr_email: U.sr1 }));
+    as(U.sr1, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+    must(go(U.sr1, id, 'doc_complete'));
+    return id;
+  };
+  try {
+    wrap('H4_STALE', function () {
+      const id = toPricing();
+      const it = activeItemsOf_(id)[0];
+      const qa = q('Sup A', 100);
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [qa], winner_quote_id: qa.quote_id }]); }));
+      const page = as(U.sr1, function () { return must(getTicket(id)); });
+      ok(!!page.loaded_at, 'Stale guard: the request page carries loaded_at');
+      Utilities.sleep && Utilities.sleep(0);
+      const qd = q('Admin Sup D', 90);
+      must(as(U.admin, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [qa, qd], winner_quote_id: qa.quote_id }]); }));
+      expectErr(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [Object.assign({}, qa, { unit_price: 98 })], winner_quote_id: qa.quote_id }], page.loaded_at); }),
+        'STALE_DRAFT', 'Stale guard: SR saving the old page (Admin added a supplier since) is refused');
+      ok(activeQuotesOfItem_(it.item_id).some(function (x) { return x.vendor_name === 'Admin Sup D'; }), 'Stale guard: Admin’s supplier is still there');
+      const fresh = as(U.sr1, function () { return must(getTicket(id)); });
+      fresh.loaded_at = new Date(Date.now() + 1500).toISOString();   // a real reload happens seconds after the other person's change
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [Object.assign({}, qa, { unit_price: 98 }), qd], winner_quote_id: qa.quote_id }], fresh.loaded_at); }),
+        'save after reload');
+      const again = must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [Object.assign({}, qa, { unit_price: 97 }), qd], winner_quote_id: qa.quote_id }], fresh.loaded_at); }));
+      ok(!!again.detail.loaded_at, 'Stale guard: own consecutive saves are fine (no false alarm)');
+    });
+
+    wrap('H5_PRICE', function () {
+      const id = toPricing();
+      const it = activeItemsOf_(id)[0];
+      expectErr(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [q('USD Sup', 3, { currency: 'USD', fx_rate: '35,5', vat_term: 'no_vat' })] }]); }),
+        'VALIDATION', 'FX "35,5" is refused (would be read as 355)');
+      const z = q('Zero Sup', 0);
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [z], winner_quote_id: z.quote_id }]); }));
+      expectErr(go(U.sr1, id, 'submit_quote'), 'ZERO_PRICE', 'A winner with price 0 cannot be sent');
+      const p = q('Real Sup', 120);
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [z, p], winner_quote_id: p.quote_id, selection_reason: 'ราคา 0 พิมพ์ผิด' }]); }));
+      must(go(U.sr1, id, 'submit_quote'));
+      ok(ticketById_(id).stage === 'pending_sr_manager', 'With a real price the request moves on');
+    });
+
+    wrap('H6_SLA', function () {
+      const wh = workHours_(), hol = {};
+      ok(wh.start === 0 && wh.end === 1440, 'SLA clock: 24 h a day, Mon–Fri');
+      const fri22 = new Date('2026-10-09T15:00:00Z');   // Fri 22:00 Bangkok
+      ok(addWorkMinutes_(fri22, 240, wh, hol).toISOString() === '2026-10-11T19:00:00.000Z', 'SLA: Fri 22:00 + 4 h = Mon 02:00 (Sat–Sun not counted)');
+      ok(workMinutesBetween_(fri22, new Date('2026-10-12T03:00:00Z'), wh, hol) === 12 * 60, 'SLA: Fri 22:00 → Mon 10:00 = 12 h');
+      ok(addWorkMinutes_(new Date('2026-10-12T03:00:00Z'), 2 * 1440, wh, hol).toISOString() === '2026-10-14T03:00:00.000Z', 'SLA: PRICING 2 days = 48 h (Mon 10:00 → Wed 10:00)');
+      // list badge, request page, SLA DM and reminder use the same engine
+      const id = must(as(U.salesFood2, function () {
+        return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'SLA one engine', due_date: inDays(3), items: [
+          { product_name: 'ปลา', net_weight: '1', size: '1', packing_size: '1', qty: 1, uom: 'กก.', target_price: 0 }] });
+      })).ticket.ticket_id;
+      withLock_(function () { updateRow_(TAB.TICKETS, id, { stage_entered_at: new Date(Date.now() - 10 * 86400000) }); });
+      const row = as(U.gm, function () { return must(listTicketBoard()); }).rows.filter(function (r) { return r.ticket_id === id; })[0];
+      const page = as(U.gm, function () { return must(getTicket(id)); }).sla;
+      ok(row.sla_status === 'breach' && page.overdue === true && row.sla_hours === 4 && page.hours === 4, 'SLA: list badge and request page agree (breach, 4 h)');
+      withLock_(function () { updateRow_(TAB.TICKETS, id, { stage_entered_at: new Date() }); });
+      const row2 = as(U.gm, function () { return must(listTicketBoard()); }).rows.filter(function (r) { return r.ticket_id === id; })[0];
+      ok(row2.sla_status !== 'breach' && as(U.gm, function () { return must(getTicket(id)); }).sla.overdue === false, 'SLA: just entered → not late on both screens');
+    });
+
+    wrap('DM_ONLY_REMINDERS', function () {
+      const before = rows_(TAB.NOTIFICATIONS).length;
+      const id = must(as(U.salesFood3, function () {
+        return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'DM rule', due_date: inDays(3), items: [
+          { product_name: 'หมึก', net_weight: '1', size: '1', packing_size: '1', qty: 1, uom: 'กก.', target_price: 0 }] });
+      })).ticket.ticket_id;
+      const fresh = rows_(TAB.NOTIFICATIONS).slice(before).filter(function (n) { return n.ticket_id === id; });
+      ok(fresh.length && fresh.every(function (n) { return n.lark_status === 'off'; }), 'DM: workflow notifications stay in the web bell (no Lark DM)');
+      withLock_(function () { updateRow_(TAB.TICKETS, id, { stage_entered_at: new Date(Date.now() - 10 * 86400000) }); });
+      checkSlaAlerts();
+      ok(rows_(TAB.NOTIFICATIONS).some(function (n) { return n.ticket_id === id && /^sla_/.test(n.type) && n.lark_status === 'pending'; }), 'DM: overdue (SLA) reminder goes to Lark DM');
+      // deal follow-up DM (once a day per Sales); run as if today were a working day
+      setTestSettings_({ work_hours: JSON.stringify({ start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5, 6, 7] }) });
+      const due = rows_(TAB.ITEMS).filter(function (r) { return r.deal_status !== 'won' && r.deal_status !== 'lost' && r.sell_price_thb; })[0];
+      if (due) withLock_(function () { updateRow_(TAB.ITEMS, due.item_id, { deal_next_date: new Date(Date.now() - 86400000) }); });
+      const r1 = as(U.admin, function () { return sendDealFollowUps(); });
+      const r2 = as(U.admin, function () { return sendDealFollowUps(); });
+      const dm = rows_(TAB.NOTIFICATIONS).filter(function (n) { return n.type === 'deal_due'; });
+      ok(r1.sent >= 1 && r2.sent === 0 && dm.every(function (n) { return n.lark_status === 'pending' && /page=deals/.test(n.link); }), 'DM: “ติดตามลูกค้า” follow-up DM once a day per Sales, links to the follow-up page');
+      setTestSettings_({ work_hours: JSON.stringify({ start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }) });
+    });
+
+    wrap('RETENTION', function () {
+      const old = new Date(Date.now() - 400 * 86400000);
+      // old read notification, old NotifLog / ErrorLog, old daily usage rows
+      const n0 = rows_(TAB.NOTIFICATIONS)[0];
+      withLock_(function () {
+        updateRow_(TAB.NOTIFICATIONS, n0.notif_id, { is_read: true, read_at: old });
+        insertRow_(TAB.NOTIF_LOG, { log_id: uuid_(), ts: old, bot: 'FPR Bot', event: 'old', status: 'sent', summary: 'old' });
+        insertRow_(TAB.ERRORS, { ts: old, fn: 'old', message: 'old' });
+        const day = fmtDate_(old);
+        insertRows_(TAB.USAGE_LOG, [{ log_id: uuid_(), day: day, email: U.gm, role: 'gm', page: 'home', views: 3 },
+          { log_id: uuid_(), day: day, email: U.gm, role: 'gm', page: 'home', views: 2 }]);
+      });
+      // a closed request with photos of a winning and a losing supplier, closed long ago
+      const id = toPricing();
+      const it = activeItemsOf_(id)[0];
+      const win = q('Winner Co', 100), lose = q('Loser Co', 110);
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [win, lose], winner_quote_id: win.quote_id }]); }));
+      withLock_(function () {
+        [[win, 'w'], [lose, 'l']].forEach(function (x) {
+          insertRow_(TAB.ATTACHMENTS, { attachment_id: uuid_(), ticket_id: id, item_id: it.item_id, quote_id: x[0].quote_id, category: 'quote_photo', file_name: x[1] + '.jpg',
+            drive_file_id: 'drive-' + x[1], mime_type: 'image/jpeg', size_bytes: 1, uploaded_by: U.sr1, uploaded_at: old, is_deleted: false });
+        });
+      });
+      must(go(U.sr1, id, 'submit_quote')); must(go(U.srManager, id, 'srm_approve')); must(go(U.gm, id, 'gm_price_approve')); must(go(U.salesFood1, id, 'accept'));
+      withLock_(function () { updateRow_(TAB.TICKETS, id, { closed_at: old }); });
+      const logsBefore = rows_(TAB.LOGS).length;
+      // archive everything that is closed (log_archive_months: -1 → cut-off in the future, for the test)
+      setTestSettings_({ retention: JSON.stringify({ notifications_read_days: 180, notif_log_days: 180, sla_alerts_days: 90, usage_raw_days: 90, error_log_days: 180, log_archive_months: -1, loser_photo_days: 180 }) });
+      const r = as(U.admin, function () { return runRetention(); });
+      ok(r.notifications >= 1 && !findOne_(TAB.NOTIFICATIONS, 'notif_id', n0.notif_id), 'Retention: read notification older than 6 months deleted');
+      ok(r.notif_log >= 1 && r.error_log >= 1, 'Retention: old NotifLog / ErrorLog rows deleted');
+      const monthly = rows_(TAB.USAGE_LOG).filter(function (u) { return String(u.day) === fmtDate_(old, 'yyyy-MM') && u.email === U.gm && u.page === 'home'; });
+      ok(r.usage === 2 && monthly.length === 1 && Number(monthly[0].views) === 5, 'Retention: daily usage rows rolled up into one monthly row (5 views)');
+      const photos = rows_(TAB.ATTACHMENTS).filter(function (a) { return a.ticket_id === id; });
+      ok(photos.filter(function (a) { return toBool_(a.is_deleted); }).map(function (a) { return a.file_name; }).join() === 'l.jpg' && TEST_DRIVE_.trashed['drive-l'] && !TEST_DRIVE_.trashed['drive-w'],
+        'Retention: only the losing supplier’s photo is trashed; the winner’s photo stays');
+      ok(findAll_(TAB.LOGS, 'ticket_id', id).some(function (l) { return l.action === 'retention_photos'; }) || r.logs_archived > 0, 'Retention: photo clean-up is logged');
+      const anchor = logAnchor_();
+      ok(r.logs_archived > 0 && rows_(TAB.LOGS).length < logsBefore && anchor && anchor.last_hash, 'Retention: closed requests’ old log rows moved to the archive (' + r.logs_archived + ' rows), anchor kept');
+      ok(verifyLogChainCore_().valid, 'Retention: audit chain still verifies after the archive');
+      must(go(U.gm, toPricing(), 'request_info', 'หลัง archive', {}) ? { ok: true } : null);
+      ok(verifyLogChainCore_().valid, 'Retention: new log rows continue the chain from the anchor');
+      const closedEarly = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return new Date(t.created_at).getTime() <= new Date(anchor.last_ts).getTime(); })[0];
+      ok(!closedEarly || timelineOf_(closedEarly.ticket_id).some(function (l) { return l.action === 'create'; }), 'Retention: an archived request still shows its full timeline (read from the archive)');
+      ok(runSelfTest().some(function (l) { return l.indexOf('PASS every ticket has a create log') === 0; }), 'Retention: self-test still passes');
+    });
+  } finally {
+    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false', lark_dm_types: '["*"]' });
     TEST_BOTS_ = null;
   }
 }

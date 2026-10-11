@@ -36,10 +36,10 @@ Created tab Holidays
 Holidays: added columns date, name
 Created tab ErrorLog
 ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
-Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
-Created Drive folder folder-93cf37fc-2ccb-4c07-9550-703cdfc5bb99
+Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
+Created Drive folder folder-5c03102e-6239-4bbe-94ef-8324fbd9a7eb
 Suppliers from old quotations: +0 created, 0 quotations linked
-Database URL: https://docs.google.com/spreadsheets/d/6de6ca1b-04e9-4378-8301-7fe07d15e9a5
+Database URL: https://docs.google.com/spreadsheets/d/4fd1ca17-0fe8-4494-8df0-606960912190
 departments +3
 product groups +6
 vendors +6

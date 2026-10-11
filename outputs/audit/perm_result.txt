@@ -36,10 +36,10 @@ Created tab Holidays
 Holidays: added columns date, name
 Created tab ErrorLog
 ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
-Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
-Created Drive folder folder-6534d4af-59d3-4b36-bf26-d1064d0fdb05
+Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
+Created Drive folder folder-58434cf9-3fb9-4e9f-bd2c-ceb4e081beac
 Suppliers from old quotations: +0 created, 0 quotations linked
-Database URL: https://docs.google.com/spreadsheets/d/bfefd703-920a-4440-8da5-f712cf603675
+Database URL: https://docs.google.com/spreadsheets/d/86631ae9-dc5a-4980-9c41-074d892d081f
 departments +3
 product groups +6
 vendors +6
@@ -53,7 +53,7 @@ PASS vat_rate valid — 0.07
 FAIL every department with sales has a manager — แผนกไม่มี Manager ที่ใช้งานได้: SALES-FOOD
 PASS every ticket has a create log (no half-written ticket)
 PASS status matches stage on every ticket
-PASS audit log hash chain intact — 559 rows
+PASS audit log hash chain intact — 557 rows
 PASS no Lark messages failed permanently in 24 h
 FAIL lark configured — LARK_APP_ID / LARK_APP_SECRET not set
 submitted: sent
@@ -77,12 +77,12 @@ reminder: not_configured
 | Open OWN pending request (Sales1) | sales, manager, gm, admin | R | R | R | – | – | R |
 | Open OTHER Sales request (Sales2, sourcing) | manager, gm, sr, sr_manager, admin | – | R | R | R | R | R |
 | Create request | sales, admin | W | – | – | – | – | W |
-| Edit request header (pending_gm, own) | sales, admin | – ⚠(FORBIDDEN) | – | – | – | – | W |
-| GM approve (pending_gm) | gm, admin | – | – | W | – | – | W |
+| Edit request header (pending_gm, own) | sales, admin | W | – | – | – | – | W |
+| GM approve (pending_gm) | gm, admin | – | – | W | – | – | – ⚠(FORBIDDEN) |
 | Cancel request (pending_gm, own) | sales, admin | W | – | – | – | – | W |
 | Save prices (sourcing, SR2 item) | admin | – | – | – | – | – | W |
-| SR Manager approve price | sr_manager, admin | – | – | – | – | W | W |
-| GM final approve price | gm, admin | – | – | W | – | – | W |
+| SR Manager approve price | sr_manager, admin | – | – | – | – | W | – ⚠(FORBIDDEN) |
+| GM final approve price | gm, admin | – | – | W | – | – | – ⚠(FORBIDDEN) |
 | Accept price on ANOTHER Sales request (Sales2) | admin | – | – | – | – | – | W |
 | Accept price on OWN request (Sales1) | sales, admin | W | – | – | – | – | W |
 | Delete request (soft) | admin | – | – | – | – | – | W |
@@ -107,4 +107,4 @@ reminder: not_configured
 | Unregistered domain user → getTicket |  | – | – | – | – | – | – |
 | Unregistered domain user → buildMention |  | R ⚠ | R ⚠ | R ⚠ | R ⚠ | R ⚠ | R ⚠ |
 
-Mismatches: 13
+Mismatches: 15

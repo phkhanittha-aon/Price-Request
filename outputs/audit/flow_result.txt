@@ -36,10 +36,10 @@ Created tab Holidays
 Holidays: added columns date, name
 Created tab ErrorLog
 ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
-Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
-Created Drive folder folder-6912e01e-8ce2-4368-9a54-01f0cf74f228
+Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
+Created Drive folder folder-0ea0dc1b-fd83-4948-b016-0a38c4175323
 Suppliers from old quotations: +0 created, 0 quotations linked
-Database URL: https://docs.google.com/spreadsheets/d/7d51681e-8ad1-407c-ab81-f8d0382ecac7
+Database URL: https://docs.google.com/spreadsheets/d/f2f4f33c-1175-441f-a10f-f30762de2e89
 departments +3
 product groups +6
 vendors +6
@@ -47,15 +47,15 @@ users +9
 demo tickets +14
 | Status | stage | งานค้างของ (inbox) | แจ้งเตือน (stageAssignees_) | มีปุ่ม/สิทธิ์ทำ |
 |---|---|---|---|---|
-| SUBMITTED → GM_REVIEW | `pending_gm` | GM | GM | Sales1: cancel<br>GM: gm_approve/gm_return/gm_reject<br>Admin: cancel/gm_approve/gm_return/gm_reject/admin_cancel/admin_delete |
+| SUBMITTED → GM_REVIEW | `pending_gm` | GM | GM | Sales1: cancel<br>GM: gm_approve/gm_return/gm_reject<br>Admin: cancel/admin_cancel/admin_delete |
 | GM ตีกลับให้ผู้ขอ | `returned` | Sales1 | Sales1 | Sales1: resubmit/cancel<br>Admin: resubmit/cancel/admin_cancel/admin_delete |
-| ASSIGNED (SR1 กุ้ง, SR2 ปลา, Others ไม่มี SR) | `doc_check` | SR1, SR2 | SR1, SR2, SRMgr | SR1: request_info/doc_complete/โยกงาน<br>SR2: request_info/doc_complete/โยกงาน<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: request_info/doc_complete/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน |
-| doc_check หลัง SRM แบ่ง Others | `doc_check` | SR1, SR2 | SR1, SR2 | SR1: request_info/doc_complete/โยกงาน<br>SR2: request_info/doc_complete/โยกงาน<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: request_info/doc_complete/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน |
+| ASSIGNED (SR1 กุ้ง, SR2 ปลา, Others ไม่มี SR) | `doc_check` | SR1, SRMgr | SR1, SR2, SRMgr | SR1: request_info/doc_complete/โยกงาน<br>SR2: request_info/doc_complete/โยกงาน<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: request_info/doc_complete/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน |
+| doc_check หลัง SRM แบ่ง Others | `doc_check` | SR1 | SR1, SR2 | SR1: request_info/doc_complete/โยกงาน<br>SR2: request_info/doc_complete/โยกงาน<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: request_info/doc_complete/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน |
 | SR ขอข้อมูลเพิ่ม (need_info) | `need_info` | Sales1 | Sales1 | Sales1: respond_info<br>SR1: โยกงาน<br>SR2: โยกงาน<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: respond_info/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน |
 | PRICING (ยังไม่มีใครส่ง) | `sourcing` | SR1, SR2 | SR1, SR2 | SR1: request_info/submit_quote/โยกงาน/กรอกราคา<br>SR2: request_info/submit_quote/โยกงาน/กรอกราคา<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: request_info/submit_quote/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน/กรอกราคา |
-| PRICING — SR1 ส่งแล้ว, SR2 ยังไม่ส่ง | `sourcing` | SR1, SR2 | SR1, SR2 | SR1: request_info<br>SR2: request_info/submit_quote/โยกงาน/กรอกราคา<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: request_info/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน/กรอกราคา |
-| SM_REVIEW | `pending_sr_manager` | SRMgr | SRMgr | SRMgr: srm_approve/srm_return/srm_reject/กรอกราคา<br>Admin: srm_approve/srm_return/srm_reject/admin_cancel/admin_delete/กรอกราคา |
-| GM_FINAL_REVIEW | `pending_gm_price` | GM | GM | GM: gm_price_approve/gm_price_return/gm_price_reject/กรอกราคา<br>Admin: gm_price_approve/gm_price_return/gm_price_reject/admin_cancel/admin_delete/กรอกราคา |
+| PRICING — SR1 ส่งแล้ว, SR2 ยังไม่ส่ง | `sourcing` | SR2 | SR1, SR2 | SR1: request_info<br>SR2: request_info/submit_quote/โยกงาน/กรอกราคา<br>SRMgr: assign/panel แบ่งงาน/โยกงาน<br>Admin: request_info/admin_cancel/assign/admin_delete/panel แบ่งงาน/โยกงาน/กรอกราคา |
+| SM_REVIEW | `pending_sr_manager` | SRMgr | SRMgr | SRMgr: srm_approve/srm_return/srm_reject/กรอกราคา<br>Admin: admin_cancel/admin_delete |
+| GM_FINAL_REVIEW | `pending_gm_price` | GM | GM | GM: gm_price_approve/gm_price_return/gm_price_reject/กรอกราคา<br>Admin: admin_cancel/admin_delete |
 | APPROVED (รอ Sales รับทราบ) | `awaiting_sales_ack` | Sales1 | Sales1 | Sales1: accept/request_revision<br>Admin: accept/request_revision/admin_cancel/admin_delete |
 | ปิดงาน (closed) | `closed` | — | — | Admin: admin_delete |
 
@@ -63,7 +63,7 @@ Loop completed: closed · approx. clicks for the whole loop (all roles): ~87
 Double submit same client_key → duplicate=true same id=true
 
 ### Absence / delegation
-- GM ลา (GM คนเดียว) ใบรอ GM_REVIEW → GM ที่ active เหลือ 0 คน · Admin อนุมัติแทน: NO_PROXY ไม่พบผู้รับผิดชอบขั้นนี้ที่ใช้งานอยู่ (ตรวจแท็บ Users)
+- GM ลา (GM คนเดียว) ใบรอ GM_REVIEW → GM ที่ active เหลือ 0 คน · Admin อนุมัติแทน: FORBIDDEN ไม่มีการอนุมัติแทน — การอนุมัติ / ตีกลับ / ปฏิเสธ ต้องทำโดยผู้อนุมัติขั้นนั้นเท่านั้น
 - SR1 ลา มีรายการกุ้งค้างอยู่ (doc_check) → SR Manager โยกให้ SR2: ได้ · ใหม่ใน ProductGroups ยังชี้ SR1 → ใบใหม่กุ้งจะไปหา SR Manager (SR1 inactive)
 - Sales1 ลา ใบอยู่ need_info / awaiting_sales_ack → Sales คนอื่นเปิดใบ: NOT_FOUND · Sales Manager ตอบแทน: ไม่มีปุ่ม · เหลือ Admin ทำแทนเท่านั้น
 - SR Manager ลา ใบรอ SM_REVIEW → SR Manager active เหลือ 0 คน → Admin เท่านั้นที่อนุมัติแทนได้ (proxyUserFor_ หา SR Manager ที่ active ไม่เจอ = NO_PROXY)

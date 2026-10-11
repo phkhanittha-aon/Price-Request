@@ -188,7 +188,7 @@ Pages.ticket = (function () {
     });
     if (!buttons.length) return '';
     const adminNote = d.me.role === 'admin' ? (t.stage === 'deleted' ? '<div class="notice warn">🗑 ใบนี้ถูกลบแล้ว — เห็นเฉพาะ Admin · กด “กู้คืน” เพื่อนำกลับมาที่ขั้นตอนเดิม</div>' :
-      '<div class="small muted" style="margin-bottom:6px">🛡 โหมด Admin — ปุ่มด้านล่างทำแทนผู้รับผิดชอบขั้นนี้ได้ทุกขั้น (บันทึกใน Timeline ว่า Admin ทำแทนใคร)</div>') : '';
+      '<div class="small muted" style="margin-bottom:6px">🛡 โหมด Admin — ทำแทน Sales / SR ได้ (บันทึกใน Timeline ว่าทำแทนใคร) · การอนุมัติ / ตีกลับ / ปฏิเสธ ต้องทำโดยผู้อนุมัติขั้นนั้นเท่านั้น</div>') : '';
     return '<div class="card">' + adminNote + '<div class="actions">' + buttons.join('') + '</div></div>';
   }
 

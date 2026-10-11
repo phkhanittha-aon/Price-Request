@@ -36,10 +36,10 @@ Created tab Holidays
 Holidays: added columns date, name
 Created tab ErrorLog
 ErrorLog: added columns ts, fn, user_email, code, message, stack, context_json, app_version
-Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
-Created Drive folder folder-ef3c2cc8-337b-4bfa-96de-5667506d8faf
+Settings: added vat_rate, sla_hours, sla_warning_ratio, currencies, max_upload_mb, lark_group_events, deal_lost_reasons, deal_follow_days, deal_customer_stages, deal_next_steps, sales_manager_step, assign_by_group, gm_assigns_sr, min_suppliers, min_gp_percent, fpr_sla, work_hours, fpr_mention_owner, retention, lark_dm_types, reminder_repeat_work_hours, max_photos_per_quote, default_gp_percent, fx_defaults, default_validity_days, customer_groups, default_due_working_days, document_options, allowed_mime_types
+Created Drive folder folder-8e61ff22-3b19-43a7-bfe9-8180bc781c7d
 Suppliers from old quotations: +0 created, 0 quotations linked
-Database URL: https://docs.google.com/spreadsheets/d/15a9a0ea-39c5-4619-ade5-d53beae8292a
+Database URL: https://docs.google.com/spreadsheets/d/98ac639d-b327-4ed4-b921-9a2fbd4a81d6
 departments +3
 product groups +6
 vendors +6
@@ -69,7 +69,7 @@ INFO | USD 3 × 35, no VAT | net THB 105 · landed 105 · sell 123.53 (expect 10
 INFO | THB 107 include VAT 7% | net THB 100 · landed 100 · sell 117.65 (expect net 100)
 INFO | USD with blank FX | VALIDATION รายการที่ 1 vendor ที่ 1: กรุณากรอก อัตราแลกเปลี่ยน (USD → THB)
 INFO | USD with FX 0 | VALIDATION รายการที่ 1 vendor ที่ 1: อัตราแลกเปลี่ยน (USD → THB) ต้องมากกว่า 0
-INFO | USD FX "35,5" (comma decimal) | net THB 1065 · landed 1065 · sell 1252.94
+INFO | USD FX "35,5" (comma decimal) | VALIDATION รายการที่ 1 vendor ที่ 1: อัตราแลกเปลี่ยน (USD → THB) ใช้จุดทศนิยม เช่น 35.50 (ห้ามใช้จุลภาค)
 INFO | Breakdown: USD 3×35 + freight 5 + ins 0.5 + duty 10% + cold 2 | net THB 105 · landed 123.55 · sell 145.35 (expect landed 105+5+0.5+11.05+2 = 123.55)
 PASS | Formula injection: customer "=IMPORTXML("http://x","//a")" | cell holds "'=IMPORTXML(\"http://x\",\"//a\")" · read back "=IMPORTXML(\"http://x\",\"//a\")"
 INFO | Script text stored as-is (escaping is the page's job — see xss_e2e.js) | "<img src=x onerror=alert(1)>"

@@ -21,7 +21,7 @@ function runAcceptanceTests() {
       // Tests run WITH a Sales Manager; the "no Sales Manager → skip to GM" path is tested separately
       updateRow_(TAB.DEPARTMENTS, 'SALES-FOOD', { manager_email: demoUsers_().mgrFood });
       // The original flow cases below run with the pre-FPR switches; runFprCases_ turns the FPR switches on
-      setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false' });
+      setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false', lark_dm_types: '["*"]' });
     });
     runCases_(results);
     runPhase2Cases_(results);
@@ -38,6 +38,7 @@ function runAcceptanceTests() {
     runFprCases_(results);
     runAdminCases_(results);
     runGroupAssignCases_(results);
+    runAuditFixCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -212,11 +213,13 @@ function runCases_(results) {
     ok(activeItemsOf_(id)[0].spec === 'รุ่น DZ-400 ห้องซีล 40 ซม.', 'Sales edits item while returned');
     ok(must(go(U.salesFood3, id, 'resubmit')).ticket.stage === 'pending_manager', 'Resubmit → pending_manager');
     ok(must(go(U.mgrFood, id, 'manager_approve')).ticket.stage === 'pending_gm', 'Manager approve → pending_gm');
-    expectErr(as(U.salesFood3, function () {
-      return saveItem(id, Object.assign({}, item1, { qty: 99 }), ver(id));
-    }), 'FORBIDDEN', 'Sales cannot edit items after Manager approval');
+    must(as(U.salesFood3, function () { return saveItem(id, Object.assign({}, item1, { qty: 99 }), ver(id)); }), 'Sales edits while waiting for GM');
+    ok(activeItemsOf_(id).filter(function (x) { return x.item_id === item1.item_id; })[0].qty === 99, 'Sales may still fix the request until GM approves or returns it');
 
     const g = must(go(U.gm, id, 'gm_approve')).ticket;
+    expectErr(as(U.salesFood3, function () {
+      return saveItem(id, Object.assign({}, item1, { qty: 98 }), ver(id));
+    }), 'FORBIDDEN', 'Sales cannot edit items after GM approval');
     ok(g.status === 'on_process' && g.stage === 'pending_assign', 'GM approve → On Process / pending_assign');
     expectErr(go(U.salesFood3, id, 'cancel'), 'INVALID_STATE', 'Sales cannot cancel after GM approval');
     expectErr(go(U.sr2, id, 'assign', '', { sr_email: U.sr1 }), 'FORBIDDEN', 'Normal SR cannot assign');
@@ -1989,18 +1992,14 @@ function runAdminCases_(results) {
         'Admin: creates a request for Sales (owned by that Sales, log says Admin on behalf of)');
       ok(as(U.salesFood2, function () { return getTicket(id).ok; }), 'Admin: the Sales sees the request created for them');
       const acts = must(A(function () { return getTicket(id); })).permissions.actions;
-      ok(['gm_approve', 'gm_return', 'gm_reject', 'cancel', 'admin_cancel', 'admin_delete'].every(function (a) { return acts.indexOf(a) !== -1; }),
-        'Admin: gets GM + Sales + Admin buttons at GM_REVIEW (' + acts.join(', ') + ')');
+      ok(['cancel', 'admin_cancel', 'admin_delete'].every(function (a) { return acts.indexOf(a) !== -1; }) && !acts.some(function (a) { return APPROVAL_ACTIONS_.indexOf(a) !== -1; }),
+        'Admin: Sales + Admin buttons at GM_REVIEW, no GM approve / return / reject (' + acts.join(', ') + ')');
       ok(must(A(function () { return getTicket(id); })).permissions.can_edit_request, 'Admin: can edit the request before GM approval');
       must(A(function () { return updateTicketRequest(id, { customer_name: 'ลูกค้า Admin (แก้)' }, ticketById_(id).version); }));
       ok(ticketById_(id).customer_name === 'ลูกค้า Admin (แก้)', 'Admin: edit saved');
-      expectErr(go(U.admin, id, 'gm_approve'), 'INVALID_ASSIGNEE', 'Admin approving for GM still has to pick the Sourcing person');
-      must(go(U.admin, id, 'gm_approve', '', { sr_email: U.sr2 }));
-      const g = lastLog(id, 'gm_approve');
-      ok(ticketById_(id).stage === 'doc_check' && g.actor_email === U.admin && parseJson_(g.metadata_json, {}).on_behalf_of === U.gm,
-        'Admin: approves for GM → ASSIGNED, log = Admin on behalf of GM');
-      ok(must(A(function () { return getTicket(id); })).timeline.some(function (l) { return l.action === 'gm_approve' && /GM/.test(l.on_behalf_name || ''); }),
-        'Admin: timeline shows “(แทน GM)”');
+      APPROVAL_ACTIONS_.forEach(function (a) { if (a.indexOf('gm_') === 0 && a.indexOf('price') === -1) expectErr(go(U.admin, id, a, 'x', { sr_email: U.sr2 }), 'FORBIDDEN', 'No approving on behalf: Admin ' + a); });
+      must(go(U.gm, id, 'gm_approve', '', { sr_email: U.sr2 }));
+      ok(ticketById_(id).stage === 'doc_check', 'GM approves himself → ASSIGNED');
       A(function () { checklistOf_(id).filter(function (x) { return x.is_required; }).forEach(function (x) { must(updateChecklist(x.check_id, true, '')); }); });
       must(go(U.admin, id, 'doc_complete'));
       ok(ticketById_(id).stage === 'sourcing' && ticketById_(id).sr_email === U.sr2, 'Admin: confirms documents for the SR (SR stays the owner)');
@@ -2009,9 +2008,17 @@ function runAdminCases_(results) {
       must(A(function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: qs, winner_quote_id: qs[0].quote_id }]); }));
       ok(activeQuotesOfItem_(it.item_id).length === 3, 'Admin: enters supplier prices for the SR');
       must(go(U.admin, id, 'submit_quote'));
-      must(go(U.admin, id, 'srm_approve'));
-      must(go(U.admin, id, 'gm_price_approve'));
-      ok(ticketById_(id).stage === 'awaiting_sales_ack', 'Admin: submits, approves for SR Manager and GM → APPROVED');
+      const sub = lastLog(id, 'submit_quote');
+      ok(sub.actor_email === U.admin && parseJson_(sub.metadata_json, {}).on_behalf_of === U.sr2 &&
+        must(A(function () { return getTicket(id); })).timeline.some(function (l) { return l.action === 'submit_quote' && l.on_behalf_name; }),
+        'Admin: submits the price for the SR (timeline “แทน SR”)');
+      expectErr(go(U.admin, id, 'srm_approve'), 'FORBIDDEN', 'No approving on behalf: Admin srm_approve');
+      expectErr(A(function () { return saveSourcingDraft(id, []); }), 'FORBIDDEN', 'Admin cannot edit prices inside the SR Manager step');
+      must(go(U.srManager, id, 'srm_approve'));
+      expectErr(go(U.admin, id, 'gm_price_approve'), 'FORBIDDEN', 'No approving on behalf: Admin gm_price_approve');
+      expectErr(go(U.admin, id, 'gm_price_return', 'x'), 'FORBIDDEN', 'No approving on behalf: Admin gm_price_return');
+      must(go(U.gm, id, 'gm_price_approve'));
+      ok(ticketById_(id).stage === 'awaiting_sales_ack', 'Approvers approve themselves → APPROVED');
       must(go(U.admin, id, 'accept'));
       ok(ticketById_(id).stage === 'closed' && parseJson_(lastLog(id, 'accept').metadata_json, {}).on_behalf_of === U.salesFood2, 'Admin: accepts the price for Sales → closed');
       ok(botLog_(id).some(function (n) { return n.event === 'approved'; }), 'Admin actions still post the group cards');
@@ -2032,7 +2039,7 @@ function runAdminCases_(results) {
       ok(!as(U.gm, function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id; }), 'Delete: gone from GM list');
       const ad = must(A(function () { return getTicket(id); }));
       ok(ad.permissions.actions.join() === 'admin_restore', 'Delete: Admin still opens it, only “กู้คืน” is offered');
-      expectErr(go(U.admin, id, 'gm_approve', '', { sr_email: U.sr1 }), 'INVALID_STATE', 'Delete: no workflow step on a deleted request');
+      expectErr(go(U.admin, id, 'cancel', 'x'), 'INVALID_STATE', 'Delete: no workflow step on a deleted request');
       ok(A(function () { return must(listTicketBoard()); }).rows.some(function (r) { return r.ticket_id === id && r.stage === 'deleted'; }), 'Delete: Admin list has it (tab “🗑 ถูกลบ”)');
       const dash = A(function () { return must(getDashboard({})); });
       ok(!JSON.stringify(dash.by_stage).match(/"deleted"/), 'Delete: not counted in reports');
@@ -2188,6 +2195,173 @@ function runGroupAssignCases_(results) {
   } finally {
     withLock_(function () { ['FOOD-SHRIMP', 'FOOD-FISH'].forEach(function (c) { updateRow_(TAB.PRODUCT_GROUPS, c, { sr_email: '' }); }); });
     setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false' });
+    TEST_BOTS_ = null;
+  }
+}
+
+// ===================================================================== audit fixes (v2026.10.12-1)
+function runAuditFixCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  const wrap = function (name, fn) {
+    try { fn(); } catch (e) { results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: ' + name + ' — ' + e.message + '\n' + e.stack); }
+  };
+  const q = function (n, p, x) { return Object.assign({ quote_id: Utilities.getUuid(), vendor_name: n, unit_price: p, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }, x || {}); };
+  TEST_HTTP_ = fakeHttp_();
+  TEST_DRIVE_ = fakeDrive_();
+  TEST_BOTS_ = { fpr: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/fpr', secret: 'sec-a' }, reminder: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/rem', secret: 'sec-b' } };
+  setTestSettings_({ sales_manager_step: 'false', assign_by_group: 'false', gm_assigns_sr: 'true', min_suppliers: '1',
+    lark_dm_types: JSON.stringify(['sla_warning', 'sla_breach', 'deal_due']), work_hours: JSON.stringify({ start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }) });
+  const toPricing = function () {
+    const id = must(as(U.salesFood1, function () {
+      return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'Audit fix', due_date: inDays(3), items: [
+        { product_name: 'กุ้ง', net_weight: '80%', size: 'M', packing_size: '1 kg', qty: 10, uom: 'กก.', target_price: 0 }] });
+    })).ticket.ticket_id;
+    must(go(U.gm, id, 'gm_approve', '', { sr_email: U.sr1 }));
+    as(U.sr1, function () { checklistOf_(id).filter(function (c) { return c.is_required; }).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+    must(go(U.sr1, id, 'doc_complete'));
+    return id;
+  };
+  try {
+    wrap('H4_STALE', function () {
+      const id = toPricing();
+      const it = activeItemsOf_(id)[0];
+      const qa = q('Sup A', 100);
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [qa], winner_quote_id: qa.quote_id }]); }));
+      const page = as(U.sr1, function () { return must(getTicket(id)); });
+      ok(!!page.loaded_at, 'Stale guard: the request page carries loaded_at');
+      Utilities.sleep && Utilities.sleep(0);
+      const qd = q('Admin Sup D', 90);
+      must(as(U.admin, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [qa, qd], winner_quote_id: qa.quote_id }]); }));
+      expectErr(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [Object.assign({}, qa, { unit_price: 98 })], winner_quote_id: qa.quote_id }], page.loaded_at); }),
+        'STALE_DRAFT', 'Stale guard: SR saving the old page (Admin added a supplier since) is refused');
+      ok(activeQuotesOfItem_(it.item_id).some(function (x) { return x.vendor_name === 'Admin Sup D'; }), 'Stale guard: Admin’s supplier is still there');
+      const fresh = as(U.sr1, function () { return must(getTicket(id)); });
+      fresh.loaded_at = new Date(Date.now() + 1500).toISOString();   // a real reload happens seconds after the other person's change
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [Object.assign({}, qa, { unit_price: 98 }), qd], winner_quote_id: qa.quote_id }], fresh.loaded_at); }),
+        'save after reload');
+      const again = must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [Object.assign({}, qa, { unit_price: 97 }), qd], winner_quote_id: qa.quote_id }], fresh.loaded_at); }));
+      ok(!!again.detail.loaded_at, 'Stale guard: own consecutive saves are fine (no false alarm)');
+    });
+
+    wrap('H5_PRICE', function () {
+      const id = toPricing();
+      const it = activeItemsOf_(id)[0];
+      expectErr(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [q('USD Sup', 3, { currency: 'USD', fx_rate: '35,5', vat_term: 'no_vat' })] }]); }),
+        'VALIDATION', 'FX "35,5" is refused (would be read as 355)');
+      const z = q('Zero Sup', 0);
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [z], winner_quote_id: z.quote_id }]); }));
+      expectErr(go(U.sr1, id, 'submit_quote'), 'ZERO_PRICE', 'A winner with price 0 cannot be sent');
+      const p = q('Real Sup', 120);
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [z, p], winner_quote_id: p.quote_id, selection_reason: 'ราคา 0 พิมพ์ผิด' }]); }));
+      must(go(U.sr1, id, 'submit_quote'));
+      ok(ticketById_(id).stage === 'pending_sr_manager', 'With a real price the request moves on');
+    });
+
+    wrap('H6_SLA', function () {
+      const wh = workHours_(), hol = {};
+      ok(wh.start === 0 && wh.end === 1440, 'SLA clock: 24 h a day, Mon–Fri');
+      const fri22 = new Date('2026-10-09T15:00:00Z');   // Fri 22:00 Bangkok
+      ok(addWorkMinutes_(fri22, 240, wh, hol).toISOString() === '2026-10-11T19:00:00.000Z', 'SLA: Fri 22:00 + 4 h = Mon 02:00 (Sat–Sun not counted)');
+      ok(workMinutesBetween_(fri22, new Date('2026-10-12T03:00:00Z'), wh, hol) === 12 * 60, 'SLA: Fri 22:00 → Mon 10:00 = 12 h');
+      ok(addWorkMinutes_(new Date('2026-10-12T03:00:00Z'), 2 * 1440, wh, hol).toISOString() === '2026-10-14T03:00:00.000Z', 'SLA: PRICING 2 days = 48 h (Mon 10:00 → Wed 10:00)');
+      // list badge, request page, SLA DM and reminder use the same engine
+      const id = must(as(U.salesFood2, function () {
+        return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'SLA one engine', due_date: inDays(3), items: [
+          { product_name: 'ปลา', net_weight: '1', size: '1', packing_size: '1', qty: 1, uom: 'กก.', target_price: 0 }] });
+      })).ticket.ticket_id;
+      withLock_(function () { updateRow_(TAB.TICKETS, id, { stage_entered_at: new Date(Date.now() - 10 * 86400000) }); });
+      const row = as(U.gm, function () { return must(listTicketBoard()); }).rows.filter(function (r) { return r.ticket_id === id; })[0];
+      const page = as(U.gm, function () { return must(getTicket(id)); }).sla;
+      ok(row.sla_status === 'breach' && page.overdue === true && row.sla_hours === 4 && page.hours === 4, 'SLA: list badge and request page agree (breach, 4 h)');
+      withLock_(function () { updateRow_(TAB.TICKETS, id, { stage_entered_at: new Date() }); });
+      const row2 = as(U.gm, function () { return must(listTicketBoard()); }).rows.filter(function (r) { return r.ticket_id === id; })[0];
+      ok(row2.sla_status !== 'breach' && as(U.gm, function () { return must(getTicket(id)); }).sla.overdue === false, 'SLA: just entered → not late on both screens');
+    });
+
+    wrap('DM_ONLY_REMINDERS', function () {
+      const before = rows_(TAB.NOTIFICATIONS).length;
+      const id = must(as(U.salesFood3, function () {
+        return createTicket({ customer_group: 'ร้านอาหาร', customer_name: 'DM rule', due_date: inDays(3), items: [
+          { product_name: 'หมึก', net_weight: '1', size: '1', packing_size: '1', qty: 1, uom: 'กก.', target_price: 0 }] });
+      })).ticket.ticket_id;
+      const fresh = rows_(TAB.NOTIFICATIONS).slice(before).filter(function (n) { return n.ticket_id === id; });
+      ok(fresh.length && fresh.every(function (n) { return n.lark_status === 'off'; }), 'DM: workflow notifications stay in the web bell (no Lark DM)');
+      withLock_(function () { updateRow_(TAB.TICKETS, id, { stage_entered_at: new Date(Date.now() - 10 * 86400000) }); });
+      checkSlaAlerts();
+      ok(rows_(TAB.NOTIFICATIONS).some(function (n) { return n.ticket_id === id && /^sla_/.test(n.type) && n.lark_status === 'pending'; }), 'DM: overdue (SLA) reminder goes to Lark DM');
+      // deal follow-up DM (once a day per Sales); run as if today were a working day
+      setTestSettings_({ work_hours: JSON.stringify({ start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5, 6, 7] }) });
+      const due = rows_(TAB.ITEMS).filter(function (r) { return r.deal_status !== 'won' && r.deal_status !== 'lost' && r.sell_price_thb; })[0];
+      if (due) withLock_(function () { updateRow_(TAB.ITEMS, due.item_id, { deal_next_date: new Date(Date.now() - 86400000) }); });
+      const r1 = as(U.admin, function () { return sendDealFollowUps(); });
+      const r2 = as(U.admin, function () { return sendDealFollowUps(); });
+      const dm = rows_(TAB.NOTIFICATIONS).filter(function (n) { return n.type === 'deal_due'; });
+      ok(r1.sent >= 1 && r2.sent === 0 && dm.every(function (n) { return n.lark_status === 'pending' && /page=deals/.test(n.link); }), 'DM: “ติดตามลูกค้า” follow-up DM once a day per Sales, links to the follow-up page');
+      setTestSettings_({ work_hours: JSON.stringify({ start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }) });
+    });
+
+    wrap('RETENTION', function () {
+      const old = new Date(Date.now() - 400 * 86400000);
+      // old read notification, old NotifLog / ErrorLog, old daily usage rows
+      const n0 = rows_(TAB.NOTIFICATIONS)[0];
+      withLock_(function () {
+        updateRow_(TAB.NOTIFICATIONS, n0.notif_id, { is_read: true, read_at: old });
+        insertRow_(TAB.NOTIF_LOG, { log_id: uuid_(), ts: old, bot: 'FPR Bot', event: 'old', status: 'sent', summary: 'old' });
+        insertRow_(TAB.ERRORS, { ts: old, fn: 'old', message: 'old' });
+        const day = fmtDate_(old);
+        insertRows_(TAB.USAGE_LOG, [{ log_id: uuid_(), day: day, email: U.gm, role: 'gm', page: 'home', views: 3 },
+          { log_id: uuid_(), day: day, email: U.gm, role: 'gm', page: 'home', views: 2 }]);
+      });
+      // a closed request with photos of a winning and a losing supplier, closed long ago
+      const id = toPricing();
+      const it = activeItemsOf_(id)[0];
+      const win = q('Winner Co', 100), lose = q('Loser Co', 110);
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [win, lose], winner_quote_id: win.quote_id }]); }));
+      withLock_(function () {
+        [[win, 'w'], [lose, 'l']].forEach(function (x) {
+          insertRow_(TAB.ATTACHMENTS, { attachment_id: uuid_(), ticket_id: id, item_id: it.item_id, quote_id: x[0].quote_id, category: 'quote_photo', file_name: x[1] + '.jpg',
+            drive_file_id: 'drive-' + x[1], mime_type: 'image/jpeg', size_bytes: 1, uploaded_by: U.sr1, uploaded_at: old, is_deleted: false });
+        });
+      });
+      must(go(U.sr1, id, 'submit_quote')); must(go(U.srManager, id, 'srm_approve')); must(go(U.gm, id, 'gm_price_approve')); must(go(U.salesFood1, id, 'accept'));
+      withLock_(function () { updateRow_(TAB.TICKETS, id, { closed_at: old }); });
+      const logsBefore = rows_(TAB.LOGS).length;
+      // archive everything that is closed (log_archive_months: -1 → cut-off in the future, for the test)
+      setTestSettings_({ retention: JSON.stringify({ notifications_read_days: 180, notif_log_days: 180, sla_alerts_days: 90, usage_raw_days: 90, error_log_days: 180, log_archive_months: -1, loser_photo_days: 180 }) });
+      const r = as(U.admin, function () { return runRetention(); });
+      ok(r.notifications >= 1 && !findOne_(TAB.NOTIFICATIONS, 'notif_id', n0.notif_id), 'Retention: read notification older than 6 months deleted');
+      ok(r.notif_log >= 1 && r.error_log >= 1, 'Retention: old NotifLog / ErrorLog rows deleted');
+      const monthly = rows_(TAB.USAGE_LOG).filter(function (u) { return String(u.day) === fmtDate_(old, 'yyyy-MM') && u.email === U.gm && u.page === 'home'; });
+      ok(r.usage === 2 && monthly.length === 1 && Number(monthly[0].views) === 5, 'Retention: daily usage rows rolled up into one monthly row (5 views)');
+      const photos = rows_(TAB.ATTACHMENTS).filter(function (a) { return a.ticket_id === id; });
+      ok(photos.filter(function (a) { return toBool_(a.is_deleted); }).map(function (a) { return a.file_name; }).join() === 'l.jpg' && TEST_DRIVE_.trashed['drive-l'] && !TEST_DRIVE_.trashed['drive-w'],
+        'Retention: only the losing supplier’s photo is trashed; the winner’s photo stays');
+      ok(findAll_(TAB.LOGS, 'ticket_id', id).some(function (l) { return l.action === 'retention_photos'; }) || r.logs_archived > 0, 'Retention: photo clean-up is logged');
+      const anchor = logAnchor_();
+      ok(r.logs_archived > 0 && rows_(TAB.LOGS).length < logsBefore && anchor && anchor.last_hash, 'Retention: closed requests’ old log rows moved to the archive (' + r.logs_archived + ' rows), anchor kept');
+      ok(verifyLogChainCore_().valid, 'Retention: audit chain still verifies after the archive');
+      must(go(U.gm, toPricing(), 'request_info', 'หลัง archive', {}) ? { ok: true } : null);
+      ok(verifyLogChainCore_().valid, 'Retention: new log rows continue the chain from the anchor');
+      const closedEarly = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return new Date(t.created_at).getTime() <= new Date(anchor.last_ts).getTime(); })[0];
+      ok(!closedEarly || timelineOf_(closedEarly.ticket_id).some(function (l) { return l.action === 'create'; }), 'Retention: an archived request still shows its full timeline (read from the archive)');
+      ok(runSelfTest().some(function (l) { return l.indexOf('PASS every ticket has a create log') === 0; }), 'Retention: self-test still passes');
+    });
+  } finally {
+    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false', lark_dm_types: '["*"]' });
     TEST_BOTS_ = null;
   }
 }

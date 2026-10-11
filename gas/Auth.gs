@@ -173,8 +173,9 @@ function canViewSellPrice_(u, t) {
 /** Sales may edit header/items only before Manager approval (or after Manager returned it). */
 function canEditRequest_(u, t) {
   if (u.role === 'admin') return ['pending_manager', 'returned', 'pending_gm'].indexOf(t.stage) !== -1;   // Admin fixes it for Sales until GM approves
+  // the requester may fix the request until GM approves or returns it
   return u.role === 'sales' && t.requestor_email === u.email &&
-    (t.stage === 'pending_manager' || t.stage === 'returned');
+    (t.stage === 'pending_manager' || t.stage === 'returned' || t.stage === 'pending_gm');
 }
 
 /**
@@ -183,7 +184,7 @@ function canEditRequest_(u, t) {
  * so a reviewer can fix the price and approve, instead of sending it back to the SR.
  */
 function canEditQuotes_(u, t) {
-  if (u.role === 'admin') return ['sourcing', 'pending_sr_manager', 'pending_gm_price'].indexOf(t.stage) !== -1;
+  if (u.role === 'admin') return t.stage === 'sourcing';   // for the SR; never inside an approver's step
   if (u.role === 'sr') return isSr_(t, u.email) && t.stage === 'sourcing';
   if (u.role === 'sr_manager') return t.stage === 'pending_sr_manager' && !isSr_(t, u.email);
   if (u.role === 'gm') return t.stage === 'pending_gm_price';
@@ -239,6 +240,9 @@ function canTransferItem_(u, t, it) {
 /** Actions Admin does as Admin (not on behalf of anyone). */
 const ADMIN_OWN_ACTIONS_ = ['assign', 'assign_items', 'transfer_item', 'admin_cancel', 'admin_delete', 'admin_restore'];
 const SALES_ACTIONS_ = ['resubmit', 'cancel', 'respond_info', 'accept', 'request_revision'];
+/** Approval decisions are personal: nobody (Admin included) approves, returns or rejects on behalf of the approver. */
+const APPROVAL_ACTIONS_ = ['manager_approve', 'manager_reject', 'manager_return', 'gm_approve', 'gm_reject', 'gm_return',
+  'srm_approve', 'srm_return', 'srm_reject', 'gm_price_approve', 'gm_price_return', 'gm_price_reject'];
 const SR_ACTIONS_ = ['request_info', 'doc_complete', 'submit_quote'];
 
 function asUser_(email, role) {

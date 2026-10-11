@@ -94,7 +94,8 @@ Pages.new = Pages.edit = (function () {
       '<div class="page-head form-title"><div><h1>' + (mode === 'edit' ? 'แก้ไขใบขอราคา ' + esc(ticket.ticket_no) : 'สร้างใบขอราคา') + '</h1>' +
       '<div class="small muted">แบบฟอร์มขอราคาสินค้า FOOD · M Global Sourcing Ltd.</div></div></div>' +
       (state.approvalRoute ? '<div class="card route-card"><div class="sec-label">เส้นทางอนุมัติ</div>' + routeSteps() + '</div>' : '') +
-      (mode === 'edit' && ticket.stage === 'returned' ? '<div class="notice warn">Sales Manager ส่งกลับให้แก้ไข — แก้แล้วกด “บันทึกและส่งอีกครั้ง”</div>' : '') +
+      (mode === 'edit' && ticket.stage === 'returned' ? '<div class="notice warn">ถูกส่งกลับให้แก้ไข — แก้แล้วกด “บันทึกและส่งอีกครั้ง”</div>' : '') +
+      (mode === 'edit' && ticket.stage === 'pending_gm' ? '<div class="notice">แก้ไขได้จนกว่า GM จะอนุมัติหรือตีกลับ — กด “บันทึก” แล้ว GM จะเห็นข้อมูลล่าสุด</div>' : '') +
       '<form id="pr-form" novalidate>' +
       '<section class="card fsec"><h2><span class="sn">1</span>ข้อมูลลูกค้า</h2><div class="fgrid">' +
       (mode !== 'edit' && state.me.role === 'admin' ? field('Sales ผู้ขอราคา', 'Requester (Admin สร้างแทน)', '<select id="f-req"><option value="">— เลือก Sales —</option>' +

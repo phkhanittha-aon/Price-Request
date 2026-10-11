@@ -183,6 +183,9 @@ function doTransition_(ticketId, action, comment, payload) {
   }
   // Admin may do any step: it runs as the responsible person (all rules apply), logged as Admin
   let u = actor;
+  if (actor.role === 'admin' && APPROVAL_ACTIONS_.indexOf(action) !== -1) {
+    throw appError_('FORBIDDEN', 'ไม่มีการอนุมัติแทน — การอนุมัติ / ตีกลับ / ปฏิเสธ ต้องทำโดยผู้อนุมัติขั้นนั้นเท่านั้น');
+  }
   if (actor.role === 'admin' && ADMIN_OWN_ACTIONS_.indexOf(action) === -1) {
     if (t.stage === 'deleted') throw appError_('INVALID_STATE', 'ใบนี้ถูกลบแล้ว — กู้คืนก่อนจึงจะทำรายการต่อได้');
     u = proxyUserFor_(t, action, payload);
@@ -836,7 +839,9 @@ function allowedActions_(u, t) {
     if (t.stage === 'deleted') return ['admin_restore'];
     const all = [];
     proxyCandidates_(t).forEach(function (p) {
-      allowedActions_(p, t).forEach(function (x) { if (all.indexOf(x) === -1 && ADMIN_OWN_ACTIONS_.indexOf(x) === -1) all.push(x); });
+      allowedActions_(p, t).forEach(function (x) {
+        if (all.indexOf(x) === -1 && ADMIN_OWN_ACTIONS_.indexOf(x) === -1 && APPROVAL_ACTIONS_.indexOf(x) === -1) all.push(x);
+      });
     });
     if (OPEN_STATUSES.indexOf(t.status) !== -1) all.push('admin_cancel');
     if (['pending_assign', 'doc_check', 'need_info', 'sourcing'].indexOf(t.stage) !== -1) all.push('assign');
@@ -1020,7 +1025,11 @@ function checklistOf_(ticketId) {
 function timelineOf_(ticketId) {
   const names = {};
   rows_(TAB.USERS).forEach(function (r) { names[String(r.email).toLowerCase()] = String(r.full_name); });
-  return findAll_(TAB.LOGS, 'ticket_id', ticketId)
+  // requests older than the archive anchor: their first log rows live in the archive spreadsheet
+  const anchor = logAnchor_();
+  const t0 = anchor ? ticketById_(ticketId) : null;
+  const archived = t0 && t0.created_at && Math.floor(new Date(t0.created_at).getTime() / 1000) * 1000 <= new Date(anchor.last_ts).getTime() ? archivedLogsOf_(ticketId) : [];
+  return archived.concat(findAll_(TAB.LOGS, 'ticket_id', ticketId))
     .sort(function (a, b) { return Number(a.log_id) - Number(b.log_id); })
     .map(function (l) {
       return {

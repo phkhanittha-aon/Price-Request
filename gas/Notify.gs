@@ -58,6 +58,9 @@ function enqueueNotifications_(emails, t, type, title, body, link) {
   const seen = {};
   const rowsToInsert = [];
   const now = new Date();
+  // Lark DM only for follow-up reminders (Settings lark_dm_types); everything else = web bell + group card
+  const dm = setting_('lark_dm_types', ['sla_warning', 'sla_breach', 'deal_due']);
+  const viaLark = Array.isArray(dm) && (dm.indexOf('*') !== -1 || dm.indexOf(type) !== -1);
   (emails || []).forEach(function (raw) {
     const email = String(raw || '').trim().toLowerCase();
     if (!email || seen[email] || email === actor) return;
@@ -75,7 +78,7 @@ function enqueueNotifications_(emails, t, type, title, body, link) {
       is_read: false,
       read_at: '',
       created_at: now,
-      lark_status: 'pending',
+      lark_status: viaLark ? 'pending' : 'off',
       lark_attempts: 0,
       lark_error: '',
       lark_sent_at: ''

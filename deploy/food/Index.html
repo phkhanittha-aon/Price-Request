@@ -2607,7 +2607,7 @@ Pages.ticket = (function () {
       '<dt>เอกสารที่ต้องการประกอบ</dt><dd>' + esc(t.documents_needed || 'ไม่ต้องการเอกสารประกอบ') + '</dd>' +
       '<dt>SR ผู้รับงาน</dt><dd>' + esc(t.sr_name || '–') + '</dd>' +
       (d.sla ? '<dt>ครบกำหนด (SLA)</dt><dd>' + esc(d.sla.due_text) + ' น. <span class="sla ' + (d.sla.overdue ? 'breach">⏰ เกินกำหนด' : 'ok">ภายในกำหนด') + '</span>' +
-        ' <span class="small muted">' + esc(d.sla.label) + ' · ' + fmtNum(d.sla.hours) + ' ชม.ทำงาน</span></dd>' : '') +
+        ' <span class="small muted">' + esc(d.sla.label) + ' · SLA ' + fmtNum(d.sla.hours) + ' ชม. (ไม่นับเสาร์-อาทิตย์)</span></dd>' : '') +
       '<dt>สร้างเมื่อ</dt><dd>' + esc(fmtDateTime(t.created_at)) + '</dd>' +
       (t.revision_count ? '<dt>ขอแก้ราคา</dt><dd>' + t.revision_count + ' ครั้ง</dd>' : '') +
       (t.rejection_reason ? '<dt>เหตุผล</dt><dd>' + esc(t.rejection_reason) + '</dd>' : '') +
@@ -2688,7 +2688,7 @@ Pages.ticket = (function () {
     });
     if (!buttons.length) return '';
     const adminNote = d.me.role === 'admin' ? (t.stage === 'deleted' ? '<div class="notice warn">🗑 ใบนี้ถูกลบแล้ว — เห็นเฉพาะ Admin · กด “กู้คืน” เพื่อนำกลับมาที่ขั้นตอนเดิม</div>' :
-      '<div class="small muted" style="margin-bottom:6px">🛡 โหมด Admin — ปุ่มด้านล่างทำแทนผู้รับผิดชอบขั้นนี้ได้ทุกขั้น (บันทึกใน Timeline ว่า Admin ทำแทนใคร)</div>') : '';
+      '<div class="small muted" style="margin-bottom:6px">🛡 โหมด Admin — ทำแทน Sales / SR ได้ (บันทึกใน Timeline ว่าทำแทนใคร) · การอนุมัติ / ตีกลับ / ปฏิเสธ ต้องทำโดยผู้อนุมัติขั้นนั้นเท่านั้น</div>') : '';
     return '<div class="card">' + adminNote + '<div class="actions">' + buttons.join('') + '</div></div>';
   }
 
@@ -3120,7 +3120,8 @@ Pages.new = Pages.edit = (function () {
       '<div class="page-head form-title"><div><h1>' + (mode === 'edit' ? 'แก้ไขใบขอราคา ' + esc(ticket.ticket_no) : 'สร้างใบขอราคา') + '</h1>' +
       '<div class="small muted">แบบฟอร์มขอราคาสินค้า FOOD · M Global Sourcing Ltd.</div></div></div>' +
       (state.approvalRoute ? '<div class="card route-card"><div class="sec-label">เส้นทางอนุมัติ</div>' + routeSteps() + '</div>' : '') +
-      (mode === 'edit' && ticket.stage === 'returned' ? '<div class="notice warn">Sales Manager ส่งกลับให้แก้ไข — แก้แล้วกด “บันทึกและส่งอีกครั้ง”</div>' : '') +
+      (mode === 'edit' && ticket.stage === 'returned' ? '<div class="notice warn">ถูกส่งกลับให้แก้ไข — แก้แล้วกด “บันทึกและส่งอีกครั้ง”</div>' : '') +
+      (mode === 'edit' && ticket.stage === 'pending_gm' ? '<div class="notice">แก้ไขได้จนกว่า GM จะอนุมัติหรือตีกลับ — กด “บันทึก” แล้ว GM จะเห็นข้อมูลล่าสุด</div>' : '') +
       '<form id="pr-form" novalidate>' +
       '<section class="card fsec"><h2><span class="sn">1</span>ข้อมูลลูกค้า</h2><div class="fgrid">' +
       (mode !== 'edit' && state.me.role === 'admin' ? field('Sales ผู้ขอราคา', 'Requester (Admin สร้างแทน)', '<select id="f-req"><option value="">— เลือก Sales —</option>' +
@@ -4210,6 +4211,13 @@ Pages.pricing = (function () {
         '<span>+ ค่าเคลียร์ของ</span><span>฿' + fmtMoney(r.c.clearance) + '</span>' +
         '<span><b>= ต้นทุนถึงคลัง/' + esc(it.uom) + '</b></span><b>฿' + fmtMoney(r.c.landed_thb) + '</b></div>' :
         '<div class="small muted">กรอกราคา อัตราแลกเปลี่ยน และค่าเคลียร์ของ (ถ้ามี) เพื่อคำนวณ</div>';
+      // warn before saving: a 0 price never happens · FX far from the usual rate is usually a typo
+      const warns = [];
+      if (r.q && String(r.q.unit_price).trim() !== '' && num(r.q.unit_price) === 0) warns.push('⚠ ราคา 0 — ตรวจอีกครั้ง (ส่งราคาไม่ได้)');
+      const fxDef = r.q && r.q.currency !== 'THB' ? Number((state.ref.fx_defaults || {})[r.q.currency]) : 0;
+      const fxNow = r.q ? num(r.q.fx_rate) : NaN;
+      if (fxDef > 0 && !isNaN(fxNow) && Math.abs(fxNow - fxDef) / fxDef > 0.2) warns.push('⚠ อัตราแลกเปลี่ยน ' + fmtNum(fxNow) + ' ต่างจากค่าปกติ ' + fmtNum(fxDef) + ' เกิน 20% — ตรวจอีกครั้ง');
+      if (warns.length) $('.calc', col).innerHTML += '<div class="gp-warn small">' + warns.map(esc).join('<br>') + '</div>';
       const bdOn = hasBd(r.q);
       const clrEl = $('[data-f="clearance_thb"]', col);
       if (clrEl && bdOn) clrEl.value = r.c ? Math.round(r.c.clearance * 100) / 100 : '';
@@ -4629,7 +4637,7 @@ Pages.pricing = (function () {
 
   function save() {
     setBusy(true);
-    return api('saveSourcingDraft', ctx.d.ticket.ticket_id, payload()).then(function (r) {
+    return api('saveSourcingDraft', ctx.d.ticket.ticket_id, payload(), ctx.d.loaded_at).then(function (r) {
       ctx.dirty = false;
       ctx.d = r.detail;
       ctx.model = fromDetail(r.detail);
@@ -4638,6 +4646,13 @@ Pages.pricing = (function () {
       return r;
     }).catch(function (e) {
       setBusy(false);
+      if (e.code === 'STALE_DRAFT') {
+        // someone else changed these prices since the page was opened → reload instead of overwriting
+        dialog({ title: 'มีคนอื่นแก้ราคาในระหว่างนี้', message: e.error, confirmText: 'โหลดหน้าใหม่', danger: true }).then(function (ok) {
+          if (ok) api('getTicket', ctx.d.ticket.ticket_id).then(function (d) { ctx.d = d; ctx.model = fromDetail(d); ctx.dirty = false; render(); });
+        });
+        throw e;
+      }
       toast(e.error, 'err', 9000);
       if (e.details && e.details.line_no != null) highlight(e.details.line_no, e.details.vendor_index);
       throw e;
@@ -4674,6 +4689,7 @@ Pages.pricing = (function () {
       });
       if (filled.length && !calc.win) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ยังไม่ได้เลือกผู้ชนะ' });
       if (calc.needReason && !String(mi.reason || '').trim()) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ต้องใส่เหตุผลที่ไม่เลือกเจ้าที่ถูกที่สุด' });
+      if (calc.win && num(calc.win.q.unit_price) === 0) out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ราคาผู้ชนะเป็น 0 — ตรวจราคาอีกครั้ง' });
       if (filled.length && filled.length < minSuppliers() && !String(mi.shortfall || '').trim()) {
         out.push({ i: i, text: 'รายการที่ ' + it.line_no + ': ต้องมี Supplier อย่างน้อย ' + minSuppliers() + ' ราย หรือใส่เหตุผลที่มีไม่ถึง' });
       }

@@ -171,6 +171,26 @@ function updateRow_(tab, keyValue, patch) {
 }
 
 /**
+ * Delete every row of `tab` for which pred(row) is true (retention only — business rows are never deleted).
+ * Row numbers come from a fresh read inside the lock; deleted bottom-up in contiguous blocks.
+ */
+function deleteRowsWhere_(tab, pred) {
+  if (LOCK_DEPTH_ === 0) throw new Error('deleteRowsWhere_ must run inside withLock_');
+  invalidate_(tab);
+  const meta = headers_(tab);
+  const nums = rows_(tab).filter(pred).map(function (r) { return r._row; }).sort(function (a, b) { return b - a; });
+  let i = 0;
+  while (i < nums.length) {
+    let start = nums[i], count = 1;
+    while (i + count < nums.length && nums[i + count] === start - 1) { start--; count++; }
+    meta.sheet.deleteRows(start, count);
+    i += count;
+  }
+  if (nums.length) { markDataChanged_(tab); invalidate_(tab); }
+  return nums.length;
+}
+
+/**
  * Run fn while holding the script-wide lock. Cache is dropped on entry so that
  * every read inside the lock sees the latest committed data.
  */
