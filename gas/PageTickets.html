@@ -277,7 +277,7 @@ Pages.tickets = (function () {
         const seq = ++board.seq;
         const res = $('#t-results', pg);
         if (board.rows && res) res.classList.add('refreshing');
-        api('listTicketBoard').then(function (d) {
+        boardData().then(function (d) {
           if (seq !== board.seq) return;
           board.rows = d.rows;
           board.at = Date.now();

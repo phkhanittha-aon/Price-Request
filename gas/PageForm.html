@@ -22,6 +22,26 @@ Pages.new = Pages.edit = (function () {
     }
     return d.toISOString().slice(0, 10);
   }
+  /* ---------- draft kept on the phone (refresh / lost signal / session expiry does not lose the form) ---------- */
+  // one key per user; holds the text fields + client_key (a retry after a refresh cannot create a second request).
+  // Pictures cannot be stored — they are re-attached. Old drafts (> 7 days) are dropped.
+  function localKey() { return 'mgs.draft.new.' + (state.me ? state.me.email : ''); }
+  function saveLocal(d) {
+    try {
+      localStorage.setItem(localKey(), JSON.stringify({ at: Date.now(), d: d }, function (k, v) { return k === 'pictures' ? [] : v; }));
+    } catch (e) { /* storage full / blocked: the in-memory draft still works */ }
+  }
+  function loadLocal() {
+    try {
+      const x = JSON.parse(localStorage.getItem(localKey()) || 'null');
+      if (!x || !x.d || Date.now() - x.at > 7 * 86400000) return null;
+      x.d.items = (x.d.items || []).map(function (it) { return Object.assign(blankItem(), it, { pictures: [] }); });
+      return x.d;
+    } catch (e) { return null; }
+  }
+  function clearLocal() { try { localStorage.removeItem(localKey()); } catch (e) { /* ignore */ } }
+  function hasContent(d) { return !!(d && (String(d.customer_name || '').trim() || (d.items || []).some(function (it) { return String(it.product_name || '').trim(); }))); }
+
   function newDraft() {
     return { client_key: uuid(), customer_name: '', customer_group: '', destination_country: 'ไทย', documents_needed: '', due_date: workingDaysFromToday(state.ref.default_due_working_days || 3),
       description: '', items: [blankItem()], _dueDefault: true };
@@ -226,6 +246,7 @@ Pages.new = Pages.edit = (function () {
       const t = res.ticket;
       return uploadPictures(view, t.ticket_id, d).then(function (failed) {
         delete state.drafts['new'];
+        clearLocal();
         toast('ส่งคำขอราคา ' + t.ticket_no + ' แล้ว → ' + t.stage_label + (failed ? ' (รูปแนบไม่สำเร็จ ' + failed + ' ไฟล์ — แนบใหม่ได้ในหน้ารายละเอียด)' : ''), failed ? 'err' : 'ok', 7000);
         refreshPoll();
         go({ page: 'ticket', id: t.ticket_id }, true);
@@ -302,6 +323,21 @@ Pages.new = Pages.edit = (function () {
   function mount(view, d, mode, original) {
     loadHistory(view, d, mode, original);
     view.innerHTML = formHtml(d, mode, original && original.ticket);
+    // auto-keep the new-request form on the phone; one listener per view, ignored once the form is gone
+    if (view.__keepDraft) { view.removeEventListener('input', view.__keepDraft); view.removeEventListener('change', view.__keepDraft); view.__keepDraft = null; }
+    if (mode === 'new') {
+      let timer = null;
+      view.__keepDraft = function () {
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+          if (!$('#pr-form', view) || state.drafts['new'] !== d) return;
+          collect(view, d);
+          if (hasContent(d)) saveLocal(d);
+        }, 400);
+      };
+      view.addEventListener('input', view.__keepDraft);
+      view.addEventListener('change', view.__keepDraft);
+    }
     const rerender = function () { collect(view, d); mount(view, d, mode, original); };
     $('#add-item', view).onclick = function () {
       collect(view, d);
@@ -399,7 +435,7 @@ Pages.new = Pages.edit = (function () {
     });
     $('#cancel-btn', view).onclick = function () {
       if (mode === 'edit') go({ page: 'ticket', id: original.ticket.ticket_id });
-      else { delete state.drafts['new']; go({ page: 'tickets', scope: 'mine' }); }
+      else { delete state.drafts['new']; clearLocal(); go({ page: 'tickets', scope: 'mine' }); }
     };
     if (mode === 'new') $('#save-btn', view).onclick = function () { submitNew(view, d); };
     else {
@@ -435,7 +471,13 @@ Pages.new = Pages.edit = (function () {
           }).catch(function (e) { if (isCurrent()) view.innerHTML = errorHtml(e, 'App.reload()'); });
           return;
         }
-        const d = state.drafts['new'] = state.drafts['new'] || newDraft();
+        let d = state.drafts['new'];
+        if (!d) {
+          const kept = loadLocal();
+          d = kept && hasContent(kept) ? kept : newDraft();
+          if (kept && hasContent(kept)) toast('กู้คืนฟอร์มที่กรอกค้างไว้แล้ว' + (kept.items.length ? ' — รูปสินค้าต้องแนบใหม่' : ''), 'ok', 6000);
+        }
+        state.drafts['new'] = d;
         mount(view, d, 'new', null);
         return;
       }

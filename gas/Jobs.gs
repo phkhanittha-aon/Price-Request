@@ -233,11 +233,25 @@ function runRetention() {
   const before = function (days) { return now - Number(days) * 86400000; };
   const out = withLock_(function () {
     const r = {};
-    r.notifications = deleteRowsWhere_(TAB.NOTIFICATIONS, function (n) {
-      return toBool_(n.is_read) && n.read_at && new Date(n.read_at).getTime() < before(cfg.notifications_read_days);
-    });
-    r.notif_log = deleteRowsWhere_(TAB.NOTIF_LOG, function (n) { return n.ts && new Date(n.ts).getTime() < before(cfg.notif_log_days); });
-    r.error_log = deleteRowsWhere_(TAB.ERRORS, function (n) { return n.ts && new Date(n.ts).getTime() < before(cfg.error_log_days); });
+    const oldNotif = function (n) { return toBool_(n.is_read) && n.read_at && new Date(n.read_at).getTime() < before(cfg.notifications_read_days); };
+    const oldCard = function (n) { return n.ts && new Date(n.ts).getTime() < before(cfg.notif_log_days); };
+    const oldErr = function (n) { return n.ts && new Date(n.ts).getTime() < before(cfg.error_log_days); };
+    // 1) keep an Excel copy of everything about to be deleted (Drive › Exports)
+    const d = function (v) { return v ? new Date(v) : ''; };
+    r.export_file = saveRetentionExport_([
+      { name: 'แจ้งเตือน (อ่านแล้ว)', header: ['เวลา', 'ถึง', 'ประเภท', 'หัวข้อ', 'ข้อความ', 'อ่านเมื่อ'],
+        rows: rows_(TAB.NOTIFICATIONS).filter(oldNotif).map(function (n) { return [d(n.created_at), String(n.user_email), String(n.type), String(n.title), String(n.body), d(n.read_at)]; }) },
+      { name: 'การ์ด Lark กลุ่ม', header: ['เวลา', 'เลขที่', 'บอท', 'เหตุการณ์', 'ผล', 'ข้อความ'],
+        rows: rows_(TAB.NOTIF_LOG).filter(oldCard).map(function (n) { return [d(n.ts), String(n.ticket_no), String(n.bot), String(n.event), String(n.status), String(n.summary)]; }) },
+      { name: 'ErrorLog', header: ['เวลา', 'ฟังก์ชัน', 'ผู้ใช้', 'code', 'ข้อความ'],
+        rows: rows_(TAB.ERRORS).filter(oldErr).map(function (n) { return [d(n.ts), String(n.fn), String(n.user_email), String(n.code), String(n.message)]; }) },
+      { name: 'รูป Supplier ที่จะลบ', header: ['เลขที่ใบ (ticket_id)', 'ชื่อไฟล์', 'Supplier (quote_id)', 'แนบโดย', 'วันที่แนบ', 'ลิงก์ Drive (อยู่ในถังขยะ 30 วัน)'],
+        rows: findLoserPhotos_(before(cfg.loser_photo_days)).map(function (a) { return [String(a.ticket_id), String(a.file_name), String(a.quote_id), String(a.uploaded_by), d(a.uploaded_at), 'https://drive.google.com/file/d/' + String(a.drive_file_id) + '/view']; }) }
+    ]);
+    // 2) clean up
+    r.notifications = deleteRowsWhere_(TAB.NOTIFICATIONS, oldNotif);
+    r.notif_log = deleteRowsWhere_(TAB.NOTIF_LOG, oldCard);
+    r.error_log = deleteRowsWhere_(TAB.ERRORS, oldErr);
     const open = {};
     rows_(TAB.TICKETS).forEach(function (t) { if (OPEN_STATUSES.indexOf(String(t.status)) !== -1) open[String(t.ticket_id)] = true; });
     r.sla_alerts = deleteRowsWhere_(TAB.SLA_ALERTS, function (a) {
@@ -278,8 +292,8 @@ function rollUpUsage_(cutoff) {
   return deleteRowsWhere_(TAB.USAGE_LOG, function (u) { return ids[String(u.log_id)]; });
 }
 
-/** Supplier photos of offers that did NOT win, cut-off after the request closed → Drive trash + attachment marked deleted. */
-function purgeLoserPhotos_(cutoff) {
+/** Supplier photos of offers that did NOT win, of requests closed before the cut-off. */
+function findLoserPhotos_(cutoff) {
   const tickets = {};
   rows_(TAB.TICKETS).map(normTicket_).forEach(function (t) {
     if (OPEN_STATUSES.indexOf(t.status) !== -1) return;
@@ -288,11 +302,16 @@ function purgeLoserPhotos_(cutoff) {
   });
   const winners = {};
   rows_(TAB.QUOTATIONS).forEach(function (q) { if (toBool_(q.is_selected) && !toBool_(q.is_deleted)) winners[String(q.quote_id)] = true; });
+  return rows_(TAB.ATTACHMENTS).filter(function (a) {
+    return String(a.category) === 'quote_photo' && !toBool_(a.is_deleted) && tickets[String(a.ticket_id)] && !winners[String(a.quote_id)];
+  });
+}
+
+/** → Drive trash + attachment marked deleted (logged per request). */
+function purgeLoserPhotos_(cutoff) {
   const byTicket = {};
   const now = new Date();
-  rows_(TAB.ATTACHMENTS).filter(function (a) {
-    return String(a.category) === 'quote_photo' && !toBool_(a.is_deleted) && tickets[String(a.ticket_id)] && !winners[String(a.quote_id)];
-  }).forEach(function (a) {
+  findLoserPhotos_(cutoff).forEach(function (a) {
     try { drive_().getFileById(String(a.drive_file_id)).setTrashed(true); } catch (e) { console.warn('retention: trash failed', a.drive_file_id, e); }
     updateRow_(TAB.ATTACHMENTS, a.attachment_id, { is_deleted: true, deleted_by: 'retention', deleted_at: now });
     byTicket[String(a.ticket_id)] = (byTicket[String(a.ticket_id)] || 0) + 1;
@@ -357,4 +376,138 @@ function archivedLogsOf_(ticketId) {
       .filter(function (r) { return String(r[ti]) === String(ticketId); })
       .map(function (r) { const o = {}; head.forEach(function (h, i) { o[h] = cellUnsafe_(r[i]); }); return o; });
   } catch (e) { console.warn('archivedLogsOf_', e); return []; }
+}
+
+// =============================================================================
+// History export (Excel) — fixed template so the history can be kept outside the system:
+//   Admin page › "📥 ดาวน์โหลดประวัติ (Excel)" (Admin / GM / SR Manager), and an automatic copy in
+//   Drive (<attachments root>/Exports) of everything runRetention is about to delete.
+// =============================================================================
+const EXPORT_ROLES_ = ['admin', 'gm', 'sr_manager'];
+
+/** range: { from: 'yyyy-MM-dd', to: 'yyyy-MM-dd' } on the request date → { file_name, mime, base64, counts } */
+function exportHistory(range) {
+  return api_('exportHistory', function () {
+    const u = currentUser_();
+    if (EXPORT_ROLES_.indexOf(u.role) === -1) throw appError_('FORBIDDEN', 'ดาวน์โหลดประวัติได้เฉพาะ Admin, GM และ SR Manager (มีต้นทุน)');
+    const r = range || {};
+    const from = r.from ? parseYmd_(r.from, 'วันที่เริ่ม', true) : new Date(Date.now() - 365 * 86400000);
+    const to = r.to ? parseYmd_(r.to, 'วันที่สิ้นสุด', true) : new Date();
+    if (to < from) throw appError_('VALIDATION', 'วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่ม');
+    const sheets = historySheets_(from.getTime(), to.getTime() + 86400000, u);
+    // ASCII file name: some phones / browsers drop non-ASCII download names
+    const name = 'MGS-FPR-history_' + fmtDate_(from) + '_to_' + fmtDate_(to) + '.xlsx';
+    const bytes = xlsxBytes_('MGS FPR ประวัติ ' + fmtDate_(from) + ' ถึง ' + fmtDate_(to), sheets);
+    return { file_name: name, mime: XLSX_MIME_, base64: Utilities.base64Encode(bytes),
+      counts: sheets.reduce(function (o, s) { o[s.name] = s.rows.length; return o; }, {}) };
+  });
+}
+
+const XLSX_MIME_ = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/** The template: one tab per subject, Thai headers, one row per record. */
+function historySheets_(fromMs, toMs, u) {
+  const tickets = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) {
+    const c = new Date(t.created_at).getTime();
+    return c >= fromMs && c < toMs && t.stage !== 'deleted';
+  });
+  const ids = {};
+  tickets.forEach(function (t) { ids[t.ticket_id] = t; });
+  const names = {};
+  rows_(TAB.USERS).forEach(function (x) { names[String(x.email).toLowerCase()] = String(x.full_name); });
+  const nm = function (e) { return names[String(e || '').toLowerCase()] || String(e || ''); };
+  const d = function (v) { return v ? new Date(v) : ''; };
+  const quotes = rows_(TAB.QUOTATIONS).filter(function (q) { return ids[String(q.ticket_id)]; }).map(normQuote_);
+  const winner = {};
+  quotes.forEach(function (q) { if (q.is_selected && !q.is_deleted) winner[q.item_id] = q; });
+  const items = [];
+  tickets.forEach(function (t) { activeItemsOf_(t.ticket_id).forEach(function (it) { items.push({ t: t, it: it }); }); });
+
+  const req = { name: 'ใบขอราคา', header: ['เลขที่', 'วันที่ขอ', 'สถานะ', 'ขั้นตอน', 'ลูกค้า', 'กลุ่มลูกค้า', 'ผู้ขอ (Sales)', 'ลำดับ', 'กลุ่มสินค้า', 'สินค้า',
+    '% NW', 'ขนาด', 'แพค', 'ปริมาณ/เดือน', 'หน่วย', 'ราคาที่ลูกค้าคาดหวัง', 'SR ผู้ทำราคา', 'Supplier ผู้ชนะ', 'สกุลเงิน', 'ราคา/หน่วย', 'อัตราแลกเปลี่ยน',
+    'ต้นทุนถึงคลัง (บาท/หน่วย)', 'GP %', 'ราคาขาย (บาท/หน่วย)', 'ผลรายการ', 'ผลการขาย', 'หมายเหตุการขาย', 'GM อนุมัติราคา', 'ปิดงาน'], rows: [] };
+  items.forEach(function (x) {
+    const t = x.t, it = x.it, w = winner[it.item_id];
+    req.rows.push([t.ticket_no, d(t.created_at), STATUS_LABEL_TH[t.status] || t.status, STAGE_LABEL_TH[t.stage] || t.stage, t.customer_name, t.customer_group,
+      nm(t.requestor_email), it.line_no, groupName_(it.product_group_code), it.product_name, it.net_weight, it.size, it.packing_size, it.qty, it.uom,
+      it.target_price || '', nm(itemOwner_(t, it)), w ? w.vendor_name : '', w ? w.currency : '', w ? w.unit_price : '', w ? w.fx_rate : '',
+      w ? round_(w.landed_unit_cost_thb, 4) : '', it.gp_percent == null ? '' : it.gp_percent, it.sell_price_thb == null ? '' : it.sell_price_thb,
+      it.quote_status === 'not_offered' ? 'ไม่เสนอราคา' : it.quote_status === 'follow_up' ? 'ส่งตามหลัง' : '',
+      DEAL_STATUS_LABEL_TH[it.deal_status] || '', it.deal_note, d(t.gm_price_approved_at), d(t.closed_at)]);
+  });
+  const itemOf = {};
+  items.forEach(function (x) { itemOf[x.it.item_id] = x; });
+  const sup = { name: 'ราคา Supplier ทั้งหมด', header: ['เลขที่', 'ลำดับ', 'สินค้า', 'Supplier', 'ผู้ชนะ', 'เหตุผลที่เลือก', 'สกุลเงิน', 'ราคา/หน่วย', 'อัตราแลกเปลี่ยน', 'วันที่อัตรา',
+    'VAT', 'ต้นทุนสินค้า (บาท)', 'ค่าขนส่ง', 'ค่าประกัน', 'อากร %', 'อากร (บาท)', 'ค่าธรรมเนียม', 'ห้องเย็น', 'ขนส่งในประเทศ', 'อื่นๆ', 'ค่าเคลียร์ของรวม',
+    'ต้นทุนถึงคลัง (บาท/หน่วย)', 'MOQ', 'Lead time (วัน)', 'เงื่อนไขชำระ', 'ยืนราคาถึง', 'แบรนด์', 'ประเทศต้นทาง', 'ถูกลบ'], rows: [] };
+  quotes.forEach(function (q) {
+    const x = itemOf[q.item_id];
+    const b = q.cost_breakdown || {};
+    sup.rows.push([ids[q.ticket_id].ticket_no, x ? x.it.line_no : '', x ? x.it.product_name : '', q.vendor_name, q.is_selected ? '✔' : '', q.selection_reason,
+      q.currency, q.unit_price, q.fx_rate, q.fx_date || '', VAT_TERM_LABEL[q.vat_term] || q.vat_term, round_(q.net_unit_cost_thb, 4), b.freight || '', b.insurance || '',
+      b.duty_pct || '', b.duty_thb || '', b.fees || '', b.cold || '', b.inland || '', b.other || '', q.clearance_thb || 0, round_(q.landed_unit_cost_thb, 4),
+      q.moq == null ? '' : q.moq, q.lead_time_days == null ? '' : q.lead_time_days, q.payment_term, q.valid_until || '', q.brand, q.origin_country, q.is_deleted ? 'ลบแล้ว' : '']);
+  });
+  const log = { name: 'ประวัติการทำงาน', header: ['เวลา', 'เลขที่', 'รายการ', 'ผู้ทำ', 'บทบาท', 'จากขั้นตอน', 'ไปขั้นตอน', 'หมายเหตุ'], rows: [] };
+  tickets.forEach(function (t) {
+    timelineOf_(t.ticket_id).forEach(function (l) {
+      log.rows.push([d(l.ts), t.ticket_no, l.action_label + (l.on_behalf_name ? ' (แทน ' + l.on_behalf_name + ')' : ''), l.actor_name, l.actor_role,
+        STAGE_LABEL_TH[l.from_stage] || l.from_stage, STAGE_LABEL_TH[l.to_stage] || l.to_stage, l.comment]);
+    });
+  });
+  const photos = { name: 'ไฟล์และรูป', header: ['เลขที่', 'ประเภท', 'ชื่อไฟล์', 'สินค้า', 'Supplier', 'แนบโดย', 'วันที่แนบ', 'ลิงก์ Drive', 'สถานะ'], rows: [] };
+  const qById = {};
+  quotes.forEach(function (q) { qById[q.quote_id] = q; });
+  rows_(TAB.ATTACHMENTS).filter(function (a) { return ids[String(a.ticket_id)]; }).forEach(function (a) {
+    const x = itemOf[String(a.item_id)];
+    photos.rows.push([ids[String(a.ticket_id)].ticket_no, String(a.category), String(a.file_name), x ? x.it.product_name : '',
+      qById[String(a.quote_id)] ? qById[String(a.quote_id)].vendor_name : '', nm(a.uploaded_by), d(a.uploaded_at),
+      'https://drive.google.com/file/d/' + String(a.drive_file_id) + '/view', toBool_(a.is_deleted) ? 'ลบแล้ว (' + String(a.deleted_by || '') + ')' : '']);
+  });
+  const info = { name: 'อ่านก่อน', header: ['หัวข้อ', 'ค่า'], rows: [
+    ['ระบบ', 'MGS Food Price Request ' + APP_VERSION], ['ช่วงวันที่ขอราคา', fmtDate_(new Date(fromMs)) + ' ถึง ' + fmtDate_(new Date(toMs - 86400000))],
+    ['ดาวน์โหลดโดย', u ? u.full_name + ' (' + u.email + ')' : 'ระบบ (อัตโนมัติ)'], ['เวลา', new Date()],
+    ['ใบขอราคา', tickets.length], ['รายการสินค้า', req.rows.length], ['ราคา Supplier', sup.rows.length], ['ประวัติการทำงาน', log.rows.length], ['ไฟล์และรูป', photos.rows.length],
+    ['หมายเหตุ', 'ไฟล์นี้มีต้นทุน / GP / Supplier — ห้ามส่งต่อให้ฝ่ายขายหรือภายนอก']] };
+  return [info, req, sup, log, photos];
+}
+
+/** Sheets → .xlsx bytes (temporary spreadsheet, exported, then trashed). */
+function xlsxBytes_(title, sheets) {
+  const ss = SpreadsheetApp.create(title);
+  const id = ss.getId();
+  try {
+    sheets.forEach(function (s, i) {
+      const sh = i === 0 ? ss.getSheets()[0].setName(s.name) : ss.insertSheet(s.name);
+      const data = [s.header].concat(s.rows.map(function (r) { return r.map(function (v) { return v === null || v === undefined ? '' : toCell_(v); }); }));
+      sh.getRange(1, 1, data.length, s.header.length).setValues(data);
+      try { sh.setFrozenRows(1); sh.getRange(1, 1, 1, s.header.length).setFontWeight('bold').setBackground('#E2F4EE'); } catch (e) { /* formatting is cosmetic */ }
+    });
+    SpreadsheetApp.flush();
+    const res = http_().fetch('https://docs.google.com/spreadsheets/d/' + id + '/export?format=xlsx',
+      { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) throw appError_('EXPORT_FAILED', 'สร้างไฟล์ Excel ไม่สำเร็จ (HTTP ' + res.getResponseCode() + ') กรุณาลองใหม่');
+    return res.getContent();
+  } finally {
+    try { DriveApp.getFileById(id).setTrashed(true); } catch (e) { console.warn('temp export not trashed', e); }
+  }
+}
+
+/** Automatic copy (runRetention): the rows about to be deleted → <root>/Exports/*.xlsx in Drive. Never blocks the clean-up. */
+function saveRetentionExport_(sheets) {
+  try {
+    if (!sheets.some(function (s) { return s.rows.length; })) return '';
+    const rootId = TEST_DRIVE_ ? 'test-root' : PropertiesService.getScriptProperties().getProperty(CFG.PROP.DRIVE_ROOT_ID);
+    if (!rootId) return '';
+    const root = drive_().getFolderById(rootId);
+    const it = root.getFoldersByName('Exports');
+    const folder = it.hasNext() ? it.next() : root.createFolder('Exports');
+    const name = 'MGS FPR ก่อนล้างข้อมูล ' + fmtDate_(new Date(), 'yyyy-MM-dd');
+    const bytes = xlsxBytes_(name, sheets);
+    const f = folder.createFile(Utilities.newBlob(bytes, XLSX_MIME_, name + '.xlsx'));
+    return f.getId();
+  } catch (e) {
+    console.warn('saveRetentionExport_', e);
+    return 'failed: ' + (e && e.message);
+  }
 }

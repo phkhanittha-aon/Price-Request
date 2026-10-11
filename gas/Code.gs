@@ -23,6 +23,7 @@ const PARTIALS_ = ['App', 'PageHome', 'PageDashboard', 'PageGp', 'PageDeals', 'P
 function doGet(e) {
   const t = HtmlService.createTemplateFromFile('Index');
   t.appVersion = APP_VERSION;
+  t.bootJson = bootJson_(e);
   const out = t.evaluate()
     .setTitle(CFG.APP_NAME)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
@@ -30,6 +31,28 @@ function doGet(e) {
   // name of the icon when added to the phone's home screen ("Add to Home Screen")
   try { out.addMetaTag('apple-mobile-web-app-title', 'MGS FPR'); } catch (err) { /* tag not allowed on this runtime */ }
   return out;
+}
+
+/**
+ * Start-up data embedded in the page (saves 2 round trips on open — the long spinner on mobile):
+ * the same getBootstrap result the page would ask for, plus the ticket board when the page opens on home / list.
+ * Built with the same server functions (same permission checks). JSON made safe for a <script> block.
+ */
+function bootJson_(e) {
+  try {
+    const page = String((e && e.parameter && e.parameter.page) || 'home');
+    const boot = getBootstrap();
+    let board = null;
+    if (boot && boot.ok && (page === 'home' || page === 'tickets')) {
+      const r = listTicketBoard();
+      if (r && r.ok) board = r.data;
+    }
+    return JSON.stringify({ boot: boot, board: board, email: boot && boot.ok ? boot.data.me.email : '', at: Date.now() })
+      .replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+  } catch (err) {
+    console.warn('bootJson_', err);
+    return 'null';
+  }
 }
 
 /** Template helper: <?!= include_('App') ?> — whitelisted file names only. */

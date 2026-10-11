@@ -118,7 +118,7 @@ Pages.home = (function () {
       if (lastRows && lastUser === state.me.email) draw(view, lastRows);
       else view.innerHTML = loadingHtml();
       const who = state.me.email;
-      api('listTicketBoard').then(function (d) {
+      boardData().then(function (d) {
         lastRows = d.rows; lastUser = who;
         if (isCurrent()) draw(view, d.rows);
       }).catch(function (e) { if (isCurrent() && lastUser !== state.me.email) view.innerHTML = errorHtml(e, 'App.reload()'); });

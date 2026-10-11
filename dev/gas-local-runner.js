@@ -67,6 +67,7 @@ class MockRange {
 class MockSheet {
   constructor(name) { this.name = name; this.data = []; this.maxRows = 1000; this.maxCols = 26; }
   getName() { return this.name; }
+  setName(n) { this.name = n; return this; }
   getLastRow() {
     for (let r = this.data.length - 1; r >= 0; r--) {
       if ((this.data[r] || []).some((v) => v !== '' && v !== undefined && v !== null)) return r + 1;

@@ -31,7 +31,8 @@ const mocks = fs.readFileSync(path.join(__dirname, 'gas-browser-mocks.js'), 'utf
 
 let index = read('Index.html')
   .replace(/<\?!= include_\('(\w+)'\); \?>/g, (_, n) => read(n + '.html'))
-  .replace(/<\?= appVersion \?>/g, version + ' · prototype');
+  .replace(/<\?= appVersion \?>/g, version + ' · prototype')
+  .replace(/<\?!= bootJson \?>/g, 'null');   // the prototype has no doGet: the page asks the server as before
 // Inter / Sarabun / Sora / JetBrains Mono are embedded (base64) so the prototype looks the same offline. The web app uses Google Fonts.
 const fontDir = path.join(__dirname, 'fonts');
 const fontCss = fs.readFileSync(path.join(fontDir, 'manifest.txt'), 'utf8').trim().split('\n').map(function (line) {

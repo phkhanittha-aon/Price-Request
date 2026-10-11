@@ -34,7 +34,13 @@ Pages.admin = (function () {
       d.bots.map(botCard).join('') +
       '<section class="card"><h3>🔗 ลิงก์เว็บแอป (ปุ่ม “เปิดใบขอราคา” ในการ์ด)</h3><div class="small">ปัจจุบัน: ' + (d.webapp_url ? '<code>' + esc(d.webapp_url) + '</code>' : '<span class="sla warning">ยังไม่ได้ตั้ง — ใช้ลิงก์ของ deployment ปัจจุบันแทน</span>') + '</div>' +
       '<div class="fgrid two" style="margin-top:8px"><label class="field"><span>Web app URL (/exec)</span><input type="url" id="ad-webapp" style="width:100%" placeholder="https://script.google.com/a/macros/mglobalsourcing.net/s/…/exec" value="' + esc(d.webapp_url) + '"></label></div>' +
-      '<div class="actions"><button class="btn" id="ad-webapp-save">💾 บันทึกลิงก์</button></div></section>';
+      '<div class="actions"><button class="btn" id="ad-webapp-save">💾 บันทึกลิงก์</button></div></section>' +
+      '<section class="card"><h3>📥 ดาวน์โหลดประวัติ (Excel)</h3>' +
+      '<div class="small muted">แบบฟอร์มเดียวกันทุกครั้ง: อ่านก่อน · ใบขอราคา (1 แถว = 1 สินค้า) · ราคา Supplier ทั้งหมด · ประวัติการทำงาน · ไฟล์และรูป — มีต้นทุน / GP ห้ามส่งต่อฝ่ายขาย · ' +
+      'ทุกวันที่ 1 ระบบเก็บสำเนาข้อมูลที่จะถูกล้างเป็น Excel ไว้ใน Drive โฟลเดอร์ Exports ให้อัตโนมัติ</div>' +
+      '<div class="fgrid two" style="margin-top:8px"><label class="field"><span>ขอราคาตั้งแต่วันที่</span><input type="date" id="ex-from" value="' + todayYmd(-365) + '"></label>' +
+      '<label class="field"><span>ถึงวันที่</span><input type="date" id="ex-to" value="' + todayYmd(0) + '"></label></div>' +
+      '<div class="actions"><button class="btn primary" id="ex-go">📥 ดาวน์โหลด Excel</button></div><div class="small" id="ex-out"></div></section>';
     $all('[data-bot]', view).forEach(function (card) {
       const bot = card.getAttribute('data-bot');
       const out = $('[data-out]', card);
@@ -60,6 +66,16 @@ Pages.admin = (function () {
         });
       };
     });
+    $('#ex-go', view).onclick = function () {
+      const btn = $('#ex-go', view), out = $('#ex-out', view);
+      btn.disabled = true; out.textContent = 'กำลังสร้างไฟล์ Excel... (ข้อมูลมากอาจใช้เวลา 10–30 วินาที)';
+      api('exportHistory', { from: $('#ex-from', view).value, to: $('#ex-to', view).value }).then(function (r) {
+        downloadBase64(r.file_name, r.mime, r.base64);
+        out.innerHTML = '<span class="sla ok">✓ ' + esc(r.file_name) + '</span> — ' + Object.keys(r.counts).filter(function (k) { return k !== 'อ่านก่อน'; })
+          .map(function (k) { return esc(k) + ' ' + r.counts[k]; }).join(' · ');
+      }).catch(function (e) { out.innerHTML = '<span class="sla breach">' + esc(e.error) + '</span>'; })
+        .then(function () { btn.disabled = false; });
+    };
     $('#ad-webapp-save', view).onclick = function () {
       api('saveWebappUrl', $('#ad-webapp', view).value).then(function () { toast('บันทึกลิงก์แล้ว', 'ok'); load(view); }).catch(function (e) { toast(e.error, 'err', 9000); });
     };

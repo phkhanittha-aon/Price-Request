@@ -11,7 +11,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&family=Sora:wght@600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+  <!-- fonts load in the background (never block the first paint on mobile); fewer families / weights -->
+  <link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Sarabun:wght@400;600&family=Sora:wght@700&display=swap">
   <style>
     /* ===== 1. Design tokens — MGS green (light base) · same look as the MGS Sales app ===== */
     :root {
@@ -26,7 +27,7 @@
       --tap: 42px;
       --font: "Inter", "Sarabun", system-ui, -apple-system, "Segoe UI", sans-serif;
       --font-head: "Sora", "Sarabun", "Inter", system-ui, sans-serif;
-      --font-mono: "JetBrains Mono", ui-monospace, "Sarabun", monospace;
+      --font-mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, "Sarabun", monospace;
       font-size: 15px;
     }
     * { box-sizing: border-box; }
@@ -744,6 +745,7 @@
   <div id="toast-root" aria-live="polite"></div>
   <div id="tip" role="tooltip"></div>
 
+  <script>window.__BOOT__ = <?!= bootJson ?>;</script>
   <?!= include_('App'); ?>
   <?!= include_('PageHome'); ?>
   <?!= include_('PageDashboard'); ?>

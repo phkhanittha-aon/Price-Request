@@ -779,6 +779,7 @@ function ticketDetail_(u, t) {
           out.sell_price_thb = out.sales_pricing ? out.sales_pricing.sell_price_thb : null;
         }
       }
+      if (!showQuotes) delete out.supplier_shortfall_reason;   // purchasing note (how many suppliers offered) — cost roles only
       return out;
     });
     const attachments = findAll_(TAB.ATTACHMENTS, 'ticket_id', t.ticket_id)

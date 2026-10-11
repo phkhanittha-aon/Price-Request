@@ -571,12 +571,37 @@ const Photos = (function () {
   return { html: html, bind: bind, load: load, view: view, of: of, max: maxPer };
 })();
 
+/** Save a file the server returned as base64 (e.g. Excel export). */
+function downloadBase64(name, mime, b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.rel = 'noopener';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+}
+
+/** Ticket board for home / list: the copy embedded in the page is used once (fresh, < 60 s), then the server (cached). */
+function boardData() {
+  const p = state.preBoard;
+  state.preBoard = null;
+  if (p && state.me && p.email === state.me.email && Date.now() - p.at < 60000) return Promise.resolve(p.data);
+  return api('listTicketBoard');
+}
+
 /* ===== 8. Boot ===== */
 const App = {
   start: function () {
     $('#brand').onclick = function () { go({ page: 'home' }); };
     $('#bell').onclick = openNotifications;
-    api('getBootstrap').then(function (b) {
+    // start-up data already in the page (doGet) → no waiting for getBootstrap / listTicketBoard on open
+    const pre = window.__BOOT__;
+    window.__BOOT__ = null;
+    if (pre && pre.board) state.preBoard = { email: pre.email, at: Date.now(), data: pre.board };
+    const boot = pre && pre.boot ? (pre.boot.ok ? Promise.resolve(pre.boot.data) : Promise.reject(pre.boot)) : api('getBootstrap');
+    boot.then(function (b) {
       state.me = b.me; state.ref = b.ref; state.menu = b.menu;
       state.approvalRoute = b.approval_route || '';
       $('#who').innerHTML = '<div>' + esc(b.me.full_name) + '</div><small>' + esc(b.me.role_label) +

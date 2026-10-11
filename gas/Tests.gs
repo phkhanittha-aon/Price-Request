@@ -441,6 +441,9 @@ function fakeHttp_() {
         return resp(200, { code: 0, data: { user_list: payload.emails.filter(function (e) { return !self.unknownEmails[e]; })
           .map(function (e) { return { email: e, user_id: 'ou_' + e.split('@')[0] }; }) } });
       }
+      if (/docs\.google\.com\/spreadsheets\/d\/[^/]+\/export\?format=xlsx/.test(url)) {   // Sheets → .xlsx export
+        return resp(200, '', { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }, [80, 75, 3, 4, 20, 0]);
+      }
       if (url.indexOf('/open-apis/bot/v2/hook/') !== -1) {   // Lark custom bot webhook
         this.hooks.push(payload);
         if (this.hookDown) return resp(500, { code: 9499, msg: 'service unavailable' });
@@ -463,7 +466,10 @@ function fakeDrive_() {
     getFolderById: function () {
       return {
         getFoldersByName: function () { return { hasNext: function () { return false; } }; },
-        createFolder: function (name) { return { getId: function () { return 'folder-' + name; } }; }
+        createFolder: function (name) {
+          return { getId: function () { return 'folder-' + name; },
+            createFile: function (blob) { (trashed.__created = trashed.__created || []).push(blob); return { getId: function () { return 'file-x'; }, getUrl: function () { return 'https://drive.fake/x'; } }; } };
+        }
       };
     }
   };
@@ -2359,6 +2365,34 @@ function runAuditFixCases_(results) {
       const closedEarly = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return new Date(t.created_at).getTime() <= new Date(anchor.last_ts).getTime(); })[0];
       ok(!closedEarly || timelineOf_(closedEarly.ticket_id).some(function (l) { return l.action === 'create'; }), 'Retention: an archived request still shows its full timeline (read from the archive)');
       ok(runSelfTest().some(function (l) { return l.indexOf('PASS every ticket has a create log') === 0; }), 'Retention: self-test still passes');
+      ok(r.export_file && !/^failed/.test(r.export_file) && (TEST_DRIVE_.trashed.__created || []).length >= 1, 'Retention: an Excel copy of what is deleted is saved in Drive › Exports first');
+    });
+
+    wrap('EXPORT', function () {
+      expectErr(as(U.salesFood1, function () { return exportHistory({}); }), 'FORBIDDEN', 'Export: Sales cannot download the history (it has cost / GP)');
+      expectErr(as(U.sr1, function () { return exportHistory({}); }), 'FORBIDDEN', 'Export: SR cannot download the history');
+      const x = must(as(U.gm, function () { return exportHistory({ from: fmtDate_(new Date(Date.now() - 30 * 86400000)), to: fmtDate_(new Date()) }); }));
+      ok(/\.xlsx$/.test(x.file_name) && x.mime.indexOf('spreadsheetml') !== -1 && x.base64.length > 0, 'Export: GM downloads an .xlsx file');
+      ok(['อ่านก่อน', 'ใบขอราคา', 'ราคา Supplier ทั้งหมด', 'ประวัติการทำงาน', 'ไฟล์และรูป'].every(function (k) { return k in x.counts; }) && x.counts['ใบขอราคา'] > 0 && x.counts['ราคา Supplier ทั้งหมด'] > 0,
+        'Export: fixed template tabs (' + JSON.stringify(x.counts) + ')');
+      const sheets = historySheets_(Date.now() - 30 * 86400000, Date.now() + 86400000, userByEmail_(U.gm));
+      const req = sheets.filter(function (s0) { return s0.name === 'ใบขอราคา'; })[0];
+      ok(req.header.length === req.rows[0].length && req.rows.some(function (r0) { return r0[23] !== ''; }), 'Export: one row per item with the selling price column');
+      expectErr(as(U.admin, function () { return exportHistory({ from: '2026-10-10', to: '2026-01-01' }); }), 'VALIDATION', 'Export: wrong date range refused');
+    });
+
+    wrap('M4_MOBILE', function () {
+      const t = rows_(TAB.TICKETS).map(normTicket_).filter(function (x) { return activeItemsOf_(x.ticket_id).some(function (it) { return it.supplier_shortfall_reason; }); })[0];
+      if (t) {
+        const sv = as(t.requestor_email, function () { return must(getTicket(t.ticket_id)); });
+        ok(sv.items.every(function (it) { return !('supplier_shortfall_reason' in it); }), 'M4: Sales no longer receives the supplier-shortfall note');
+        ok(as(U.gm, function () { return must(getTicket(t.ticket_id)); }).items.some(function (it) { return it.supplier_shortfall_reason; }), 'M4: GM still sees it');
+      }
+      const j = withIdentity_(U.salesFood1, function () { return bootJson_({ parameter: {} }); });
+      const o = JSON.parse(j);
+      ok(o.boot.ok && o.board && o.board.rows && j.indexOf('<') === -1 && o.email === U.salesFood1, 'Mobile: start-up data embedded in the page (bootstrap + board, no raw “<”)');
+      ok(JSON.parse(withIdentity_(U.salesFood1, function () { return bootJson_({ parameter: { page: 'ticket' } }); })).board === null, 'Mobile: deep links embed only the bootstrap');
+      ok(withIdentity_('nobody@' + DEMO_DOMAIN, function () { return JSON.parse(bootJson_({ parameter: {} })).boot.code; }) === 'NOT_REGISTERED', 'Mobile: unregistered user still gets the “no access” screen');
     });
   } finally {
     setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false', lark_dm_types: '["*"]' });
