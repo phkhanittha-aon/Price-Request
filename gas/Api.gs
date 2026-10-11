@@ -220,7 +220,7 @@ function pollData_(u) {
   }).length;
   const out = { inbox: inbox, unread: unread, server_time: new Date().toISOString(),
     follow_up: myOpenFollowUps_(u).length };
-  if (u.role === 'sales' || u.role === 'manager') {
+  if (u.role === 'sales' || u.role === 'manager' || u.role === 'gm') {
     // deals waiting for a follow-up (Sales: own · Sales Manager: own department)
     out.deals_due = dealRows_(u, false).filter(function (r) { return r.is_due && r.can_edit; }).length;
   }
@@ -573,7 +573,7 @@ function boardCachePut_(key, obj) {
 function getSalesHistory() {
   return api_('getSalesHistory', function () {
     const u = currentUser_();
-    if (u.role !== 'sales') return { customers: [], products: [] };
+    if (u.role !== 'sales' && u.role !== 'gm') return { customers: [], products: [] };
     const mine = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return t.requestor_email === u.email; })
       .sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); });
     const customers = [];

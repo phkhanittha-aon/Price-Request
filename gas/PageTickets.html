@@ -102,7 +102,7 @@ Pages.tickets = (function () {
   /* ---------- view ---------- */
   function shell(f) {
     return '<div class="page-head"><h1>ใบเสนอราคา</h1>' +
-      (state.me.role === 'sales' ? '<button class="btn primary" data-new>+ สร้างใบขอราคา</button>' : '') + '</div>' +
+      (state.me.role === 'sales' || state.me.role === 'gm' ? '<button class="btn primary" data-new>+ สร้างใบขอราคา</button>' : '') + '</div>' +
       '<div class="card list-bar">' +
       '<div class="tabs" role="tablist" id="t-tabs"></div>' +
       '<div class="list-tools"><input type="search" id="f-q" placeholder="ค้นหา เลขที่ใบ / ลูกค้า / สินค้า / Sales / SR" value="' + esc(f.q) + '" aria-label="ค้นหา">' +

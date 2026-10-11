@@ -93,7 +93,7 @@ function dealRows_(u, withCost, period) {
 function canEditDeal_(u, t) {
   if (DEAL_STAGES_.indexOf(t.stage) === -1) return false;
   if (u.role === 'admin') return true;
-  if (u.role === 'sales') return t.requestor_email === u.email;
+  if (u.role === 'sales' || u.role === 'gm') return t.requestor_email === u.email;   // GM: own requests
   if (u.role === 'manager') {
     const d = departmentByCode_(t.department_code);
     return !!d && d.manager_email === u.email;

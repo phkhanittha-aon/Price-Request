@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-1
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-2
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-1';
+const APP_VERSION = '2026.10.14-2';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -1156,6 +1156,14 @@ function canViewSellPrice_(u, t) {
   return t.status === 'completed' || t.status === 'closed';
 }
 
+/**
+ * The person who asked for the price: Sales — or GM, who may request prices too (own requests skip the
+ * sales-side approval, see createTicket). They answer “ขอข้อมูลเพิ่ม”, accept the price, follow the deal.
+ */
+function isRequester_(u, t) {
+  return !!u && (u.role === 'sales' || u.role === 'gm') && t.requestor_email === u.email;
+}
+
 /** Sales may edit header/items only before Manager approval (or after Manager returned it). */
 function canEditRequest_(u, t) {
   if (u.role === 'admin') return ['pending_manager', 'returned', 'pending_gm'].indexOf(t.stage) !== -1;   // Admin fixes it for Sales until GM approves
@@ -1184,9 +1192,11 @@ function canEditChecklist_(u, t) {
 
 function canUpload_(u, t) {
   if (u.role === 'admin') return OPEN_STATUSES.indexOf(t.status) !== -1;
-  if (u.role === 'sales' && t.requestor_email === u.email) {
+  if (isRequester_(u, t)) {
     // until GM approves (pending_gm included: the Sales Manager step may be skipped right after submit)
-    return ['pending_manager', 'returned', 'pending_gm', 'need_info'].indexOf(t.stage) !== -1;
+    // GM's own request skips approval and is with the SR at once → GM may still attach (pictures of the form) until pricing
+    return ['pending_manager', 'returned', 'pending_gm', 'need_info'].indexOf(t.stage) !== -1 ||
+      (u.role === 'gm' && ['pending_assign', 'doc_check'].indexOf(t.stage) !== -1);
   }
   return u.role === 'sr' && isSr_(t, u.email) && t.status === 'on_process';
 }
@@ -1782,6 +1792,8 @@ const ACTION_LABEL_TH = {
 //            items: [{ item_id?, product_name, net_weight, size, packing_size, qty (per month), uom,
 //                      target_price (THB/kg, 0 = none), product_group_code? (default FOOD), spec? }] }
 // =============================================================================
+let GM_OWN_REQUEST_ = false;   // true only while createTicket approves a GM's own request (server-side flag)
+
 function createTicket(payload) {
   return api_('createTicket', function () {
     const p = payload || {};
@@ -1794,7 +1806,8 @@ function createTicket(payload) {
         if (!s || !s.is_active || s.role !== 'sales') throw appError_('VALIDATION', 'กรุณาเลือก Sales ผู้ขอราคา (Admin สร้างใบแทน Sales)');
         u = s;
       }
-      requireRole_(u, ['sales'], 'เฉพาะ Sales เท่านั้นที่สร้างใบขอราคาได้');
+      requireRole_(u, ['sales', 'gm'], 'เฉพาะ Sales หรือ GM เท่านั้นที่สร้างใบขอราคาได้');
+      const gmOwn = u.role === 'gm';   // GM heads Sales: own requests skip the sales-side approval
 
       const clientKey = cleanText_(p.client_key, 64);
       if (clientKey) {
@@ -1804,14 +1817,28 @@ function createTicket(payload) {
         if (dup) return { ticket: publicTicket_(normTicket_(dup)), duplicate: true };
       }
 
-      if (!u.department_code) {
-        throw appError_('NO_DEPARTMENT', 'บัญชีของคุณยังไม่ได้ผูกกับแผนก กรุณาติดต่อผู้ดูแลระบบ');
+      let dept = null;
+      if (gmOwn) {
+        dept = u.department_code ? departmentByCode_(u.department_code) : null;   // optional for GM
+        if (!dept || !dept.is_active) dept = { code: u.department_code || '', manager_email: '' };
+      } else {
+        if (!u.department_code) {
+          throw appError_('NO_DEPARTMENT', 'บัญชีของคุณยังไม่ได้ผูกกับแผนก กรุณาติดต่อผู้ดูแลระบบ');
+        }
+        dept = departmentByCode_(u.department_code);
+        if (!dept || !dept.is_active) {
+          throw appError_('NO_DEPARTMENT', 'แผนกของคุณไม่ถูกต้องหรือถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
+        }
       }
-      const dept = departmentByCode_(u.department_code);
-      if (!dept || !dept.is_active) {
-        throw appError_('NO_DEPARTMENT', 'แผนกของคุณไม่ถูกต้องหรือถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
+      const firstStage = gmOwn ? 'pending_gm' : firstApprovalStage_(dept);
+      // GM picks the SR in this mode — checked BEFORE anything is written (a sheet write cannot be rolled back)
+      const gmPicksSr = gmOwn && !toBool_(setting_('assign_by_group', true)) && toBool_(setting_('gm_assigns_sr', true));
+      if (gmPicksSr) {
+        const target = userByEmail_(p.sr_email);
+        if (!target || !target.is_active || target.role !== 'sr') {
+          throw appError_('INVALID_ASSIGNEE', 'กรุณาเลือก Sourcing ผู้ทำราคา (ต้องเป็น SR ที่ใช้งานอยู่)');
+        }
       }
-      const firstStage = firstApprovalStage_(dept);
 
       const customer = requireText_(p.customer_name, 'ชื่อลูกค้า (Customer)', 200);
       const market = cleanMarket_(p.customer_group, p.destination_country);
@@ -1876,8 +1903,18 @@ function createTicket(payload) {
         actor_email: actor.email, actor_role: actor.role,
         to_status: 'requested', to_stage: firstStage,
         metadata: Object.assign({ ticket_no: ticket.ticket_no, item_count: cleanItems.length,
-          sales_manager_skipped: firstStage === 'pending_gm' }, actor !== u ? { on_behalf_of: u.email, on_behalf_role: u.role } : {})
+          sales_manager_skipped: firstStage === 'pending_gm' }, gmOwn ? { gm_own_request: true } : {},
+          actor !== u ? { on_behalf_of: u.email, on_behalf_role: u.role } : {})
       });
+
+      if (gmOwn) {
+        // no approval needed: approved at once as GM → SR(s) by product group / chosen SR / queue (same as gm_approve)
+        GM_OWN_REQUEST_ = true;
+        try {
+          doTransition_(ticketId, 'gm_approve', 'GM ขอราคาเอง — ไม่ต้องอนุมัติฝั่งขาย', { expected_version: 1, sr_email: p.sr_email || '' });
+        } finally { GM_OWN_REQUEST_ = false; }
+        return { ticket: publicTicket_(ticketById_(ticketId)), duplicate: false };
+      }
 
       const t = normTicket_(ticket);
       enqueueNotifications_(stageAssignees_(t), t, 'approval_required',
@@ -1934,7 +1971,7 @@ function doTransition_(ticketId, action, comment, payload) {
     throw appError_('INVALID_STATE', msg || ('ทำรายการไม่ได้ในสถานะ "' + STAGE_LABEL_TH[t.stage] + '"'));
   }
   function needComment(msg) { if (!note) throw appError_('COMMENT_REQUIRED', msg); }
-  function isOwner() { return u.role === 'sales' && t.requestor_email === u.email; }
+  function isOwner() { return isRequester_(u, t); }
   function isAssignedSr() { return u.role === 'sr' && isSr_(t, u.email); }
 
   switch (action) {
@@ -1991,7 +2028,8 @@ function doTransition_(ticketId, action, comment, payload) {
     case 'gm_approve':
     case 'gm_reject': {
       if (u.role !== 'gm') forbid('เฉพาะ GM เท่านั้นที่ทำรายการนี้ได้');
-      if (t.requestor_email === u.email || t.manager_email === u.email) {
+      // GM's own request: approved by createTicket itself (GM_OWN_REQUEST_ is set only there, never from the browser)
+      if ((t.requestor_email === u.email && !(GM_OWN_REQUEST_ && action === 'gm_approve')) || t.manager_email === u.email) {
         throw appError_('SELF_APPROVAL', 'ไม่สามารถอนุมัติซ้ำหรืออนุมัติใบของตัวเองได้');
       }
       if (t.stage !== 'pending_gm') badState();
@@ -2582,7 +2620,7 @@ function allowedActions_(u, t) {
     return all;
   }
   const a = [];
-  const owner = u.role === 'sales' && t.requestor_email === u.email;
+  const owner = isRequester_(u, t);
   const assigned = u.role === 'sr' && isSr_(t, u.email);
   if (owner && t.stage === 'returned') a.push('resubmit');
   if (owner && ['pending_manager', 'returned', 'pending_gm'].indexOf(t.stage) !== -1) a.push('cancel');
@@ -4019,7 +4057,7 @@ function dealRows_(u, withCost, period) {
 function canEditDeal_(u, t) {
   if (DEAL_STAGES_.indexOf(t.stage) === -1) return false;
   if (u.role === 'admin') return true;
-  if (u.role === 'sales') return t.requestor_email === u.email;
+  if (u.role === 'sales' || u.role === 'gm') return t.requestor_email === u.email;   // GM: own requests
   if (u.role === 'manager') {
     const d = departmentByCode_(t.department_code);
     return !!d && d.manager_email === u.email;
@@ -4364,7 +4402,7 @@ function pollData_(u) {
   }).length;
   const out = { inbox: inbox, unread: unread, server_time: new Date().toISOString(),
     follow_up: myOpenFollowUps_(u).length };
-  if (u.role === 'sales' || u.role === 'manager') {
+  if (u.role === 'sales' || u.role === 'manager' || u.role === 'gm') {
     // deals waiting for a follow-up (Sales: own · Sales Manager: own department)
     out.deals_due = dealRows_(u, false).filter(function (r) { return r.is_due && r.can_edit; }).length;
   }
@@ -4717,7 +4755,7 @@ function boardCachePut_(key, obj) {
 function getSalesHistory() {
   return api_('getSalesHistory', function () {
     const u = currentUser_();
-    if (u.role !== 'sales') return { customers: [], products: [] };
+    if (u.role !== 'sales' && u.role !== 'gm') return { customers: [], products: [] };
     const mine = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return t.requestor_email === u.email; })
       .sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); });
     const customers = [];
@@ -6454,7 +6492,7 @@ function menuFor_(u) {
   const MAIN = 'เมนูหลัก';
   const m = [{ key: 'home', group: MAIN, icon: '🏠', label: 'หน้าแรก', route: { page: 'home' } }];
   m.push({ key: 'tickets', group: MAIN, icon: '📄', label: 'ใบเสนอราคา', route: { page: 'tickets' }, badge: 'inbox' });
-  if (u.role === 'sales') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+  if (u.role === 'sales' || u.role === 'gm') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', hint: u.role === 'gm' ? 'ไม่ต้องอนุมัติ' : '', route: { page: 'new' }, primary: u.role === 'sales' });
   if (u.role === 'admin') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', hint: 'แทน Sales', route: { page: 'new' } });
   if (u.role === 'sales') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามการขาย', hint: 'ลูกค้าซื้อหรือยัง', route: { page: 'deals' }, badge: 'deals_due' });
   if (u.role === 'gm') {
@@ -6511,6 +6549,7 @@ function referenceData_(me) {
     min_suppliers: Math.max(1, Number(setting_('min_suppliers', 3)) || 1),
     max_vendors_per_item: CFG.MAX_VENDORS_PER_ITEM,
     gm_assigns_sr: toBool_(setting_('gm_assigns_sr', true)),
+    assign_by_group: toBool_(setting_('assign_by_group', true)),
     deal_statuses: [''].concat(DEAL_STATUSES).map(function (k) { return { key: k, label: DEAL_STATUS_LABEL_TH[k] }; }),
     deal_lost_reasons: setting_('deal_lost_reasons', []),
     can_view_gp: !!me && GP_ROLES_.indexOf(me.role) !== -1,
@@ -6531,6 +6570,11 @@ function referenceData_(me) {
 
 /** Plain-language approval route for the request form (Sales Manager step is skipped when none is set). */
 function approvalRouteNote_(u) {
+  if (u.role === 'gm') {
+    return toBool_(setting_('assign_by_group', true))
+      ? 'GM ขอราคาเอง (ไม่ต้องอนุมัติฝั่งขาย) → SR ตามกลุ่มสินค้าหาราคาทันที → SR Manager → GM อนุมัติฝั่งซื้อ → กลับถึงคุณ'
+      : 'GM ขอราคาเอง (ไม่ต้องอนุมัติฝั่งขาย) → SR ที่เลือกหาราคาทันที → SR Manager → GM อนุมัติฝั่งซื้อ → กลับถึงคุณ';
+  }
   if (u.role !== 'sales') return '';
   const d = departmentByCode_(u.department_code);
   const first = firstApprovalStage_(d);
@@ -7094,6 +7138,7 @@ function runAcceptanceTests() {
     runGroupAssignCases_(results);
     runAuditFixCases_(results);
     runMediumCases_(results);
+    runGmRequestCases_(results);
   } catch (e) {
     results.push('FAIL: test run aborted — ' + (e && e.message) + '\n' + (e && e.stack));
   } finally {
@@ -7224,9 +7269,16 @@ function runCases_(results) {
     expectErr(as(U.salesFood2, function () {
       return createTicketT_({ title: 'ทดสอบจำนวน', items: [{ product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้ง', qty: 'abc', uom: 'กก.' }] });
     }), 'VALIDATION', 'Qty "abc" rejected (no silent 0)');
-    expectErr(as(U.gm, function () {
+    // GM heads Sales and may request prices too — own request skips the sales-side approval
+    const gmOwn = as(U.gm, function () {
       return createTicketT_({ title: 'GM สร้างใบ', items: [{ product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้ง', qty: 1, uom: 'กก.' }] });
-    }), 'FORBIDDEN', 'Only Sales can create tickets');
+    });
+    ok(gmOwn.ok && gmOwn.data.ticket.requestor_email === U.gm && gmOwn.data.ticket.stage !== 'pending_gm' && !!gmOwn.data.ticket.gm_approved_at,
+      'GM can create a request — no sales-side approval step');
+    must(as(U.admin, function () { return transitionTicket(gmOwn.data.ticket.ticket_id, 'admin_cancel', 'test clean-up', { expected_version: ticketById_(gmOwn.data.ticket.ticket_id).version }); }));
+    expectErr(as(U.sr1, function () {
+      return createTicketT_({ title: 'SR สร้างใบ', items: [{ product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้ง', qty: 1, uom: 'กก.' }] });
+    }), 'FORBIDDEN', 'SR cannot create tickets');
   });
 
   // ===================================================================== AC-2 status only via transitionTicket
@@ -7556,11 +7608,11 @@ function runPhase2Cases_(results) {
     const b = as(U.salesFood1, function () { return must(getBootstrap()); });
     ok(b.me.role === 'sales' && b.menu.some(function (m) { return m.key === 'new'; }), 'Bootstrap: Sales menu has "สร้างใบขอราคา"');
     const g = as(U.gm, function () { return must(getBootstrap()); });
-    ok(!g.menu.some(function (m) { return m.key === 'new'; }) && g.menu.some(function (m) { return m.key === 'tickets'; }), 'Bootstrap: GM menu has no create, has the ticket list');
+    ok(g.menu.some(function (m) { return m.key === 'new'; }) && g.menu.some(function (m) { return m.key === 'tickets'; }), 'Bootstrap: GM menu has create (own requests) and the ticket list');
     ['admin', 'gm', 'manager', 'salesFood1', 'sr1', 'srManager'].forEach(function (k) {
       const key = { manager: 'mgrFood' }[k] || k;
       const menu = menuFor_(userByEmail_(U[key]));
-      const maxM = k === 'admin' ? 7 : 5;   // Admin can act for everyone → a few more entries
+      const maxM = k === 'admin' ? 7 : k === 'gm' ? 6 : 5;   // Admin can act for everyone · GM also requests prices
       ok(menu.length <= maxM && menu[0].key === 'home' && menu.some(function (m) { return m.key === 'tickets'; }), 'Menu for ' + k + ': ' + menu.length + ' items (≤ ' + maxM + '), homepage first');
     });
     ok(!menuFor_(userByEmail_(U.salesFood1)).some(function (m) { return m.key === 'reports' || m.key === 'suppliers'; }) &&
@@ -7578,7 +7630,7 @@ function runPhase2Cases_(results) {
     const sm = as(U.mgrFood, function () { return must(listTickets({ scope: 'all', page_size: 200 })); });
     ok(sm.total === total, 'Sales Manager list shows every ticket');
     const sr = as(U.sr2, function () { return must(listTickets({ scope: 'all', page_size: 200 })); });
-    ok(sr.rows.every(function (r) { return ['pending_manager', 'pending_gm', 'returned', 'cancelled'].indexOf(r.stage) === -1; }), 'SR list hides tickets not yet approved by GM');
+    ok(sr.rows.every(function (r) { return ['pending_manager', 'pending_gm', 'returned'].indexOf(r.stage) === -1 && (r.stage !== 'cancelled' || !!ticketById_(r.ticket_id).gm_approved_at); }), 'SR list hides tickets not yet approved by GM');
     const inbox = as(U.mgrFood, function () { return must(listTickets({ scope: 'inbox', page_size: 200 })); });
     ok(inbox.total > 0 && inbox.rows.every(function (r) { return r.stage === 'pending_manager' && r.department_code === 'SALES-FOOD'; }),
       'Manager inbox = pending_manager tickets of own department (' + inbox.total + ')');
@@ -8241,7 +8293,7 @@ function runBoardCases_(results) {
       !h1.customers.some(function (c) { return others.indexOf(c.name.toLowerCase()) !== -1 && !own.some(function (x) { return x.customer_name === c.name; }); }),
       'Sales history: own customers only (with last documents)');
     ok(h1.products.length > 0 && h1.products[0].net_weight !== undefined, 'Sales history: own products with last specs');
-    ok(as(U.gm, function () { return must(getSalesHistory()); }).customers.length === 0, 'Sales history is empty for non-Sales');
+    ok(as(U.srManager, function () { return must(getSalesHistory()); }).customers.length === 0, 'Sales history is empty for non-requesters');
     const usageBefore = rows_(TAB.USAGE_LOG).length;
     must(as(U.sr1, function () { return getPoll({ home: 3, tickets: 1, evil_page: 5 }); }));
     const logged = rows_(TAB.USAGE_LOG).slice(usageBefore);
@@ -8570,7 +8622,7 @@ function runPhotoDealCases_(results) {
     ok(as(U.salesFood3, function () { return must(getTicket(id)); }).timeline.some(function (l) { return l.action === 'deal_update'; }), 'Deals: Sales sees the outcome in the timeline');
     expectErr(as(U.salesFood3, function () { return updateDeal(activeItemsOf_(t2.ticket_id)[0].item_id, { status: 'won' }); }), 'FORBIDDEN',
       'Deals: no outcome before the price is approved');
-    ok(typeof pollData_(userByEmail_(U.salesFood3)).deals_due === 'number' && pollData_(userByEmail_(U.gm)).deals_due === undefined, 'Deals: poll gives Sales the follow-up count');
+    ok(typeof pollData_(userByEmail_(U.salesFood3)).deals_due === 'number' && pollData_(userByEmail_(U.srManager)).deals_due === undefined, 'Deals: poll gives Sales the follow-up count');
     const sm = menuFor_(userByEmail_(U.salesFood3));
     ok(sm.some(function (m) { return m.key === 'deals' && m.badge === 'deals_due'; }) && sm.length <= 5, 'Deals: Sales menu has “ติดตามการขาย” (still ≤ 5 items)');
 
@@ -9605,3 +9657,98 @@ function runMediumCases_(results) {
     setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false', lark_dm_types: '["*"]' });
   }
 }
+
+/** GM requests prices too (heads Sales): own request skips the sales-side approval, then the normal pricing flow. */
+function runGmRequestCases_(results) {
+  const U = demoUsers_();
+  const ok = function (cond, name) { if (!cond) throw new Error('FAIL: ' + name); results.push('PASS: ' + name); };
+  const expectErr = function (res, code, name) {
+    if (res && res.ok === false && res.code === code) { results.push('PASS: ' + name + ' → [' + code + '] ' + res.error); return res; }
+    throw new Error('FAIL: ' + name + ' → expected ' + code + ', got ' + JSON.stringify(res).slice(0, 300));
+  };
+  const must = function (res, name) {
+    if (!res || !res.ok) throw new Error('FAIL: ' + (name || 'call') + ' → ' + JSON.stringify(res).slice(0, 300));
+    return res.data;
+  };
+  const as = function (email, fn) { return withIdentity_(email, fn); };
+  const go = function (email, id, action, comment, extra) {
+    return as(email, function () { return transitionTicket(id, action, comment || '', Object.assign({ expected_version: ticketById_(id).version }, extra || {})); });
+  };
+  const inDays = function (n) { return fmtDate_(new Date(Date.now() + n * 86400000)); };
+  const wrap = function (name, fn) {
+    try { fn(); } catch (e) { results.push(String(e.message).indexOf('FAIL:') === 0 ? e.message : 'FAIL: ' + name + ' — ' + e.message + '\n' + e.stack); }
+  };
+  const form = function (x) {
+    return Object.assign({ customer_group: 'ร้านอาหาร', customer_name: 'ลูกค้า GM', due_date: inDays(3), items: [
+      { product_group_code: 'FOOD-SHRIMP', product_name: 'กุ้งขาว', spec: 'Vannamei', size: '31/40', packing_size: '1 kg', net_weight: '80%', qty: 10, uom: 'กก.', target_price: 0 }] }, x || {});
+  };
+  TEST_HTTP_ = fakeHttp_();
+  TEST_DRIVE_ = fakeDrive_();
+  try {
+    wrap('GM_REQUEST_BY_GROUP', function () {
+      setTestSettings_({ sales_manager_step: 'true', assign_by_group: 'true', gm_assigns_sr: 'true', min_suppliers: '1' });
+      withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-SHRIMP', { sr_email: U.sr1 }); });
+      const t = must(as(U.gm, function () { return createTicket(form()); })).ticket;
+      ok(t.requestor_email === U.gm && t.stage === 'doc_check' && t.gm_email === U.gm && !!t.gm_approved_at,
+        'GM request: no Sales Manager / GM approval — goes straight to the SR of the product group');
+      ok(activeItemsOf_(t.ticket_id).every(function (it) { return it.sr_email === U.sr1; }), 'GM request: item assigned to the group SR');
+      const logs = findAll_(TAB.LOGS, 'ticket_id', t.ticket_id);
+      ok(logs.some(function (l) { return l.action === 'create' && parseJson_(l.metadata_json, {}).gm_own_request; }) &&
+        logs.some(function (l) { return l.action === 'gm_approve' && l.actor_email === U.gm; }), 'GM request: audit log shows the own request and the automatic approval');
+      ok(GM_OWN_REQUEST_ === false, 'GM request: the self-approval flag is off again afterwards');
+      ok(as(U.sr1, function () { return must(getPoll()).inbox; }) >= 1 && isAssignee_(userByEmail_(U.sr1), ticketById_(t.ticket_id), listContext_()), 'GM request: lands in the SR inbox');
+      ok(as(U.gm, function () { return must(getBootstrap()); }).menu.some(function (m) { return m.key === 'new'; }), 'GM menu has “สร้างใบขอราคา”');
+
+      // SR asks GM for more information → GM answers as the requester
+      const id = t.ticket_id;
+      const ck = checklistOf_(id);
+      must(go(U.sr1, id, 'request_info', 'ขอรูปสินค้า', { missing_items: ck.length ? [ck[0].check_id] : [] }));
+      ok(ticketById_(id).stage === 'need_info' && as(U.gm, function () { return must(getTicket(id)); }).permissions.actions.indexOf('respond_info') !== -1,
+        'GM request: GM answers “ขอข้อมูลเพิ่ม” like a Sales owner');
+      ok(as(U.gm, function () { return must(getTicket(id)); }).permissions.can_upload, 'GM request: GM may attach files while answering');
+      must(go(U.gm, id, 'respond_info', 'แนบแล้ว'));
+      ok(ticketById_(id).stage === 'doc_check', 'GM request: back to the same SR');
+      as(U.sr1, function () { checklistOf_(id).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+      must(go(U.sr1, id, 'doc_complete'));
+      const it = activeItemsOf_(id)[0];
+      const qid = Utilities.getUuid();
+      must(as(U.sr1, function () { return saveSourcingDraft(id, [{ item_id: it.item_id, quotes: [{ quote_id: qid, vendor_name: 'GM Vendor', unit_price: 120, currency: 'THB', fx_rate: 1, vat_term: 'ex_vat', valid_until: inDays(20) }], winner_quote_id: qid }]); }));
+      must(go(U.sr1, id, 'submit_quote'));
+      must(go(U.srManager, id, 'srm_approve'));
+      must(go(U.gm, id, 'gm_price_approve'));
+      ok(ticketById_(id).stage === 'awaiting_sales_ack' && as(U.gm, function () { return must(getTicket(id)); }).permissions.actions.indexOf('accept') !== -1,
+        'GM request: price comes back to GM, who accepts it');
+      must(go(U.gm, id, 'accept', 'ส่งลูกค้าแล้ว'));
+      must(as(U.gm, function () { return updateDeal(it.item_id, { status: 'follow', note: 'GM ติดตามเอง' }); }));
+      ok(findOne_(TAB.ITEMS, 'item_id', it.item_id).deal_status === 'follow', 'GM request: GM follows the deal of the own request');
+      expectErr(as(U.salesFood1, function () { return updateDeal(it.item_id, { status: 'won' }); }), 'NOT_FOUND', 'GM request: other Sales cannot see or update GM’s deal');
+      withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-SHRIMP', { sr_email: '' }); });
+    });
+
+    wrap('GM_REQUEST_PICK_SR', function () {
+      setTestSettings_({ assign_by_group: 'false', gm_assigns_sr: 'true' });
+      const before = rows_(TAB.TICKETS).length;
+      expectErr(as(U.gm, function () { return createTicket(form()); }), 'INVALID_ASSIGNEE', 'GM request (GM picks SR mode): SR must be chosen');
+      ok(rows_(TAB.TICKETS).length === before, 'GM request: nothing is written when the SR is missing');
+      const t = must(as(U.gm, function () { return createTicket(form({ sr_email: U.sr2 })); })).ticket;
+      ok(t.stage === 'doc_check' && t.sr_email === U.sr2, 'GM request: straight to the chosen SR');
+      setTestSettings_({ gm_assigns_sr: 'false' });
+      const q = must(as(U.gm, function () { return createTicket(form()); })).ticket;
+      ok(q.stage === 'pending_assign', 'GM request (queue mode): goes to the SR queue');
+    });
+
+    wrap('GM_REQUEST_RULES', function () {
+      setTestSettings_({ sales_manager_step: 'true', assign_by_group: 'false', gm_assigns_sr: 'false' });
+      // a Sales request still needs GM approval, and GM still cannot approve a request where they are the Sales Manager
+      const s = must(as(U.salesFood1, function () { return createTicket(form()); })).ticket;
+      ok(s.stage === 'pending_manager' || s.stage === 'pending_gm', 'Sales request still goes through approval');
+      ok(as(U.salesFood1, function () { return must(getBootstrap()); }).approval_route.indexOf('GM อนุมัติฝั่งขาย') !== -1 &&
+        as(U.gm, function () { return must(getBootstrap()); }).approval_route.indexOf('ไม่ต้องอนุมัติฝั่งขาย') !== -1, 'Form shows the right route for Sales and for GM');
+      expectErr(as(U.srManager, function () { return createTicket(form()); }), 'FORBIDDEN', 'SR Manager still cannot create a request');
+      expectErr(as(U.admin, function () { return createTicket(form({ requestor_email: U.gm })); }), 'VALIDATION', 'Admin creates only for Sales (GM requests by themselves)');
+    });
+  } finally {
+    setTestSettings_({ sales_manager_step: 'true', gm_assigns_sr: 'false', min_suppliers: '1', assign_by_group: 'false', lark_dm_types: '["*"]' });
+  }
+}
+

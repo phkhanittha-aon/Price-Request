@@ -170,6 +170,14 @@ function canViewSellPrice_(u, t) {
   return t.status === 'completed' || t.status === 'closed';
 }
 
+/**
+ * The person who asked for the price: Sales — or GM, who may request prices too (own requests skip the
+ * sales-side approval, see createTicket). They answer “ขอข้อมูลเพิ่ม”, accept the price, follow the deal.
+ */
+function isRequester_(u, t) {
+  return !!u && (u.role === 'sales' || u.role === 'gm') && t.requestor_email === u.email;
+}
+
 /** Sales may edit header/items only before Manager approval (or after Manager returned it). */
 function canEditRequest_(u, t) {
   if (u.role === 'admin') return ['pending_manager', 'returned', 'pending_gm'].indexOf(t.stage) !== -1;   // Admin fixes it for Sales until GM approves
@@ -198,9 +206,11 @@ function canEditChecklist_(u, t) {
 
 function canUpload_(u, t) {
   if (u.role === 'admin') return OPEN_STATUSES.indexOf(t.status) !== -1;
-  if (u.role === 'sales' && t.requestor_email === u.email) {
+  if (isRequester_(u, t)) {
     // until GM approves (pending_gm included: the Sales Manager step may be skipped right after submit)
-    return ['pending_manager', 'returned', 'pending_gm', 'need_info'].indexOf(t.stage) !== -1;
+    // GM's own request skips approval and is with the SR at once → GM may still attach (pictures of the form) until pricing
+    return ['pending_manager', 'returned', 'pending_gm', 'need_info'].indexOf(t.stage) !== -1 ||
+      (u.role === 'gm' && ['pending_assign', 'doc_check'].indexOf(t.stage) !== -1);
   }
   return u.role === 'sr' && isSr_(t, u.email) && t.status === 'on_process';
 }

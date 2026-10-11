@@ -109,6 +109,9 @@ Pages.new = Pages.edit = (function () {
     }).join('') + '</ol>';
   }
 
+  /** GM's own request goes straight to pricing; without product-group routing GM names the SR here. */
+  function gmPicksSr() { return state.me.role === 'gm' && !state.ref.assign_by_group && state.ref.gm_assigns_sr; }
+
   function formHtml(d, mode, ticket) {
     return '<div class="form-wrap">' +
       '<div class="page-head form-title"><div><h1>' + (mode === 'edit' ? 'แก้ไขใบขอราคา ' + esc(ticket.ticket_no) : 'สร้างใบขอราคา') + '</h1>' +
@@ -120,6 +123,9 @@ Pages.new = Pages.edit = (function () {
       '<section class="card fsec"><h2><span class="sn">1</span>ข้อมูลลูกค้า</h2><div class="fgrid">' +
       (mode !== 'edit' && state.me.role === 'admin' ? field('Sales ผู้ขอราคา', 'Requester (Admin สร้างแทน)', '<select id="f-req"><option value="">— เลือก Sales —</option>' +
         (state.ref.sales_users || []).map(function (u) { return '<option value="' + esc(u.email) + '"' + (d.requestor_email === u.email ? ' selected' : '') + '>' + esc(u.full_name) + '</option>'; }).join('') +
+        '</select>', { req: true }) : '') +
+      (mode !== 'edit' && gmPicksSr() ? field('Sourcing ผู้ทำราคา', 'SR (GM ขอเอง — ไม่ต้องอนุมัติ)', '<select id="f-sr"><option value="">— เลือก SR —</option>' +
+        (state.ref.sr_users || []).map(function (u) { return '<option value="' + esc(u.email) + '"' + (d.sr_email === u.email ? ' selected' : '') + '>' + esc(u.full_name) + '</option>'; }).join('') +
         '</select>', { req: true }) : '') +
       field('ชื่อลูกค้า', 'Customer', '<input type="text" id="f-customer" list="cust-list" maxlength="200" placeholder="พิมพ์หรือเลือกลูกค้าที่เคยขอ" value="' + esc(d.customer_name) + '">', { req: true }) +
       field('กลุ่มลูกค้า', 'Customer Group', '<select id="f-cgroup"><option value="">— เลือก —</option>' + (state.ref.customer_groups || []).map(function (g) {
@@ -148,6 +154,7 @@ Pages.new = Pages.edit = (function () {
 
   function collect(view, d) {
     if ($('#f-req', view)) d.requestor_email = $('#f-req', view).value;
+    if ($('#f-sr', view)) d.sr_email = $('#f-sr', view).value;
     d.customer_name = $('#f-customer', view).value;
     d.customer_group = $('#f-cgroup', view).value;
     d.destination_country = $('#f-dest', view).value;
@@ -176,6 +183,7 @@ Pages.new = Pages.edit = (function () {
       el.parentNode.appendChild(m);
     };
     if ($('#f-req', view) && !d.requestor_email) mark($('#f-req', view), 'กรุณาเลือก Sales ผู้ขอราคา');
+    if ($('#f-sr', view) && !d.sr_email) mark($('#f-sr', view), 'กรุณาเลือก SR ผู้ทำราคา');
     if (!d.customer_name.trim()) mark($('#f-customer', view), 'กรุณากรอกชื่อลูกค้า');
     if (!d.customer_group) mark($('#f-cgroup', view), 'กรุณาเลือกกลุ่มลูกค้า');
     else if (/ส่งออก/.test(d.customer_group) && /^(ไทย|thailand|th)?$/i.test(String(d.destination_country || '').trim())) mark($('#f-dest', view), 'ส่งออก — ระบุประเทศปลายทาง');
@@ -240,7 +248,7 @@ Pages.new = Pages.edit = (function () {
     setBusy(view, true, 'กำลังส่ง...');
     api('createTicket', {
       client_key: d.client_key, title: autoTitle(d), customer_name: d.customer_name.trim(), documents_needed: d.documents_needed,
-      customer_group: d.customer_group, destination_country: d.destination_country, requestor_email: d.requestor_email || '',
+      customer_group: d.customer_group, destination_country: d.destination_country, requestor_email: d.requestor_email || '', sr_email: d.sr_email || '',
       due_date: d.due_date, description: d.description, items: d.items.map(payloadItem)
     }).then(function (res) {
       const t = res.ticket;
@@ -310,7 +318,7 @@ Pages.new = Pages.edit = (function () {
     });
   }
   function loadHistory(view, d, mode, original) {
-    if (state.salesHistory || state.me.role !== 'sales') return;
+    if (state.salesHistory || (state.me.role !== 'sales' && state.me.role !== 'gm')) return;
     api('getSalesHistory').then(function (h) {
       state.salesHistory = h;
       const host = $('.form-wrap', view);
@@ -447,7 +455,7 @@ Pages.new = Pages.edit = (function () {
   return {
     render: function (view, route, isCurrent) {
       if (route.page === 'new') {
-        if (state.me.role !== 'sales' && state.me.role !== 'admin') { view.innerHTML = errorHtml({ error: 'เฉพาะ Sales (หรือ Admin สร้างแทน) เท่านั้นที่สร้างใบขอราคาได้' }); return; }
+        if (state.me.role !== 'sales' && state.me.role !== 'gm' && state.me.role !== 'admin') { view.innerHTML = errorHtml({ error: 'เฉพาะ Sales, GM (หรือ Admin สร้างแทน Sales) เท่านั้นที่สร้างใบขอราคาได้' }); return; }
         if (route.copy) {
           // "สร้างใบใหม่จากใบนี้": customer + documents + remark + products (no pictures, new dates)
           view.innerHTML = loadingHtml('กำลังคัดลอกจากใบเดิม...');

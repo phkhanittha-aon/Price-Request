@@ -55,6 +55,8 @@ const ACTION_LABEL_TH = {
 //            items: [{ item_id?, product_name, net_weight, size, packing_size, qty (per month), uom,
 //                      target_price (THB/kg, 0 = none), product_group_code? (default FOOD), spec? }] }
 // =============================================================================
+let GM_OWN_REQUEST_ = false;   // true only while createTicket approves a GM's own request (server-side flag)
+
 function createTicket(payload) {
   return api_('createTicket', function () {
     const p = payload || {};
@@ -67,7 +69,8 @@ function createTicket(payload) {
         if (!s || !s.is_active || s.role !== 'sales') throw appError_('VALIDATION', 'กรุณาเลือก Sales ผู้ขอราคา (Admin สร้างใบแทน Sales)');
         u = s;
       }
-      requireRole_(u, ['sales'], 'เฉพาะ Sales เท่านั้นที่สร้างใบขอราคาได้');
+      requireRole_(u, ['sales', 'gm'], 'เฉพาะ Sales หรือ GM เท่านั้นที่สร้างใบขอราคาได้');
+      const gmOwn = u.role === 'gm';   // GM heads Sales: own requests skip the sales-side approval
 
       const clientKey = cleanText_(p.client_key, 64);
       if (clientKey) {
@@ -77,14 +80,28 @@ function createTicket(payload) {
         if (dup) return { ticket: publicTicket_(normTicket_(dup)), duplicate: true };
       }
 
-      if (!u.department_code) {
-        throw appError_('NO_DEPARTMENT', 'บัญชีของคุณยังไม่ได้ผูกกับแผนก กรุณาติดต่อผู้ดูแลระบบ');
+      let dept = null;
+      if (gmOwn) {
+        dept = u.department_code ? departmentByCode_(u.department_code) : null;   // optional for GM
+        if (!dept || !dept.is_active) dept = { code: u.department_code || '', manager_email: '' };
+      } else {
+        if (!u.department_code) {
+          throw appError_('NO_DEPARTMENT', 'บัญชีของคุณยังไม่ได้ผูกกับแผนก กรุณาติดต่อผู้ดูแลระบบ');
+        }
+        dept = departmentByCode_(u.department_code);
+        if (!dept || !dept.is_active) {
+          throw appError_('NO_DEPARTMENT', 'แผนกของคุณไม่ถูกต้องหรือถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
+        }
       }
-      const dept = departmentByCode_(u.department_code);
-      if (!dept || !dept.is_active) {
-        throw appError_('NO_DEPARTMENT', 'แผนกของคุณไม่ถูกต้องหรือถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
+      const firstStage = gmOwn ? 'pending_gm' : firstApprovalStage_(dept);
+      // GM picks the SR in this mode — checked BEFORE anything is written (a sheet write cannot be rolled back)
+      const gmPicksSr = gmOwn && !toBool_(setting_('assign_by_group', true)) && toBool_(setting_('gm_assigns_sr', true));
+      if (gmPicksSr) {
+        const target = userByEmail_(p.sr_email);
+        if (!target || !target.is_active || target.role !== 'sr') {
+          throw appError_('INVALID_ASSIGNEE', 'กรุณาเลือก Sourcing ผู้ทำราคา (ต้องเป็น SR ที่ใช้งานอยู่)');
+        }
       }
-      const firstStage = firstApprovalStage_(dept);
 
       const customer = requireText_(p.customer_name, 'ชื่อลูกค้า (Customer)', 200);
       const market = cleanMarket_(p.customer_group, p.destination_country);
@@ -149,8 +166,18 @@ function createTicket(payload) {
         actor_email: actor.email, actor_role: actor.role,
         to_status: 'requested', to_stage: firstStage,
         metadata: Object.assign({ ticket_no: ticket.ticket_no, item_count: cleanItems.length,
-          sales_manager_skipped: firstStage === 'pending_gm' }, actor !== u ? { on_behalf_of: u.email, on_behalf_role: u.role } : {})
+          sales_manager_skipped: firstStage === 'pending_gm' }, gmOwn ? { gm_own_request: true } : {},
+          actor !== u ? { on_behalf_of: u.email, on_behalf_role: u.role } : {})
       });
+
+      if (gmOwn) {
+        // no approval needed: approved at once as GM → SR(s) by product group / chosen SR / queue (same as gm_approve)
+        GM_OWN_REQUEST_ = true;
+        try {
+          doTransition_(ticketId, 'gm_approve', 'GM ขอราคาเอง — ไม่ต้องอนุมัติฝั่งขาย', { expected_version: 1, sr_email: p.sr_email || '' });
+        } finally { GM_OWN_REQUEST_ = false; }
+        return { ticket: publicTicket_(ticketById_(ticketId)), duplicate: false };
+      }
 
       const t = normTicket_(ticket);
       enqueueNotifications_(stageAssignees_(t), t, 'approval_required',
@@ -207,7 +234,7 @@ function doTransition_(ticketId, action, comment, payload) {
     throw appError_('INVALID_STATE', msg || ('ทำรายการไม่ได้ในสถานะ "' + STAGE_LABEL_TH[t.stage] + '"'));
   }
   function needComment(msg) { if (!note) throw appError_('COMMENT_REQUIRED', msg); }
-  function isOwner() { return u.role === 'sales' && t.requestor_email === u.email; }
+  function isOwner() { return isRequester_(u, t); }
   function isAssignedSr() { return u.role === 'sr' && isSr_(t, u.email); }
 
   switch (action) {
@@ -264,7 +291,8 @@ function doTransition_(ticketId, action, comment, payload) {
     case 'gm_approve':
     case 'gm_reject': {
       if (u.role !== 'gm') forbid('เฉพาะ GM เท่านั้นที่ทำรายการนี้ได้');
-      if (t.requestor_email === u.email || t.manager_email === u.email) {
+      // GM's own request: approved by createTicket itself (GM_OWN_REQUEST_ is set only there, never from the browser)
+      if ((t.requestor_email === u.email && !(GM_OWN_REQUEST_ && action === 'gm_approve')) || t.manager_email === u.email) {
         throw appError_('SELF_APPROVAL', 'ไม่สามารถอนุมัติซ้ำหรืออนุมัติใบของตัวเองได้');
       }
       if (t.stage !== 'pending_gm') badState();
@@ -855,7 +883,7 @@ function allowedActions_(u, t) {
     return all;
   }
   const a = [];
-  const owner = u.role === 'sales' && t.requestor_email === u.email;
+  const owner = isRequester_(u, t);
   const assigned = u.role === 'sr' && isSr_(t, u.email);
   if (owner && t.stage === 'returned') a.push('resubmit');
   if (owner && ['pending_manager', 'returned', 'pending_gm'].indexOf(t.stage) !== -1) a.push('cancel');

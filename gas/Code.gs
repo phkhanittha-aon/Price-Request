@@ -89,7 +89,7 @@ function menuFor_(u) {
   const MAIN = 'เมนูหลัก';
   const m = [{ key: 'home', group: MAIN, icon: '🏠', label: 'หน้าแรก', route: { page: 'home' } }];
   m.push({ key: 'tickets', group: MAIN, icon: '📄', label: 'ใบเสนอราคา', route: { page: 'tickets' }, badge: 'inbox' });
-  if (u.role === 'sales') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+  if (u.role === 'sales' || u.role === 'gm') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', hint: u.role === 'gm' ? 'ไม่ต้องอนุมัติ' : '', route: { page: 'new' }, primary: u.role === 'sales' });
   if (u.role === 'admin') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', hint: 'แทน Sales', route: { page: 'new' } });
   if (u.role === 'sales') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามการขาย', hint: 'ลูกค้าซื้อหรือยัง', route: { page: 'deals' }, badge: 'deals_due' });
   if (u.role === 'gm') {
@@ -146,6 +146,7 @@ function referenceData_(me) {
     min_suppliers: Math.max(1, Number(setting_('min_suppliers', 3)) || 1),
     max_vendors_per_item: CFG.MAX_VENDORS_PER_ITEM,
     gm_assigns_sr: toBool_(setting_('gm_assigns_sr', true)),
+    assign_by_group: toBool_(setting_('assign_by_group', true)),
     deal_statuses: [''].concat(DEAL_STATUSES).map(function (k) { return { key: k, label: DEAL_STATUS_LABEL_TH[k] }; }),
     deal_lost_reasons: setting_('deal_lost_reasons', []),
     can_view_gp: !!me && GP_ROLES_.indexOf(me.role) !== -1,
@@ -166,6 +167,11 @@ function referenceData_(me) {
 
 /** Plain-language approval route for the request form (Sales Manager step is skipped when none is set). */
 function approvalRouteNote_(u) {
+  if (u.role === 'gm') {
+    return toBool_(setting_('assign_by_group', true))
+      ? 'GM ขอราคาเอง (ไม่ต้องอนุมัติฝั่งขาย) → SR ตามกลุ่มสินค้าหาราคาทันที → SR Manager → GM อนุมัติฝั่งซื้อ → กลับถึงคุณ'
+      : 'GM ขอราคาเอง (ไม่ต้องอนุมัติฝั่งขาย) → SR ที่เลือกหาราคาทันที → SR Manager → GM อนุมัติฝั่งซื้อ → กลับถึงคุณ';
+  }
   if (u.role !== 'sales') return '';
   const d = departmentByCode_(u.department_code);
   const first = firstApprovalStage_(d);

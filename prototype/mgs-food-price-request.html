@@ -947,7 +947,7 @@ var HtmlService = {};
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-1';
+const APP_VERSION = '2026.10.14-2';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -2073,6 +2073,14 @@ function canViewSellPrice_(u, t) {
   return t.status === 'completed' || t.status === 'closed';
 }
 
+/**
+ * The person who asked for the price: Sales — or GM, who may request prices too (own requests skip the
+ * sales-side approval, see createTicket). They answer “ขอข้อมูลเพิ่ม”, accept the price, follow the deal.
+ */
+function isRequester_(u, t) {
+  return !!u && (u.role === 'sales' || u.role === 'gm') && t.requestor_email === u.email;
+}
+
 /** Sales may edit header/items only before Manager approval (or after Manager returned it). */
 function canEditRequest_(u, t) {
   if (u.role === 'admin') return ['pending_manager', 'returned', 'pending_gm'].indexOf(t.stage) !== -1;   // Admin fixes it for Sales until GM approves
@@ -2101,9 +2109,11 @@ function canEditChecklist_(u, t) {
 
 function canUpload_(u, t) {
   if (u.role === 'admin') return OPEN_STATUSES.indexOf(t.status) !== -1;
-  if (u.role === 'sales' && t.requestor_email === u.email) {
+  if (isRequester_(u, t)) {
     // until GM approves (pending_gm included: the Sales Manager step may be skipped right after submit)
-    return ['pending_manager', 'returned', 'pending_gm', 'need_info'].indexOf(t.stage) !== -1;
+    // GM's own request skips approval and is with the SR at once → GM may still attach (pictures of the form) until pricing
+    return ['pending_manager', 'returned', 'pending_gm', 'need_info'].indexOf(t.stage) !== -1 ||
+      (u.role === 'gm' && ['pending_assign', 'doc_check'].indexOf(t.stage) !== -1);
   }
   return u.role === 'sr' && isSr_(t, u.email) && t.status === 'on_process';
 }
@@ -2690,6 +2700,8 @@ const ACTION_LABEL_TH = {
 //            items: [{ item_id?, product_name, net_weight, size, packing_size, qty (per month), uom,
 //                      target_price (THB/kg, 0 = none), product_group_code? (default FOOD), spec? }] }
 // =============================================================================
+let GM_OWN_REQUEST_ = false;   // true only while createTicket approves a GM's own request (server-side flag)
+
 function createTicket(payload) {
   return api_('createTicket', function () {
     const p = payload || {};
@@ -2702,7 +2714,8 @@ function createTicket(payload) {
         if (!s || !s.is_active || s.role !== 'sales') throw appError_('VALIDATION', 'กรุณาเลือก Sales ผู้ขอราคา (Admin สร้างใบแทน Sales)');
         u = s;
       }
-      requireRole_(u, ['sales'], 'เฉพาะ Sales เท่านั้นที่สร้างใบขอราคาได้');
+      requireRole_(u, ['sales', 'gm'], 'เฉพาะ Sales หรือ GM เท่านั้นที่สร้างใบขอราคาได้');
+      const gmOwn = u.role === 'gm';   // GM heads Sales: own requests skip the sales-side approval
 
       const clientKey = cleanText_(p.client_key, 64);
       if (clientKey) {
@@ -2712,14 +2725,28 @@ function createTicket(payload) {
         if (dup) return { ticket: publicTicket_(normTicket_(dup)), duplicate: true };
       }
 
-      if (!u.department_code) {
-        throw appError_('NO_DEPARTMENT', 'บัญชีของคุณยังไม่ได้ผูกกับแผนก กรุณาติดต่อผู้ดูแลระบบ');
+      let dept = null;
+      if (gmOwn) {
+        dept = u.department_code ? departmentByCode_(u.department_code) : null;   // optional for GM
+        if (!dept || !dept.is_active) dept = { code: u.department_code || '', manager_email: '' };
+      } else {
+        if (!u.department_code) {
+          throw appError_('NO_DEPARTMENT', 'บัญชีของคุณยังไม่ได้ผูกกับแผนก กรุณาติดต่อผู้ดูแลระบบ');
+        }
+        dept = departmentByCode_(u.department_code);
+        if (!dept || !dept.is_active) {
+          throw appError_('NO_DEPARTMENT', 'แผนกของคุณไม่ถูกต้องหรือถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
+        }
       }
-      const dept = departmentByCode_(u.department_code);
-      if (!dept || !dept.is_active) {
-        throw appError_('NO_DEPARTMENT', 'แผนกของคุณไม่ถูกต้องหรือถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
+      const firstStage = gmOwn ? 'pending_gm' : firstApprovalStage_(dept);
+      // GM picks the SR in this mode — checked BEFORE anything is written (a sheet write cannot be rolled back)
+      const gmPicksSr = gmOwn && !toBool_(setting_('assign_by_group', true)) && toBool_(setting_('gm_assigns_sr', true));
+      if (gmPicksSr) {
+        const target = userByEmail_(p.sr_email);
+        if (!target || !target.is_active || target.role !== 'sr') {
+          throw appError_('INVALID_ASSIGNEE', 'กรุณาเลือก Sourcing ผู้ทำราคา (ต้องเป็น SR ที่ใช้งานอยู่)');
+        }
       }
-      const firstStage = firstApprovalStage_(dept);
 
       const customer = requireText_(p.customer_name, 'ชื่อลูกค้า (Customer)', 200);
       const market = cleanMarket_(p.customer_group, p.destination_country);
@@ -2784,8 +2811,18 @@ function createTicket(payload) {
         actor_email: actor.email, actor_role: actor.role,
         to_status: 'requested', to_stage: firstStage,
         metadata: Object.assign({ ticket_no: ticket.ticket_no, item_count: cleanItems.length,
-          sales_manager_skipped: firstStage === 'pending_gm' }, actor !== u ? { on_behalf_of: u.email, on_behalf_role: u.role } : {})
+          sales_manager_skipped: firstStage === 'pending_gm' }, gmOwn ? { gm_own_request: true } : {},
+          actor !== u ? { on_behalf_of: u.email, on_behalf_role: u.role } : {})
       });
+
+      if (gmOwn) {
+        // no approval needed: approved at once as GM → SR(s) by product group / chosen SR / queue (same as gm_approve)
+        GM_OWN_REQUEST_ = true;
+        try {
+          doTransition_(ticketId, 'gm_approve', 'GM ขอราคาเอง — ไม่ต้องอนุมัติฝั่งขาย', { expected_version: 1, sr_email: p.sr_email || '' });
+        } finally { GM_OWN_REQUEST_ = false; }
+        return { ticket: publicTicket_(ticketById_(ticketId)), duplicate: false };
+      }
 
       const t = normTicket_(ticket);
       enqueueNotifications_(stageAssignees_(t), t, 'approval_required',
@@ -2842,7 +2879,7 @@ function doTransition_(ticketId, action, comment, payload) {
     throw appError_('INVALID_STATE', msg || ('ทำรายการไม่ได้ในสถานะ "' + STAGE_LABEL_TH[t.stage] + '"'));
   }
   function needComment(msg) { if (!note) throw appError_('COMMENT_REQUIRED', msg); }
-  function isOwner() { return u.role === 'sales' && t.requestor_email === u.email; }
+  function isOwner() { return isRequester_(u, t); }
   function isAssignedSr() { return u.role === 'sr' && isSr_(t, u.email); }
 
   switch (action) {
@@ -2899,7 +2936,8 @@ function doTransition_(ticketId, action, comment, payload) {
     case 'gm_approve':
     case 'gm_reject': {
       if (u.role !== 'gm') forbid('เฉพาะ GM เท่านั้นที่ทำรายการนี้ได้');
-      if (t.requestor_email === u.email || t.manager_email === u.email) {
+      // GM's own request: approved by createTicket itself (GM_OWN_REQUEST_ is set only there, never from the browser)
+      if ((t.requestor_email === u.email && !(GM_OWN_REQUEST_ && action === 'gm_approve')) || t.manager_email === u.email) {
         throw appError_('SELF_APPROVAL', 'ไม่สามารถอนุมัติซ้ำหรืออนุมัติใบของตัวเองได้');
       }
       if (t.stage !== 'pending_gm') badState();
@@ -3490,7 +3528,7 @@ function allowedActions_(u, t) {
     return all;
   }
   const a = [];
-  const owner = u.role === 'sales' && t.requestor_email === u.email;
+  const owner = isRequester_(u, t);
   const assigned = u.role === 'sr' && isSr_(t, u.email);
   if (owner && t.stage === 'returned') a.push('resubmit');
   if (owner && ['pending_manager', 'returned', 'pending_gm'].indexOf(t.stage) !== -1) a.push('cancel');
@@ -4918,7 +4956,7 @@ function dealRows_(u, withCost, period) {
 function canEditDeal_(u, t) {
   if (DEAL_STAGES_.indexOf(t.stage) === -1) return false;
   if (u.role === 'admin') return true;
-  if (u.role === 'sales') return t.requestor_email === u.email;
+  if (u.role === 'sales' || u.role === 'gm') return t.requestor_email === u.email;   // GM: own requests
   if (u.role === 'manager') {
     const d = departmentByCode_(t.department_code);
     return !!d && d.manager_email === u.email;
@@ -5260,7 +5298,7 @@ function pollData_(u) {
   }).length;
   const out = { inbox: inbox, unread: unread, server_time: new Date().toISOString(),
     follow_up: myOpenFollowUps_(u).length };
-  if (u.role === 'sales' || u.role === 'manager') {
+  if (u.role === 'sales' || u.role === 'manager' || u.role === 'gm') {
     // deals waiting for a follow-up (Sales: own · Sales Manager: own department)
     out.deals_due = dealRows_(u, false).filter(function (r) { return r.is_due && r.can_edit; }).length;
   }
@@ -5613,7 +5651,7 @@ function boardCachePut_(key, obj) {
 function getSalesHistory() {
   return api_('getSalesHistory', function () {
     const u = currentUser_();
-    if (u.role !== 'sales') return { customers: [], products: [] };
+    if (u.role !== 'sales' && u.role !== 'gm') return { customers: [], products: [] };
     const mine = rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return t.requestor_email === u.email; })
       .sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); });
     const customers = [];
@@ -7335,7 +7373,7 @@ function menuFor_(u) {
   const MAIN = 'เมนูหลัก';
   const m = [{ key: 'home', group: MAIN, icon: '🏠', label: 'หน้าแรก', route: { page: 'home' } }];
   m.push({ key: 'tickets', group: MAIN, icon: '📄', label: 'ใบเสนอราคา', route: { page: 'tickets' }, badge: 'inbox' });
-  if (u.role === 'sales') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', route: { page: 'new' }, primary: true });
+  if (u.role === 'sales' || u.role === 'gm') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', hint: u.role === 'gm' ? 'ไม่ต้องอนุมัติ' : '', route: { page: 'new' }, primary: u.role === 'sales' });
   if (u.role === 'admin') m.push({ key: 'new', group: MAIN, icon: '➕', label: 'สร้างใบขอราคา', hint: 'แทน Sales', route: { page: 'new' } });
   if (u.role === 'sales') m.push({ key: 'deals', group: MAIN, icon: '🎯', label: 'ติดตามการขาย', hint: 'ลูกค้าซื้อหรือยัง', route: { page: 'deals' }, badge: 'deals_due' });
   if (u.role === 'gm') {
@@ -7392,6 +7430,7 @@ function referenceData_(me) {
     min_suppliers: Math.max(1, Number(setting_('min_suppliers', 3)) || 1),
     max_vendors_per_item: CFG.MAX_VENDORS_PER_ITEM,
     gm_assigns_sr: toBool_(setting_('gm_assigns_sr', true)),
+    assign_by_group: toBool_(setting_('assign_by_group', true)),
     deal_statuses: [''].concat(DEAL_STATUSES).map(function (k) { return { key: k, label: DEAL_STATUS_LABEL_TH[k] }; }),
     deal_lost_reasons: setting_('deal_lost_reasons', []),
     can_view_gp: !!me && GP_ROLES_.indexOf(me.role) !== -1,
@@ -7412,6 +7451,11 @@ function referenceData_(me) {
 
 /** Plain-language approval route for the request form (Sales Manager step is skipped when none is set). */
 function approvalRouteNote_(u) {
+  if (u.role === 'gm') {
+    return toBool_(setting_('assign_by_group', true))
+      ? 'GM ขอราคาเอง (ไม่ต้องอนุมัติฝั่งขาย) → SR ตามกลุ่มสินค้าหาราคาทันที → SR Manager → GM อนุมัติฝั่งซื้อ → กลับถึงคุณ'
+      : 'GM ขอราคาเอง (ไม่ต้องอนุมัติฝั่งขาย) → SR ที่เลือกหาราคาทันที → SR Manager → GM อนุมัติฝั่งซื้อ → กลับถึงคุณ';
+  }
   if (u.role !== 'sales') return '';
   const d = departmentByCode_(u.department_code);
   const first = firstApprovalStage_(d);
@@ -8167,7 +8211,7 @@ function fakeDrive_() {
     </aside>
     <div class="content">
       <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.14-1 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.14-2 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
     </div>
   </div>
   <div class="side-ov" id="side-ov"></div>
@@ -9800,7 +9844,7 @@ Pages.tickets = (function () {
   /* ---------- view ---------- */
   function shell(f) {
     return '<div class="page-head"><h1>ใบเสนอราคา</h1>' +
-      (state.me.role === 'sales' ? '<button class="btn primary" data-new>+ สร้างใบขอราคา</button>' : '') + '</div>' +
+      (state.me.role === 'sales' || state.me.role === 'gm' ? '<button class="btn primary" data-new>+ สร้างใบขอราคา</button>' : '') + '</div>' +
       '<div class="card list-bar">' +
       '<div class="tabs" role="tablist" id="t-tabs"></div>' +
       '<div class="list-tools"><input type="search" id="f-q" placeholder="ค้นหา เลขที่ใบ / ลูกค้า / สินค้า / Sales / SR" value="' + esc(f.q) + '" aria-label="ค้นหา">' +
@@ -10645,6 +10689,9 @@ Pages.new = Pages.edit = (function () {
     }).join('') + '</ol>';
   }
 
+  /** GM's own request goes straight to pricing; without product-group routing GM names the SR here. */
+  function gmPicksSr() { return state.me.role === 'gm' && !state.ref.assign_by_group && state.ref.gm_assigns_sr; }
+
   function formHtml(d, mode, ticket) {
     return '<div class="form-wrap">' +
       '<div class="page-head form-title"><div><h1>' + (mode === 'edit' ? 'แก้ไขใบขอราคา ' + esc(ticket.ticket_no) : 'สร้างใบขอราคา') + '</h1>' +
@@ -10656,6 +10703,9 @@ Pages.new = Pages.edit = (function () {
       '<section class="card fsec"><h2><span class="sn">1</span>ข้อมูลลูกค้า</h2><div class="fgrid">' +
       (mode !== 'edit' && state.me.role === 'admin' ? field('Sales ผู้ขอราคา', 'Requester (Admin สร้างแทน)', '<select id="f-req"><option value="">— เลือก Sales —</option>' +
         (state.ref.sales_users || []).map(function (u) { return '<option value="' + esc(u.email) + '"' + (d.requestor_email === u.email ? ' selected' : '') + '>' + esc(u.full_name) + '</option>'; }).join('') +
+        '</select>', { req: true }) : '') +
+      (mode !== 'edit' && gmPicksSr() ? field('Sourcing ผู้ทำราคา', 'SR (GM ขอเอง — ไม่ต้องอนุมัติ)', '<select id="f-sr"><option value="">— เลือก SR —</option>' +
+        (state.ref.sr_users || []).map(function (u) { return '<option value="' + esc(u.email) + '"' + (d.sr_email === u.email ? ' selected' : '') + '>' + esc(u.full_name) + '</option>'; }).join('') +
         '</select>', { req: true }) : '') +
       field('ชื่อลูกค้า', 'Customer', '<input type="text" id="f-customer" list="cust-list" maxlength="200" placeholder="พิมพ์หรือเลือกลูกค้าที่เคยขอ" value="' + esc(d.customer_name) + '">', { req: true }) +
       field('กลุ่มลูกค้า', 'Customer Group', '<select id="f-cgroup"><option value="">— เลือก —</option>' + (state.ref.customer_groups || []).map(function (g) {
@@ -10684,6 +10734,7 @@ Pages.new = Pages.edit = (function () {
 
   function collect(view, d) {
     if ($('#f-req', view)) d.requestor_email = $('#f-req', view).value;
+    if ($('#f-sr', view)) d.sr_email = $('#f-sr', view).value;
     d.customer_name = $('#f-customer', view).value;
     d.customer_group = $('#f-cgroup', view).value;
     d.destination_country = $('#f-dest', view).value;
@@ -10712,6 +10763,7 @@ Pages.new = Pages.edit = (function () {
       el.parentNode.appendChild(m);
     };
     if ($('#f-req', view) && !d.requestor_email) mark($('#f-req', view), 'กรุณาเลือก Sales ผู้ขอราคา');
+    if ($('#f-sr', view) && !d.sr_email) mark($('#f-sr', view), 'กรุณาเลือก SR ผู้ทำราคา');
     if (!d.customer_name.trim()) mark($('#f-customer', view), 'กรุณากรอกชื่อลูกค้า');
     if (!d.customer_group) mark($('#f-cgroup', view), 'กรุณาเลือกกลุ่มลูกค้า');
     else if (/ส่งออก/.test(d.customer_group) && /^(ไทย|thailand|th)?$/i.test(String(d.destination_country || '').trim())) mark($('#f-dest', view), 'ส่งออก — ระบุประเทศปลายทาง');
@@ -10776,7 +10828,7 @@ Pages.new = Pages.edit = (function () {
     setBusy(view, true, 'กำลังส่ง...');
     api('createTicket', {
       client_key: d.client_key, title: autoTitle(d), customer_name: d.customer_name.trim(), documents_needed: d.documents_needed,
-      customer_group: d.customer_group, destination_country: d.destination_country, requestor_email: d.requestor_email || '',
+      customer_group: d.customer_group, destination_country: d.destination_country, requestor_email: d.requestor_email || '', sr_email: d.sr_email || '',
       due_date: d.due_date, description: d.description, items: d.items.map(payloadItem)
     }).then(function (res) {
       const t = res.ticket;
@@ -10846,7 +10898,7 @@ Pages.new = Pages.edit = (function () {
     });
   }
   function loadHistory(view, d, mode, original) {
-    if (state.salesHistory || state.me.role !== 'sales') return;
+    if (state.salesHistory || (state.me.role !== 'sales' && state.me.role !== 'gm')) return;
     api('getSalesHistory').then(function (h) {
       state.salesHistory = h;
       const host = $('.form-wrap', view);
@@ -10983,7 +11035,7 @@ Pages.new = Pages.edit = (function () {
   return {
     render: function (view, route, isCurrent) {
       if (route.page === 'new') {
-        if (state.me.role !== 'sales' && state.me.role !== 'admin') { view.innerHTML = errorHtml({ error: 'เฉพาะ Sales (หรือ Admin สร้างแทน) เท่านั้นที่สร้างใบขอราคาได้' }); return; }
+        if (state.me.role !== 'sales' && state.me.role !== 'gm' && state.me.role !== 'admin') { view.innerHTML = errorHtml({ error: 'เฉพาะ Sales, GM (หรือ Admin สร้างแทน Sales) เท่านั้นที่สร้างใบขอราคาได้' }); return; }
         if (route.copy) {
           // "สร้างใบใหม่จากใบนี้": customer + documents + remark + products (no pictures, new dates)
           view.innerHTML = loadingHtml('กำลังคัดลอกจากใบเดิม...');
