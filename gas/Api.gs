@@ -281,7 +281,7 @@ function logUsage_(u, views) {
 /**
  * Admin home card (M6): what actually runs today —
  *   FPR Bot / FPR Reminder webhooks (Script Properties set? cards failed / not configured in 24 h, NotifLog)
- *   Lark DM for follow-up reminders (only the types in lark_dm_types; needs the Lark app keys)
+ *   Lark DM per person: off by default (lark_dm_types = []); shown only when someone turned it on
  *   stuck work: open requests whose current owner is missing / inactive, items nobody prices yet
  *   errors in 24 h, database link (Admin only — the sheet itself is shared with Admin / owner only).
  */
@@ -300,7 +300,7 @@ function getAdminHealth() {
         failed: mine.filter(function (n) { return String(n.status) === 'failed'; }).length,
         not_configured: mine.filter(function (n) { return String(n.status) === 'not_configured'; }).length };
     });
-    const dmTypes = setting_('lark_dm_types', ['sla_warning', 'sla_breach', 'deal_due']);
+    const dmTypes = setting_('lark_dm_types', []);
     const recent = rows_(TAB.NOTIFICATIONS).filter(function (n) { return new Date(n.created_at).getTime() > since; });
     const count = function (st) { return recent.filter(function (n) { return String(n.lark_status) === st; }).length; };
 

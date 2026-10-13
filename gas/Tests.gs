@@ -2669,8 +2669,8 @@ function runGmRequestCases_(results) {
         const log = rows_(TAB.NOTIF_LOG).filter(function (n) { return n.event === 'daily_digest'; }).pop();
         ok(r.card === 'sent' && r.total >= 1 && r.breach >= 1 && log && log.bot === 'FPR Reminder', 'Daily summary: ONE card from FPR Reminder to the group (' + r.total + ' open, ' + r.breach + ' late)');
         const sentCard = JSON.stringify(http.hooks[http.hooks.length - 1] || {});   // what the group really received (NotifLog keeps 1,000 chars)
-        ok(/⛔ เกิน SLA \(\d+\)/.test(sentCard) && /รอ GM อนุมัติฝั่งขาย · คุณสมชาย GM · ครบ/.test(sentCard) && sentCard.indexOf('<at email=gm@') !== -1 && sentCard.indexOf('… และอีก') !== -1,
-          'Daily summary: late requests first (stage · who · due), @mentions who must act (GM), long lists cut with “… และอีก”');
+        ok(/⛔ เกิน SLA \(\d+\)/.test(sentCard) && /รอ GM อนุมัติฝั่งขาย · คุณสมชาย GM · ครบ/.test(sentCard) && sentCard.indexOf('<at email=gm@') !== -1 && sentCard.indexOf('… และอีก') !== -1 && /งานที่รอแต่ละคน/.test(sentCard) && /<at email=sr1@[^>]*><\/at> \d+ ใบ/.test(sentCard),
+          'Daily summary: late requests first (stage · who · due); EVERY person with waiting work @mentioned with their count (GM, SR …)');
         ok(!/ต้นทุน|unit_price|GP/.test(log.summary), 'Daily summary: no cost / GP in the group card');
         ok(rows_(TAB.NOTIFICATIONS).some(function (n) { return n.type === 'daily_digest' && String(n.user_email).toLowerCase() === U.gm; }), 'Daily summary: GM also gets “งานที่รอคุณ” in the bell');
         ok(triggerStatus_().some(function (x) { return x.handler === 'sendDailyDigest' && x.last_run; }), 'Daily summary: last run shown on the Admin page');
@@ -2679,6 +2679,20 @@ function runGmRequestCases_(results) {
         ok(tr.every(function (x) { return x.installed; }) && tr.some(function (x) { return x.handler === 'sendDailyDigest'; }), 'Triggers: install puts the 09:00 summary in, Admin page shows every job installed');
         expectErr(as(U.gm, function () { return installTriggersFromWeb(); }), 'FORBIDDEN', 'Triggers: only Admin installs them from the web page');
       } finally { TEST_HTTP_ = keepHttp; TEST_BOTS_ = keepBots; }
+    });
+
+    wrap('NO_LARK_DM', function () {
+      const def = DEFAULT_SETTINGS.filter(function (x) { return x[0] === 'lark_dm_types'; })[0][1];
+      setTestSettings_({ lark_dm_types: def });
+      const keepHttp = TEST_HTTP_; TEST_HTTP_ = fakeHttp_();
+      try {
+        const before = rows_(TAB.NOTIFICATIONS).length;
+        as(U.admin, function () { return must(sendDailyDigestNow()); });
+        withLock_(function () { enqueueNotifications_([U.gm], null, 'sla_breach', 'test', 'test', ''); enqueueNotifications_([U.salesFood1], null, 'deal_due', 'test', 'test', ''); });
+        const fresh = rows_(TAB.NOTIFICATIONS).slice(before);
+        ok(def === '[]' && fresh.length >= 3 && fresh.every(function (n) { return String(n.lark_status) === 'off'; }),
+          'No Lark DM to individuals by default: daily summary / SLA / follow-up stay in the web bell (' + fresh.length + ' notices, all lark_status=off)');
+      } finally { TEST_HTTP_ = keepHttp; setTestSettings_({ lark_dm_types: '["*"]' }); }
     });
 
     wrap('SLA_WORKING_HOURS', function () {

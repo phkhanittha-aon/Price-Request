@@ -55,6 +55,15 @@ function setupDatabase() {
     report.push('Created Drive folder ' + folder.getId());
   }
   const mig = withLock_(function () { return migrateSuppliersCore_(); });
+  // v2026.10.14-10: no Lark DM to individuals — set lark_dm_types to [] ONCE (Admin may turn types on again later)
+  withLock_(function () {
+    if (props.getProperty('MIG_NO_LARK_DM')) return;
+    if (findOne_(TAB.SETTINGS, 'key', 'lark_dm_types')) {
+      updateRow_(TAB.SETTINGS, 'lark_dm_types', { value: '[]', updated_at: new Date(), updated_by: 'setup' });
+      report.push('Settings lark_dm_types: [] — ไม่ส่ง Lark DM รายคน (แจ้งเตือนอยู่ที่กระดิ่ง + การ์ดในกลุ่ม)');
+    }
+    props.setProperty('MIG_NO_LARK_DM', new Date().toISOString());
+  });
   // v2026.10.14-8: SLA counts working time only, 08:00–18:00 Mon–Fri — replaces the earlier defaults
   // (24 h calendar / 08:30–17:30) ONCE; a value Admin sets afterwards is kept (Script Property flag)
   withLock_(function () {

@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-9
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-10
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-9';
+const APP_VERSION = '2026.10.14-10';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -310,7 +310,7 @@ const DEFAULT_SETTINGS = [
   ['retention', JSON.stringify({ notifications_read_days: 180, notif_log_days: 180, sla_alerts_days: 90, usage_raw_days: 90, error_log_days: 180, log_archive_months: 18, loser_photo_days: 180 }),
     'ล้างข้อมูลรายเดือน (runRetention): แจ้งเตือนที่อ่านแล้ว / NotifLog / ErrorLog 6 เดือน · SlaAlerts 3 เดือนหลังปิดงาน · UsageLog รวมเป็นรายเดือนหลัง 3 เดือน · TicketLogs ย้ายไปไฟล์ archive หลังปิดงาน 18 เดือน · รูป supplier ที่ไม่ได้รับเลือก ลบหลังปิดงาน 6 เดือน'],
   ['list_months', '6', 'หน้า รายการใบขอราคา / ติดตามการขาย / สรุป GP โหลดเฉพาะ N เดือนล่าสุด — งานที่ยังเปิดอยู่แสดงเสมอ · เลือก “ทั้งหมด” ได้ในหน้านั้น · 0 = โหลดทั้งหมดเสมอ'],
-  ['lark_dm_types', JSON.stringify(['sla_warning', 'sla_breach', 'deal_due', 'daily_digest']), 'Lark DM รายคน ส่งเฉพาะการแจ้งเตือนเพื่อติดตามงาน (เกิน / ใกล้ครบ SLA, ต้องติดตามลูกค้า) — แจ้งเตือนอื่นอยู่ที่กระดิ่งในเว็บ + การ์ดในกลุ่ม · ["*"] = ส่งทุกประเภท'],
+  ['lark_dm_types', '[]', 'Lark DM รายคน: [] = ไม่ส่ง DM เลย (ค่าเริ่มต้น — แจ้งเตือนอยู่ที่กระดิ่งในเว็บ + การ์ดในกลุ่ม Lark) · ใส่ประเภทถ้าต้องการเปิด เช่น ["sla_breach","deal_due","daily_digest"] · ["*"] = ทุกประเภท (ต้องตั้ง LARK_APP_ID / SECRET)'],
   ['reminder_mode', 'daily', 'daily = FPR Reminder สรุปงานค้างเข้ากลุ่ม Lark วันละครั้ง 09:00 (วันทำงาน) · hourly = การ์ดแยกทุกใบที่เกิน SLA ทุกชั่วโมง (แจ้งซ้ำตาม reminder_repeat_work_hours)'],
   ['reminder_repeat_work_hours', '8', 'FPR Reminder แจ้งซ้ำรายการเดิมได้ไม่เกิน 1 ครั้งต่อกี่ชั่วโมง (นับเวลาทำงานแบบเดียวกับ SLA)'],
   ['max_photos_per_quote', '10', 'จำนวนรูปสินค้าสูงสุดต่อ Supplier 1 เจ้า (ต่อใบเสนอราคา 1 รายการ)'],
@@ -1571,8 +1571,8 @@ function enqueueNotifications_(emails, t, type, title, body, link) {
   const seen = {};
   const rowsToInsert = [];
   const now = new Date();
-  // Lark DM only for follow-up reminders (Settings lark_dm_types); everything else = web bell + group card
-  const dm = setting_('lark_dm_types', ['sla_warning', 'sla_breach', 'deal_due', 'daily_digest']);
+  // Lark DM per person only for the types in Settings lark_dm_types — default [] = no DM at all (web bell + group card)
+  const dm = setting_('lark_dm_types', []);
   const viaLark = Array.isArray(dm) && (dm.indexOf('*') !== -1 || dm.indexOf(type) !== -1);
   (emails || []).forEach(function (raw) {
     const email = String(raw || '').trim().toLowerCase();
@@ -4477,7 +4477,7 @@ function logUsage_(u, views) {
 /**
  * Admin home card (M6): what actually runs today —
  *   FPR Bot / FPR Reminder webhooks (Script Properties set? cards failed / not configured in 24 h, NotifLog)
- *   Lark DM for follow-up reminders (only the types in lark_dm_types; needs the Lark app keys)
+ *   Lark DM per person: off by default (lark_dm_types = []); shown only when someone turned it on
  *   stuck work: open requests whose current owner is missing / inactive, items nobody prices yet
  *   errors in 24 h, database link (Admin only — the sheet itself is shared with Admin / owner only).
  */
@@ -4496,7 +4496,7 @@ function getAdminHealth() {
         failed: mine.filter(function (n) { return String(n.status) === 'failed'; }).length,
         not_configured: mine.filter(function (n) { return String(n.status) === 'not_configured'; }).length };
     });
-    const dmTypes = setting_('lark_dm_types', ['sla_warning', 'sla_breach', 'deal_due']);
+    const dmTypes = setting_('lark_dm_types', []);
     const recent = rows_(TAB.NOTIFICATIONS).filter(function (n) { return new Date(n.created_at).getTime() > since; });
     const count = function (st) { return recent.filter(function (n) { return String(n.lark_status) === st; }).length; };
 
@@ -5744,7 +5744,7 @@ function markJobRun_(name) {
 /**
  * Daily 09:00 (working days of Settings work_hours, not on Holidays): ONE card in the Lark group from FPR Reminder —
  * every open request grouped ⛔ เกิน SLA · ⚠️ ใกล้ครบ SLA · 🕘 กำลังดำเนินการ, with the person who must act (@mention for
- * the late / nearly late ones) — plus a bell notice (and Lark DM when 'daily_digest' is in lark_dm_types) to each person
+ * the late / nearly late ones) — plus a web-bell notice to each person (no Lark DM unless 'daily_digest' is turned on in lark_dm_types)
  * listing their own waiting requests. opts.force = send now (Admin test button), also on a weekend.
  */
 function sendDailyDigest(opts) {
@@ -5791,11 +5791,20 @@ function sendDailyDigest(opts) {
     if (!total) {
       els.push({ tag: 'div', text: { tag: 'lark_md', content: '✅ ไม่มีงานค้าง — ทุกใบขอราคาเสร็จหรือปิดแล้ว' } });
     } else {
-      [section('⛔ เกิน SLA', groups.breach, 15), section('⚠️ ใกล้ครบ SLA', groups.warning, 15), section('🕘 กำลังดำเนินการ', groups.normal, 10)]
+      [section('⛔ เกิน SLA', groups.breach, 20), section('⚠️ ใกล้ครบ SLA', groups.warning, 20), section('🕘 กำลังดำเนินการ', groups.normal, 15)]
         .filter(String).forEach(function (c) { els.push({ tag: 'div', text: { tag: 'lark_md', content: c } }); });
-      const late = [];
-      groups.breach.concat(groups.warning).forEach(function (x) { x.owners.forEach(function (e) { if (late.indexOf(e) === -1) late.push(e); }); });
-      if (late.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '**ผู้ที่ต้องเร่งดำเนินการ:** ' + late.map(buildMention).join(' ') } });
+      // EVERYONE with work waiting is @mentioned with their own count — in the group, so nobody can say they were not told
+      const who = Object.keys(perUser).map(function (e) {
+        const mine = perUser[e];
+        return { e: e, n: mine.length, late: mine.filter(function (x) { return x.level === 'breach'; }).length,
+          near: mine.filter(function (x) { return x.level === 'warning'; }).length };
+      }).sort(function (a, b) { return (b.late - a.late) || (b.near - a.near) || (b.n - a.n); });
+      if (who.length) {
+        els.push({ tag: 'div', text: { tag: 'lark_md', content: '**งานที่รอแต่ละคน**\n' + who.map(function (w) {
+          return (w.late ? '⛔ ' : w.near ? '⚠️ ' : '• ') + buildMention(w.e) + ' ' + w.n + ' ใบ' +
+            (w.late || w.near ? ' (' + [w.late ? 'เกิน SLA ' + w.late : '', w.near ? 'ใกล้ครบ ' + w.near : ''].filter(String).join(', ') + ')' : '');
+        }).join('\n') } });
+      }
       els.push({ tag: 'note', elements: [{ tag: 'plain_text', content: 'SLA ' + slaBasisText_(wh) + ' · สรุปทุกวันทำงาน 09:00' }] });
     }
     let base = PropertiesService.getScriptProperties().getProperty(CFG.PROP.WEBAPP_URL) || '';
@@ -5807,7 +5816,7 @@ function sendDailyDigest(opts) {
       elements: els };
     BOT_QUEUE_.push({ bot: 'reminder', event: 'daily_digest', ticket_id: '', ticket_no: '', card: card, summary: cardText_(card) });
 
-    // each person: their own waiting requests (web bell; Lark DM when 'daily_digest' is in lark_dm_types)
+    // each person: their own waiting requests in the web bell (Lark DM is off by default)
     let notified = 0;
     Object.keys(perUser).forEach(function (e) {
       const mine = perUser[e];
@@ -6805,6 +6814,15 @@ function setupDatabase() {
     report.push('Created Drive folder ' + folder.getId());
   }
   const mig = withLock_(function () { return migrateSuppliersCore_(); });
+  // v2026.10.14-10: no Lark DM to individuals — set lark_dm_types to [] ONCE (Admin may turn types on again later)
+  withLock_(function () {
+    if (props.getProperty('MIG_NO_LARK_DM')) return;
+    if (findOne_(TAB.SETTINGS, 'key', 'lark_dm_types')) {
+      updateRow_(TAB.SETTINGS, 'lark_dm_types', { value: '[]', updated_at: new Date(), updated_by: 'setup' });
+      report.push('Settings lark_dm_types: [] — ไม่ส่ง Lark DM รายคน (แจ้งเตือนอยู่ที่กระดิ่ง + การ์ดในกลุ่ม)');
+    }
+    props.setProperty('MIG_NO_LARK_DM', new Date().toISOString());
+  });
   // v2026.10.14-8: SLA counts working time only, 08:00–18:00 Mon–Fri — replaces the earlier defaults
   // (24 h calendar / 08:30–17:30) ONCE; a value Admin sets afterwards is kept (Script Property flag)
   withLock_(function () {
@@ -9930,8 +9948,8 @@ function runGmRequestCases_(results) {
         const log = rows_(TAB.NOTIF_LOG).filter(function (n) { return n.event === 'daily_digest'; }).pop();
         ok(r.card === 'sent' && r.total >= 1 && r.breach >= 1 && log && log.bot === 'FPR Reminder', 'Daily summary: ONE card from FPR Reminder to the group (' + r.total + ' open, ' + r.breach + ' late)');
         const sentCard = JSON.stringify(http.hooks[http.hooks.length - 1] || {});   // what the group really received (NotifLog keeps 1,000 chars)
-        ok(/⛔ เกิน SLA \(\d+\)/.test(sentCard) && /รอ GM อนุมัติฝั่งขาย · คุณสมชาย GM · ครบ/.test(sentCard) && sentCard.indexOf('<at email=gm@') !== -1 && sentCard.indexOf('… และอีก') !== -1,
-          'Daily summary: late requests first (stage · who · due), @mentions who must act (GM), long lists cut with “… และอีก”');
+        ok(/⛔ เกิน SLA \(\d+\)/.test(sentCard) && /รอ GM อนุมัติฝั่งขาย · คุณสมชาย GM · ครบ/.test(sentCard) && sentCard.indexOf('<at email=gm@') !== -1 && sentCard.indexOf('… และอีก') !== -1 && /งานที่รอแต่ละคน/.test(sentCard) && /<at email=sr1@[^>]*><\/at> \d+ ใบ/.test(sentCard),
+          'Daily summary: late requests first (stage · who · due); EVERY person with waiting work @mentioned with their count (GM, SR …)');
         ok(!/ต้นทุน|unit_price|GP/.test(log.summary), 'Daily summary: no cost / GP in the group card');
         ok(rows_(TAB.NOTIFICATIONS).some(function (n) { return n.type === 'daily_digest' && String(n.user_email).toLowerCase() === U.gm; }), 'Daily summary: GM also gets “งานที่รอคุณ” in the bell');
         ok(triggerStatus_().some(function (x) { return x.handler === 'sendDailyDigest' && x.last_run; }), 'Daily summary: last run shown on the Admin page');
@@ -9940,6 +9958,20 @@ function runGmRequestCases_(results) {
         ok(tr.every(function (x) { return x.installed; }) && tr.some(function (x) { return x.handler === 'sendDailyDigest'; }), 'Triggers: install puts the 09:00 summary in, Admin page shows every job installed');
         expectErr(as(U.gm, function () { return installTriggersFromWeb(); }), 'FORBIDDEN', 'Triggers: only Admin installs them from the web page');
       } finally { TEST_HTTP_ = keepHttp; TEST_BOTS_ = keepBots; }
+    });
+
+    wrap('NO_LARK_DM', function () {
+      const def = DEFAULT_SETTINGS.filter(function (x) { return x[0] === 'lark_dm_types'; })[0][1];
+      setTestSettings_({ lark_dm_types: def });
+      const keepHttp = TEST_HTTP_; TEST_HTTP_ = fakeHttp_();
+      try {
+        const before = rows_(TAB.NOTIFICATIONS).length;
+        as(U.admin, function () { return must(sendDailyDigestNow()); });
+        withLock_(function () { enqueueNotifications_([U.gm], null, 'sla_breach', 'test', 'test', ''); enqueueNotifications_([U.salesFood1], null, 'deal_due', 'test', 'test', ''); });
+        const fresh = rows_(TAB.NOTIFICATIONS).slice(before);
+        ok(def === '[]' && fresh.length >= 3 && fresh.every(function (n) { return String(n.lark_status) === 'off'; }),
+          'No Lark DM to individuals by default: daily summary / SLA / follow-up stay in the web bell (' + fresh.length + ' notices, all lark_status=off)');
+      } finally { TEST_HTTP_ = keepHttp; setTestSettings_({ lark_dm_types: '["*"]' }); }
     });
 
     wrap('SLA_WORKING_HOURS', function () {

@@ -1581,7 +1581,7 @@ Pages.home = (function () {
           (dmOn ? line(!h.dm.app_configured || h.dm.failed > 0, 'Lark DM ติดตามงาน (' + h.dm.types.map(function (t) { return esc(DM_LABEL[t] || t); }).join(', ') + '): ' +
               (h.dm.app_configured ? 'พร้อมส่ง' : 'ยังไม่ได้ตั้ง Lark App (LARK_APP_ID / SECRET) — DM จะไม่ถูกส่ง แต่ยังเห็นในกระดิ่ง') +
               (h.dm.failed ? ' · ส่งไม่สำเร็จ ' + h.dm.failed : '') + (h.dm.no_user ? ' · ไม่พบบัญชี Lark ' + h.dm.no_user + ' คน' : ''))
-            : '<li class="ok">✓ Lark DM ปิดอยู่ (lark_dm_types ว่าง)</li>') +
+            : '<li class="ok">✓ ไม่ส่ง Lark DM รายคน — แจ้งเตือนอยู่ที่กระดิ่งในเว็บ + การ์ดในกลุ่ม Lark</li>') +
           line(h.stuck_owner_count > 0, h.stuck_owner_count ? 'ใบที่ค้างเพราะผู้รับผิดชอบไม่ได้ใช้งาน/ไม่มีในระบบ ' + h.stuck_owner_count + ' ใบ: ' + tlinks(h.stuck_owner) : 'ไม่มีใบที่ค้างเพราะผู้รับผิดชอบไม่ได้ใช้งาน') +
           line(h.no_sr_count > 0, h.no_sr_count ? 'ใบที่มีสินค้ายังไม่มี SR (รอ SR Manager แบ่งงาน) ' + h.no_sr_count + ' ใบ: ' + tlinks(h.no_sr) : 'สินค้าทุกรายการมี SR รับผิดชอบแล้ว') +
           line(h.sla_breach > 0, 'ใบที่เกิน SLA ตอนนี้ ' + h.sla_breach + ' ใบ') +

@@ -357,7 +357,7 @@ function markJobRun_(name) {
 /**
  * Daily 09:00 (working days of Settings work_hours, not on Holidays): ONE card in the Lark group from FPR Reminder —
  * every open request grouped ⛔ เกิน SLA · ⚠️ ใกล้ครบ SLA · 🕘 กำลังดำเนินการ, with the person who must act (@mention for
- * the late / nearly late ones) — plus a bell notice (and Lark DM when 'daily_digest' is in lark_dm_types) to each person
+ * the late / nearly late ones) — plus a web-bell notice to each person (no Lark DM unless 'daily_digest' is turned on in lark_dm_types)
  * listing their own waiting requests. opts.force = send now (Admin test button), also on a weekend.
  */
 function sendDailyDigest(opts) {
@@ -404,11 +404,20 @@ function sendDailyDigest(opts) {
     if (!total) {
       els.push({ tag: 'div', text: { tag: 'lark_md', content: '✅ ไม่มีงานค้าง — ทุกใบขอราคาเสร็จหรือปิดแล้ว' } });
     } else {
-      [section('⛔ เกิน SLA', groups.breach, 15), section('⚠️ ใกล้ครบ SLA', groups.warning, 15), section('🕘 กำลังดำเนินการ', groups.normal, 10)]
+      [section('⛔ เกิน SLA', groups.breach, 20), section('⚠️ ใกล้ครบ SLA', groups.warning, 20), section('🕘 กำลังดำเนินการ', groups.normal, 15)]
         .filter(String).forEach(function (c) { els.push({ tag: 'div', text: { tag: 'lark_md', content: c } }); });
-      const late = [];
-      groups.breach.concat(groups.warning).forEach(function (x) { x.owners.forEach(function (e) { if (late.indexOf(e) === -1) late.push(e); }); });
-      if (late.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '**ผู้ที่ต้องเร่งดำเนินการ:** ' + late.map(buildMention).join(' ') } });
+      // EVERYONE with work waiting is @mentioned with their own count — in the group, so nobody can say they were not told
+      const who = Object.keys(perUser).map(function (e) {
+        const mine = perUser[e];
+        return { e: e, n: mine.length, late: mine.filter(function (x) { return x.level === 'breach'; }).length,
+          near: mine.filter(function (x) { return x.level === 'warning'; }).length };
+      }).sort(function (a, b) { return (b.late - a.late) || (b.near - a.near) || (b.n - a.n); });
+      if (who.length) {
+        els.push({ tag: 'div', text: { tag: 'lark_md', content: '**งานที่รอแต่ละคน**\n' + who.map(function (w) {
+          return (w.late ? '⛔ ' : w.near ? '⚠️ ' : '• ') + buildMention(w.e) + ' ' + w.n + ' ใบ' +
+            (w.late || w.near ? ' (' + [w.late ? 'เกิน SLA ' + w.late : '', w.near ? 'ใกล้ครบ ' + w.near : ''].filter(String).join(', ') + ')' : '');
+        }).join('\n') } });
+      }
       els.push({ tag: 'note', elements: [{ tag: 'plain_text', content: 'SLA ' + slaBasisText_(wh) + ' · สรุปทุกวันทำงาน 09:00' }] });
     }
     let base = PropertiesService.getScriptProperties().getProperty(CFG.PROP.WEBAPP_URL) || '';
@@ -420,7 +429,7 @@ function sendDailyDigest(opts) {
       elements: els };
     BOT_QUEUE_.push({ bot: 'reminder', event: 'daily_digest', ticket_id: '', ticket_no: '', card: card, summary: cardText_(card) });
 
-    // each person: their own waiting requests (web bell; Lark DM when 'daily_digest' is in lark_dm_types)
+    // each person: their own waiting requests in the web bell (Lark DM is off by default)
     let notified = 0;
     Object.keys(perUser).forEach(function (e) {
       const mine = perUser[e];
