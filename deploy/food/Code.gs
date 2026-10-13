@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-10
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-11
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-10';
+const APP_VERSION = '2026.10.14-11';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -6050,6 +6050,8 @@ function triggerStatus_() {
   const p = PropertiesService.getScriptProperties();
   const LABEL = { dispatchNotifications: 'ส่งแจ้งเตือน (ทุก 1 นาที)', checkSlaAlerts: 'ตรวจ SLA (ทุกชั่วโมง)', sendDailyDigest: 'สรุปงานค้าง 09:00',
     sendSlaReminders: 'การ์ดงานเกิน SLA รายชั่วโมง', sendDealFollowUps: 'ติดตามลูกค้า 08:45', runSelfTest: 'ตรวจระบบ 07:00', weeklyBackup: 'สำรองข้อมูลวันจันทร์', runRetention: 'ล้างข้อมูลรายเดือน' };
+  // the hourly per-request card job runs every hour but only sends when Settings reminder_mode = hourly
+  LABEL.sendSlaReminders += reminderMode_() === 'hourly' ? ' (เปิดอยู่)' : ' (ปิดอยู่ — ใช้สรุปงานค้าง 09:00 แทน · เปิดได้ที่ Settings reminder_mode = hourly)';
   return JOB_HANDLERS_.map(function (h) {
     const last = p.getProperty('JOB_LAST_' + h);
     return { handler: h, label: LABEL[h] || h, installed: !!have[h], last_run: last ? fmtDate_(new Date(last), 'dd/MM/yyyy HH:mm') : '' };
