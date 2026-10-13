@@ -259,11 +259,19 @@
     .stepper li.stop .dot { background: var(--danger); border-color: var(--danger); color: #fff; }
     .stepper li.stop .lbl, .stepper li.stop .sub { color: var(--danger); font-weight: 600; }
     .step-card { padding: 14px 12px 12px; }
+    .step-now { display: none; }
     @media (max-width: 640px) {
-      .stepper { grid-template-columns: 1fr; gap: 0; }
-      .stepper li { flex-direction: row; text-align: left; gap: 10px; padding: 0 0 12px; align-items: flex-start; }
-      .stepper li::before { top: calc(-100% + 28px); bottom: calc(100% - 12px); left: 12px; right: auto; width: 3px; height: auto; display: none; }
-      .stepper li .txt { padding-top: 4px; }
+      /* phone: one row of dots + one line “ขั้นที่ 2/7 · อนุมัติฝั่งขาย” — not a list that fills the screen */
+      .stepper li { padding: 0; }
+      .stepper li::before { top: 10px; left: calc(-50% + 12px); right: calc(50% + 12px); }
+      .stepper .dot { width: 22px; height: 22px; font-size: .68rem; border-width: 2px; }
+      .stepper li.cur .dot { box-shadow: 0 0 0 4px rgba(46, 138, 91, .22); }
+      .stepper .txt { display: none; }
+      .step-now { display: block; margin-top: 10px; text-align: center; font-size: .9rem; color: var(--ink-2); }
+      .step-now b { color: var(--ok); }
+      .step-now.stop b { color: var(--danger); }
+      .step-now .sub { display: block; font-size: .78rem; color: var(--muted); }
+      .step-now.warn .sub { color: var(--warn); font-weight: 600; }
     }
     .fsec h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 1.02rem; }
     .fsec .sn { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--brand); color: #fff; font-size: .85rem; }
@@ -506,7 +514,8 @@
     .progress { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
     .progress > div { height: 100%; background: var(--brand); width: 0; transition: width .2s; }
     .item-row { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; background: #FBFCFD; }
-    .item-row .head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 600; }
+    .item-row .head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; font-weight: 600; }
+    .kv .qty-list { margin: 0; padding-left: 0; list-style: none; } .kv .qty-list li + li { margin-top: 2px; }
     .item-row .head .sep { flex: 1; }
 
     /* ===== Supplier product photos (gallery per offer + full-screen viewer) ===== */

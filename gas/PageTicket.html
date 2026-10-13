@@ -115,6 +115,11 @@ Pages.ticket = (function () {
       '<dt>ลูกค้า (Customer)</dt><dd>' + esc(t.customer_name || '–') + '</dd>' +
       '<dt>กลุ่มลูกค้า</dt><dd>' + esc(t.customer_group || '–') + '</dd>' +
       '<dt>ประเทศปลายทาง</dt><dd>' + esc(t.destination_country || 'ไทย') + '</dd>' +
+      // what is asked for and how much — visible at the top, without scrolling to the item cards
+      '<dt>สินค้า / จำนวนต่อเดือน</dt><dd><ul class="qty-list">' + d.items.map(function (it) {
+        return '<li>#' + it.line_no + ' ' + esc(it.product_name) + ' — <b>' + fmtNum(it.qty) + ' ' + esc(it.uom) + '</b>' +
+          (it.quote_status ? ' <span class="small muted">(' + (it.quote_status === 'follow_up' ? 'ส่งตามหลัง' : 'ไม่เสนอราคา') + ')</span>' : '') + '</li>';
+      }).join('') + '</ul></dd>' +
       '<dt>วันที่ต้องการให้ตอบกลับราคา</dt><dd>' + esc(fmtDate(t.due_date)) + (t.priority !== 'normal' ? ' · ' + prioText(t.priority) : '') + '</dd>' +
       '<dt>เอกสารที่ต้องการประกอบ</dt><dd>' + esc(t.documents_needed || 'ไม่ต้องการเอกสารประกอบ') + '</dd>' +
       '<dt>SR ผู้รับงาน</dt><dd>' + esc(t.sr_name || '–') + '</dd>' +

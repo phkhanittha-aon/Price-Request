@@ -120,7 +120,12 @@ function stepperHtml(t, opts) {
     return '<li class="' + cls + '"' + (cls.indexOf('cur') === 0 ? ' aria-current="step"' : '') + '><span class="dot" aria-hidden="true">' + mark + '</span>' +
       '<span class="txt"><span class="lbl">' + esc(label) + '</span>' + (s ? '<br><span class="sub">' + esc(s) + '</span>' : '') + '</span></li>';
   }).join('');
-  return '<ol class="stepper" aria-label="ขั้นตอนของใบขอราคา">' + items + '</ol>';
+  // phone: one line instead of 7 labels
+  const at = stop !== -1 ? stop : Math.min(cur, STEPS_.length - 1);
+  const done = stop === -1 && cur >= STEPS_.length;
+  const now = '<div class="step-now' + (stop !== -1 ? ' stop' : warn ? ' warn' : '') + '">' + (done ? '<b>✓ เสร็จครบทุกขั้นตอน</b>' :
+    'ขั้นที่ ' + (at + 1) + '/' + STEPS_.length + ' · <b>' + esc(STEPS_[at]) + '</b>' + (sub ? '<span class="sub">' + esc(sub) + '</span>' : '')) + '</div>';
+  return '<ol class="stepper" aria-label="ขั้นตอนของใบขอราคา">' + items + '</ol>' + now;
 }
 
 function statusBadge(status, label) { return '<span class="badge st-' + esc(status) + '">' + esc(label || status) + '</span>'; }

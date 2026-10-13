@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-6
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-7
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-6';
+const APP_VERSION = '2026.10.14-7';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -5430,7 +5430,7 @@ const FPR_EVENTS_ = {
 
 /** Workflow stage → SLA key of Settings › fpr_sla. */
 const SLA_KEY_OF_STAGE_ = { pending_gm: 'GM_REVIEW', doc_check: 'PRICING', sourcing: 'PRICING', pending_sr_manager: 'SM_REVIEW', pending_gm_price: 'GM_FINAL_REVIEW' };
-const SLA_LABEL_ = { GM_REVIEW: 'GM_REVIEW (GM อนุมัติให้ทำราคา)', PRICING: 'PRICING (Sourcing ทำราคา)', SM_REVIEW: 'SM_REVIEW (Sourcing Manager)', GM_FINAL_REVIEW: 'GM_FINAL_REVIEW (GM อนุมัติราคา)' };
+const SLA_LABEL_ = { GM_REVIEW: 'GM อนุมัติฝั่งขาย', PRICING: 'SR ตรวจเอกสาร + หาราคา', SM_REVIEW: 'SR Manager ตรวจราคา', GM_FINAL_REVIEW: 'GM อนุมัติฝั่งซื้อ' };
 
 function botConfig_(bot) {
   if (TEST_BOTS_) return TEST_BOTS_[bot] || { url: '', secret: '' };

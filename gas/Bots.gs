@@ -46,7 +46,7 @@ const FPR_EVENTS_ = {
 
 /** Workflow stage → SLA key of Settings › fpr_sla. */
 const SLA_KEY_OF_STAGE_ = { pending_gm: 'GM_REVIEW', doc_check: 'PRICING', sourcing: 'PRICING', pending_sr_manager: 'SM_REVIEW', pending_gm_price: 'GM_FINAL_REVIEW' };
-const SLA_LABEL_ = { GM_REVIEW: 'GM_REVIEW (GM อนุมัติให้ทำราคา)', PRICING: 'PRICING (Sourcing ทำราคา)', SM_REVIEW: 'SM_REVIEW (Sourcing Manager)', GM_FINAL_REVIEW: 'GM_FINAL_REVIEW (GM อนุมัติราคา)' };
+const SLA_LABEL_ = { GM_REVIEW: 'GM อนุมัติฝั่งขาย', PRICING: 'SR ตรวจเอกสาร + หาราคา', SM_REVIEW: 'SR Manager ตรวจราคา', GM_FINAL_REVIEW: 'GM อนุมัติฝั่งซื้อ' };
 
 function botConfig_(bot) {
   if (TEST_BOTS_) return TEST_BOTS_[bot] || { url: '', secret: '' };

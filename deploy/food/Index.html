@@ -259,11 +259,19 @@
     .stepper li.stop .dot { background: var(--danger); border-color: var(--danger); color: #fff; }
     .stepper li.stop .lbl, .stepper li.stop .sub { color: var(--danger); font-weight: 600; }
     .step-card { padding: 14px 12px 12px; }
+    .step-now { display: none; }
     @media (max-width: 640px) {
-      .stepper { grid-template-columns: 1fr; gap: 0; }
-      .stepper li { flex-direction: row; text-align: left; gap: 10px; padding: 0 0 12px; align-items: flex-start; }
-      .stepper li::before { top: calc(-100% + 28px); bottom: calc(100% - 12px); left: 12px; right: auto; width: 3px; height: auto; display: none; }
-      .stepper li .txt { padding-top: 4px; }
+      /* phone: one row of dots + one line “ขั้นที่ 2/7 · อนุมัติฝั่งขาย” — not a list that fills the screen */
+      .stepper li { padding: 0; }
+      .stepper li::before { top: 10px; left: calc(-50% + 12px); right: calc(50% + 12px); }
+      .stepper .dot { width: 22px; height: 22px; font-size: .68rem; border-width: 2px; }
+      .stepper li.cur .dot { box-shadow: 0 0 0 4px rgba(46, 138, 91, .22); }
+      .stepper .txt { display: none; }
+      .step-now { display: block; margin-top: 10px; text-align: center; font-size: .9rem; color: var(--ink-2); }
+      .step-now b { color: var(--ok); }
+      .step-now.stop b { color: var(--danger); }
+      .step-now .sub { display: block; font-size: .78rem; color: var(--muted); }
+      .step-now.warn .sub { color: var(--warn); font-weight: 600; }
     }
     .fsec h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 1.02rem; }
     .fsec .sn { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--brand); color: #fff; font-size: .85rem; }
@@ -506,7 +514,8 @@
     .progress { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
     .progress > div { height: 100%; background: var(--brand); width: 0; transition: width .2s; }
     .item-row { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; background: #FBFCFD; }
-    .item-row .head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 600; }
+    .item-row .head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; font-weight: 600; }
+    .kv .qty-list { margin: 0; padding-left: 0; list-style: none; } .kv .qty-list li + li { margin-top: 2px; }
     .item-row .head .sep { flex: 1; }
 
     /* ===== Supplier product photos (gallery per offer + full-screen viewer) ===== */
@@ -896,7 +905,12 @@ function stepperHtml(t, opts) {
     return '<li class="' + cls + '"' + (cls.indexOf('cur') === 0 ? ' aria-current="step"' : '') + '><span class="dot" aria-hidden="true">' + mark + '</span>' +
       '<span class="txt"><span class="lbl">' + esc(label) + '</span>' + (s ? '<br><span class="sub">' + esc(s) + '</span>' : '') + '</span></li>';
   }).join('');
-  return '<ol class="stepper" aria-label="ขั้นตอนของใบขอราคา">' + items + '</ol>';
+  // phone: one line instead of 7 labels
+  const at = stop !== -1 ? stop : Math.min(cur, STEPS_.length - 1);
+  const done = stop === -1 && cur >= STEPS_.length;
+  const now = '<div class="step-now' + (stop !== -1 ? ' stop' : warn ? ' warn' : '') + '">' + (done ? '<b>✓ เสร็จครบทุกขั้นตอน</b>' :
+    'ขั้นที่ ' + (at + 1) + '/' + STEPS_.length + ' · <b>' + esc(STEPS_[at]) + '</b>' + (sub ? '<span class="sub">' + esc(sub) + '</span>' : '')) + '</div>';
+  return '<ol class="stepper" aria-label="ขั้นตอนของใบขอราคา">' + items + '</ol>' + now;
 }
 
 function statusBadge(status, label) { return '<span class="badge st-' + esc(status) + '">' + esc(label || status) + '</span>'; }
@@ -2758,6 +2772,11 @@ Pages.ticket = (function () {
       '<dt>ลูกค้า (Customer)</dt><dd>' + esc(t.customer_name || '–') + '</dd>' +
       '<dt>กลุ่มลูกค้า</dt><dd>' + esc(t.customer_group || '–') + '</dd>' +
       '<dt>ประเทศปลายทาง</dt><dd>' + esc(t.destination_country || 'ไทย') + '</dd>' +
+      // what is asked for and how much — visible at the top, without scrolling to the item cards
+      '<dt>สินค้า / จำนวนต่อเดือน</dt><dd><ul class="qty-list">' + d.items.map(function (it) {
+        return '<li>#' + it.line_no + ' ' + esc(it.product_name) + ' — <b>' + fmtNum(it.qty) + ' ' + esc(it.uom) + '</b>' +
+          (it.quote_status ? ' <span class="small muted">(' + (it.quote_status === 'follow_up' ? 'ส่งตามหลัง' : 'ไม่เสนอราคา') + ')</span>' : '') + '</li>';
+      }).join('') + '</ul></dd>' +
       '<dt>วันที่ต้องการให้ตอบกลับราคา</dt><dd>' + esc(fmtDate(t.due_date)) + (t.priority !== 'normal' ? ' · ' + prioText(t.priority) : '') + '</dd>' +
       '<dt>เอกสารที่ต้องการประกอบ</dt><dd>' + esc(t.documents_needed || 'ไม่ต้องการเอกสารประกอบ') + '</dd>' +
       '<dt>SR ผู้รับงาน</dt><dd>' + esc(t.sr_name || '–') + '</dd>' +
