@@ -2652,6 +2652,24 @@ function runGmRequestCases_(results) {
       withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-SHRIMP', { sr_email: '' }); });
     });
 
+    wrap('SLA_WORKING_HOURS', function () {
+      setTestSettings_({ work_hours: JSON.stringify({ start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5] }) });
+      const wh = workHours_(), hol = {};
+      const at = function (ymdhm) { return new Date(ymdhm.replace(' ', 'T') + ':00+07:00'); };
+      const due = function (stage, entered) {
+        return fmtDate_(stageSla_({ status: 'requested', stage: stage, stage_entered_at: at(entered), pricing_started_at: at(entered) }, wh, hol).due, 'yyyy-MM-dd HH:mm');
+      };
+      // 2026-10-12 = Monday
+      ok(due('pending_gm', '2026-10-12 00:12') === '2026-10-12 12:00', 'SLA working hours: request sent at night → 4 h counted from 08:00 (due 12:00, not 04:12)');
+      ok(due('pending_gm', '2026-10-12 17:00') === '2026-10-13 11:00', 'SLA working hours: 17:00 + 4 h → next day 11:00 (1 h today + 3 h tomorrow)');
+      ok(due('pending_gm', '2026-10-16 16:00') === '2026-10-19 10:00', 'SLA working hours: Friday 16:00 + 4 h → Monday 10:00 (Sat–Sun not counted)');
+      ok(due('pending_gm', '2026-10-17 09:00') === '2026-10-19 12:00', 'SLA working hours: sent on Saturday → counted from Monday 08:00');
+      setTestSettings_({ fpr_sla: JSON.stringify({ GM_REVIEW: { hours: 4 }, PRICING: { days: 2 }, SM_REVIEW: { hours: 4 }, GM_FINAL_REVIEW: { hours: 4 } }) });
+      ok(due('sourcing', '2026-10-12 08:00') === '2026-10-13 18:00', 'SLA working hours: pricing 2 days = 2 working days (20 h)');
+      ok(slaBasisText_(wh) === 'นับเฉพาะเวลาทำงาน 08:00–18:00 จ.–ศ.', 'SLA working hours: the page says how time is counted');
+      ok(JSON.parse(DEFAULT_SETTINGS.filter(function (x) { return x[0] === 'work_hours'; })[0][1]).start === '08:00', 'SLA working hours: default for new installs is 08:00–18:00 Mon–Fri');
+    });
+
     wrap('NO_REAL_NETWORK', function () {
       const keep = TEST_HTTP_, keepBots = TEST_BOTS_;
       TEST_HTTP_ = null; TEST_BOTS_ = null;   // a test without its own fakes …

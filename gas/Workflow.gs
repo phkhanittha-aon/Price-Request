@@ -863,10 +863,11 @@ function ticketDetail_(u, t) {
 /** SLA deadline of the current FPR step for the web page (working time, Bangkok), or null. */
 function fprSlaInfo_(t) {
   try {
-    const s = stageSla_(t, workHours_(), holidaySet_());
+    const wh = workHours_();
+    const s = stageSla_(t, wh, holidaySet_());
     if (!s) return null;
     return { key: s.key, label: s.label, due: s.due.toISOString(), due_text: fmtDate_(s.due, 'dd/MM/yyyy HH:mm'),
-      hours: Math.round(s.minutes / 6) / 10, overdue: new Date() > s.due };
+      hours: Math.round(s.minutes / 6) / 10, overdue: new Date() > s.due, basis: slaBasisText_(wh) };
   } catch (e) { return null; }
 }
 

@@ -61,7 +61,7 @@ function checkSlaAlerts() {
         const recipients = stageAssignees_(t).concat(level === 'breach' ? stageEscalation_(t) : []);
         enqueueNotifications_(recipients, t, 'sla_' + level,
           '[' + t.ticket_no + '] ' + (level === 'breach' ? '⛔ เกิน SLA' : '⚠️ ใกล้ครบ SLA') + ': ' + STAGE_LABEL_TH[t.stage],
-          t.title + '\nค้างในขั้นนี้ ' + round_(ageH, 1) + ' ชม. (SLA ' + slaH + ' ชม. ไม่นับเสาร์-อาทิตย์)', ticketLink_(t));
+          t.title + '\nค้างในขั้นนี้ ' + round_(ageH, 1) + ' ชม. (SLA ' + slaH + ' ชม. ' + slaBasisText_() + ')', ticketLink_(t));
         queued++;
         if (level === 'breach') breaches.push(t.ticket_no + ' — ' + STAGE_LABEL_TH[t.stage] + ' (' + round_(ageH, 0) + '/' + slaH + ' ชม.)');
       });

@@ -83,10 +83,19 @@ function fprLink_(t) {
 // ---------------------------------------------------------------- working time (SLA)
 
 function workHours_() {
-  const w = setting_('work_hours', { start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }) || {};
+  const w = setting_('work_hours', { start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5] }) || {};
   const min = function (hhmm, d) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '')); return m ? Math.min(1440, Number(m[1]) * 60 + Number(m[2])) : d; };
   const s = min(w.start, 0), e = min(w.end, 1440);
   return { start: s, end: e > s ? e : s + 540, days: Array.isArray(w.days) && w.days.length ? w.days.map(Number) : [1, 2, 3, 4, 5] };
+}
+
+/** How SLA time is counted, in words — “นับเฉพาะเวลาทำงาน 08:00–18:00 จ.–ศ.” (shown next to every SLA figure). */
+function slaBasisText_(wh) {
+  const w = wh || workHours_();
+  const hhmm = function (m) { return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2); };
+  const D = ['', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.', 'อา.'];
+  const days = w.days.slice().sort().join(',') === '1,2,3,4,5' ? 'จ.–ศ.' : w.days.map(function (d) { return D[d] || d; }).join(' ');
+  return w.start === 0 && w.end >= 1440 ? 'นับ 24 ชม. เฉพาะ ' + days : 'นับเฉพาะเวลาทำงาน ' + hhmm(w.start) + '–' + hhmm(w.end) + ' ' + days;
 }
 
 function holidaySet_() {
@@ -144,7 +153,7 @@ function slaMinutes_(rule, wh) {
 
 /**
  * THE SLA of a ticket's current stage (one engine for the list, home, request page, SLA DMs and the FPR Reminder):
- * calendar hours, 24 h a day, Sat–Sun (Settings work_hours) and Holidays not counted.
+ * working time only (Settings work_hours, default 08:00–18:00 Mon–Fri); Sat–Sun and Holidays not counted.
  * FPR steps use Settings fpr_sla; every other open stage uses Settings sla_hours (hours). null = no SLA.
  */
 function stageSla_(t, wh, hol, opts) {
@@ -320,7 +329,7 @@ function sendSlaReminders() {
       const title = '⏰ งานค้างเกิน SLA — ' + facts.no;
       const card = buildCard_({ color: 'yellow', title: title, facts: facts, mentions: who, link: fprLink_(t),
         extra: ['**ขั้นที่ค้าง:** ' + SLA_LABEL_[sla.key] + ' · SLA ' + Math.round(sla.minutes / 60 * 10) / 10 + ' ชม.',
-          '**เกินกำหนดมาแล้ว:** ' + Math.floor(late / 60) + ' ชม. ' + (late % 60) + ' นาที (ไม่นับเสาร์-อาทิตย์)'] });
+          '**เกินกำหนดมาแล้ว:** ' + Math.floor(late / 60) + ' ชม. ' + (late % 60) + ' นาที (' + slaBasisText_(wh) + ')'] });
       updateRow_(TAB.TICKETS, t.ticket_id, { last_reminded_at: now });
       BOT_QUEUE_.push({ bot: 'reminder', event: 'sla_' + sla.key, ticket_id: t.ticket_id, ticket_no: facts.no, card: card, summary: cardText_(card) });
       sent.push(facts.no);

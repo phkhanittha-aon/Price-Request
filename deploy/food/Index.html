@@ -2781,7 +2781,7 @@ Pages.ticket = (function () {
       '<dt>เอกสารที่ต้องการประกอบ</dt><dd>' + esc(t.documents_needed || 'ไม่ต้องการเอกสารประกอบ') + '</dd>' +
       '<dt>SR ผู้รับงาน</dt><dd>' + esc(t.sr_name || '–') + '</dd>' +
       (d.sla ? '<dt>ครบกำหนด (SLA)</dt><dd>' + esc(d.sla.due_text) + ' น. <span class="sla ' + (d.sla.overdue ? 'breach">⏰ เกินกำหนด' : 'ok">ภายในกำหนด') + '</span>' +
-        ' <span class="small muted">' + esc(d.sla.label) + ' · SLA ' + fmtNum(d.sla.hours) + ' ชม. (ไม่นับเสาร์-อาทิตย์)</span></dd>' : '') +
+        ' <span class="small muted">' + esc(d.sla.label) + ' · SLA ' + fmtNum(d.sla.hours) + ' ชม. (' + esc(d.sla.basis || 'ไม่นับเสาร์-อาทิตย์') + ')</span></dd>' : '') +
       '<dt>สร้างเมื่อ</dt><dd>' + esc(fmtDateTime(t.created_at)) + '</dd>' +
       (t.revision_count ? '<dt>ขอแก้ราคา</dt><dd>' + t.revision_count + ' ครั้ง</dd>' : '') +
       (t.rejection_reason ? '<dt>เหตุผล</dt><dd>' + esc(t.rejection_reason) + '</dd>' : '') +

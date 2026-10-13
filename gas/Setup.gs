@@ -55,14 +55,17 @@ function setupDatabase() {
     report.push('Created Drive folder ' + folder.getId());
   }
   const mig = withLock_(function () { return migrateSuppliersCore_(); });
-  // v2026.10.12-1: SLA in calendar hours (24 h a day), Sat–Sun not counted — replace the old 08:30–17:30 default once
+  // v2026.10.14-8: SLA counts working time only, 08:00–18:00 Mon–Fri — replaces the earlier defaults
+  // (24 h calendar / 08:30–17:30) ONCE; a value Admin sets afterwards is kept (Script Property flag)
   withLock_(function () {
+    if (props.getProperty('MIG_WORK_HOURS_0800_1800')) return;
     const wh = findOne_(TAB.SETTINGS, 'key', 'work_hours');
     const old = wh ? parseJson_(wh.value, {}) : null;
-    if (old && old.start === '08:30' && old.end === '17:30') {
-      updateRow_(TAB.SETTINGS, 'work_hours', { value: JSON.stringify({ start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }), updated_at: new Date(), updated_by: 'setup' });
-      report.push('Settings work_hours: SLA นับชั่วโมงปฏิทิน 24 ชม. ไม่นับเสาร์-อาทิตย์');
+    if (old && ((old.start === '00:00' && old.end === '24:00') || (old.start === '08:30' && old.end === '17:30'))) {
+      updateRow_(TAB.SETTINGS, 'work_hours', { value: JSON.stringify({ start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5] }), updated_at: new Date(), updated_by: 'setup' });
+      report.push('Settings work_hours: SLA นับเฉพาะเวลาทำงาน 08:00–18:00 จ.–ศ.');
     }
+    props.setProperty('MIG_WORK_HOURS_0800_1800', new Date().toISOString());
   });
   // v2026.10.11-1: product group "Others" (items without an SR → SR Manager splits the work)
   withLock_(function () {

@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-7
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-8
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-7';
+const APP_VERSION = '2026.10.14-8';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -304,14 +304,14 @@ const DEFAULT_SETTINGS = [
   ['min_suppliers', '3', 'จำนวน supplier ขั้นต่ำต่อรายการก่อนส่งราคา (น้อยกว่านี้ต้องกรอกเหตุผล)'],
   ['min_gp_percent', '10', 'GP % ขั้นต่ำ — ต่ำกว่านี้แสดงเตือนสีแดงในหน้าทำราคาและหน้าอนุมัติ'],
   ['fpr_sla', JSON.stringify({ GM_REVIEW: { hours: 4 }, PRICING: { days: 2 }, SM_REVIEW: { hours: 4 }, GM_FINAL_REVIEW: { hours: 4 } }),
-    'SLA ของ FPR (ชั่วโมงปฏิทิน 24 ชม./วัน ไม่นับเสาร์-อาทิตย์และวันในแท็บ Holidays) · hours = ชั่วโมง, days = วัน (1 วัน = 24 ชม.) · ขั้นอื่นใช้ sla_hours แบบเดียวกัน'],
-  ['work_hours', JSON.stringify({ start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }), 'ช่วงเวลาที่นับ SLA: 00:00–24:00 จันทร์–ศุกร์ = ชั่วโมงปฏิทินไม่นับเสาร์-อาทิตย์ (days: 1 = จันทร์ … 7 = อาทิตย์)'],
+    'SLA ของ FPR นับเฉพาะเวลาทำงานตาม work_hours (08:00–18:00 จ.–ศ., ไม่นับวันในแท็บ Holidays) · hours = ชั่วโมงทำงาน, days = วันทำงาน (1 วัน = 10 ชม. ทำงาน) · ขั้นอื่นใช้ sla_hours แบบเดียวกัน'],
+  ['work_hours', JSON.stringify({ start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5] }), 'ช่วงเวลาที่นับ SLA: เฉพาะเวลาทำงาน 08:00–18:00 จันทร์–ศุกร์ (ไม่นับเสาร์-อาทิตย์ และวันในแท็บ Holidays) · days: 1 = จันทร์ … 7 = อาทิตย์'],
   ['fpr_mention_owner', 'true', 'การ์ด Lark ทุกใบ (FPR Bot + Reminder) แท็กเจ้าของคำขอ (Sales ผู้ขอราคา) ด้วย — false = แท็กเฉพาะผู้ต้องดำเนินการ'],
   ['retention', JSON.stringify({ notifications_read_days: 180, notif_log_days: 180, sla_alerts_days: 90, usage_raw_days: 90, error_log_days: 180, log_archive_months: 18, loser_photo_days: 180 }),
     'ล้างข้อมูลรายเดือน (runRetention): แจ้งเตือนที่อ่านแล้ว / NotifLog / ErrorLog 6 เดือน · SlaAlerts 3 เดือนหลังปิดงาน · UsageLog รวมเป็นรายเดือนหลัง 3 เดือน · TicketLogs ย้ายไปไฟล์ archive หลังปิดงาน 18 เดือน · รูป supplier ที่ไม่ได้รับเลือก ลบหลังปิดงาน 6 เดือน'],
   ['list_months', '6', 'หน้า รายการใบขอราคา / ติดตามการขาย / สรุป GP โหลดเฉพาะ N เดือนล่าสุด — งานที่ยังเปิดอยู่แสดงเสมอ · เลือก “ทั้งหมด” ได้ในหน้านั้น · 0 = โหลดทั้งหมดเสมอ'],
   ['lark_dm_types', JSON.stringify(['sla_warning', 'sla_breach', 'deal_due']), 'Lark DM รายคน ส่งเฉพาะการแจ้งเตือนเพื่อติดตามงาน (เกิน / ใกล้ครบ SLA, ต้องติดตามลูกค้า) — แจ้งเตือนอื่นอยู่ที่กระดิ่งในเว็บ + การ์ดในกลุ่ม · ["*"] = ส่งทุกประเภท'],
-  ['reminder_repeat_work_hours', '8', 'FPR Reminder แจ้งซ้ำรายการเดิมได้ไม่เกิน 1 ครั้งต่อกี่ชั่วโมง (นับแบบเดียวกับ SLA: ไม่นับเสาร์-อาทิตย์)'],
+  ['reminder_repeat_work_hours', '8', 'FPR Reminder แจ้งซ้ำรายการเดิมได้ไม่เกิน 1 ครั้งต่อกี่ชั่วโมง (นับเวลาทำงานแบบเดียวกับ SLA)'],
   ['max_photos_per_quote', '10', 'จำนวนรูปสินค้าสูงสุดต่อ Supplier 1 เจ้า (ต่อใบเสนอราคา 1 รายการ)'],
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
   ['fx_defaults', JSON.stringify({ USD: 35 }), 'อัตราแลกเปลี่ยนเริ่มต้น (บาทต่อ 1 หน่วย) ที่เติมให้ในหน้าใบเสนอราคา · SR แก้ได้ทุกใบ · สกุลที่ไม่มีในนี้ SR กรอกเอง'],
@@ -2607,10 +2607,11 @@ function ticketDetail_(u, t) {
 /** SLA deadline of the current FPR step for the web page (working time, Bangkok), or null. */
 function fprSlaInfo_(t) {
   try {
-    const s = stageSla_(t, workHours_(), holidaySet_());
+    const wh = workHours_();
+    const s = stageSla_(t, wh, holidaySet_());
     if (!s) return null;
     return { key: s.key, label: s.label, due: s.due.toISOString(), due_text: fmtDate_(s.due, 'dd/MM/yyyy HH:mm'),
-      hours: Math.round(s.minutes / 6) / 10, overdue: new Date() > s.due };
+      hours: Math.round(s.minutes / 6) / 10, overdue: new Date() > s.due, basis: slaBasisText_(wh) };
   } catch (e) { return null; }
 }
 
@@ -5467,10 +5468,19 @@ function fprLink_(t) {
 // ---------------------------------------------------------------- working time (SLA)
 
 function workHours_() {
-  const w = setting_('work_hours', { start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }) || {};
+  const w = setting_('work_hours', { start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5] }) || {};
   const min = function (hhmm, d) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '')); return m ? Math.min(1440, Number(m[1]) * 60 + Number(m[2])) : d; };
   const s = min(w.start, 0), e = min(w.end, 1440);
   return { start: s, end: e > s ? e : s + 540, days: Array.isArray(w.days) && w.days.length ? w.days.map(Number) : [1, 2, 3, 4, 5] };
+}
+
+/** How SLA time is counted, in words — “นับเฉพาะเวลาทำงาน 08:00–18:00 จ.–ศ.” (shown next to every SLA figure). */
+function slaBasisText_(wh) {
+  const w = wh || workHours_();
+  const hhmm = function (m) { return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2); };
+  const D = ['', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.', 'อา.'];
+  const days = w.days.slice().sort().join(',') === '1,2,3,4,5' ? 'จ.–ศ.' : w.days.map(function (d) { return D[d] || d; }).join(' ');
+  return w.start === 0 && w.end >= 1440 ? 'นับ 24 ชม. เฉพาะ ' + days : 'นับเฉพาะเวลาทำงาน ' + hhmm(w.start) + '–' + hhmm(w.end) + ' ' + days;
 }
 
 function holidaySet_() {
@@ -5528,7 +5538,7 @@ function slaMinutes_(rule, wh) {
 
 /**
  * THE SLA of a ticket's current stage (one engine for the list, home, request page, SLA DMs and the FPR Reminder):
- * calendar hours, 24 h a day, Sat–Sun (Settings work_hours) and Holidays not counted.
+ * working time only (Settings work_hours, default 08:00–18:00 Mon–Fri); Sat–Sun and Holidays not counted.
  * FPR steps use Settings fpr_sla; every other open stage uses Settings sla_hours (hours). null = no SLA.
  */
 function stageSla_(t, wh, hol, opts) {
@@ -5704,7 +5714,7 @@ function sendSlaReminders() {
       const title = '⏰ งานค้างเกิน SLA — ' + facts.no;
       const card = buildCard_({ color: 'yellow', title: title, facts: facts, mentions: who, link: fprLink_(t),
         extra: ['**ขั้นที่ค้าง:** ' + SLA_LABEL_[sla.key] + ' · SLA ' + Math.round(sla.minutes / 60 * 10) / 10 + ' ชม.',
-          '**เกินกำหนดมาแล้ว:** ' + Math.floor(late / 60) + ' ชม. ' + (late % 60) + ' นาที (ไม่นับเสาร์-อาทิตย์)'] });
+          '**เกินกำหนดมาแล้ว:** ' + Math.floor(late / 60) + ' ชม. ' + (late % 60) + ' นาที (' + slaBasisText_(wh) + ')'] });
       updateRow_(TAB.TICKETS, t.ticket_id, { last_reminded_at: now });
       BOT_QUEUE_.push({ bot: 'reminder', event: 'sla_' + sla.key, ticket_id: t.ticket_id, ticket_no: facts.no, card: card, summary: cardText_(card) });
       sent.push(facts.no);
@@ -5949,7 +5959,7 @@ function checkSlaAlerts() {
         const recipients = stageAssignees_(t).concat(level === 'breach' ? stageEscalation_(t) : []);
         enqueueNotifications_(recipients, t, 'sla_' + level,
           '[' + t.ticket_no + '] ' + (level === 'breach' ? '⛔ เกิน SLA' : '⚠️ ใกล้ครบ SLA') + ': ' + STAGE_LABEL_TH[t.stage],
-          t.title + '\nค้างในขั้นนี้ ' + round_(ageH, 1) + ' ชม. (SLA ' + slaH + ' ชม. ไม่นับเสาร์-อาทิตย์)', ticketLink_(t));
+          t.title + '\nค้างในขั้นนี้ ' + round_(ageH, 1) + ' ชม. (SLA ' + slaH + ' ชม. ' + slaBasisText_() + ')', ticketLink_(t));
         queued++;
         if (level === 'breach') breaches.push(t.ticket_no + ' — ' + STAGE_LABEL_TH[t.stage] + ' (' + round_(ageH, 0) + '/' + slaH + ' ชม.)');
       });
@@ -6659,14 +6669,17 @@ function setupDatabase() {
     report.push('Created Drive folder ' + folder.getId());
   }
   const mig = withLock_(function () { return migrateSuppliersCore_(); });
-  // v2026.10.12-1: SLA in calendar hours (24 h a day), Sat–Sun not counted — replace the old 08:30–17:30 default once
+  // v2026.10.14-8: SLA counts working time only, 08:00–18:00 Mon–Fri — replaces the earlier defaults
+  // (24 h calendar / 08:30–17:30) ONCE; a value Admin sets afterwards is kept (Script Property flag)
   withLock_(function () {
+    if (props.getProperty('MIG_WORK_HOURS_0800_1800')) return;
     const wh = findOne_(TAB.SETTINGS, 'key', 'work_hours');
     const old = wh ? parseJson_(wh.value, {}) : null;
-    if (old && old.start === '08:30' && old.end === '17:30') {
-      updateRow_(TAB.SETTINGS, 'work_hours', { value: JSON.stringify({ start: '00:00', end: '24:00', days: [1, 2, 3, 4, 5] }), updated_at: new Date(), updated_by: 'setup' });
-      report.push('Settings work_hours: SLA นับชั่วโมงปฏิทิน 24 ชม. ไม่นับเสาร์-อาทิตย์');
+    if (old && ((old.start === '00:00' && old.end === '24:00') || (old.start === '08:30' && old.end === '17:30'))) {
+      updateRow_(TAB.SETTINGS, 'work_hours', { value: JSON.stringify({ start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5] }), updated_at: new Date(), updated_by: 'setup' });
+      report.push('Settings work_hours: SLA นับเฉพาะเวลาทำงาน 08:00–18:00 จ.–ศ.');
     }
+    props.setProperty('MIG_WORK_HOURS_0800_1800', new Date().toISOString());
   });
   // v2026.10.11-1: product group "Others" (items without an SR → SR Manager splits the work)
   withLock_(function () {
@@ -9762,6 +9775,24 @@ function runGmRequestCases_(results) {
       must(go(U.gm, t.ticket_id, 'gm_approve', ''));   // no sr_email — GM does not pick the SR in this mode
       ok(ticketById_(t.ticket_id).stage === 'doc_check' && activeItemsOf_(t.ticket_id)[0].sr_email === U.sr2, 'GM approve (by product group): no SR to choose, item goes to the group SR');
       withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-SHRIMP', { sr_email: '' }); });
+    });
+
+    wrap('SLA_WORKING_HOURS', function () {
+      setTestSettings_({ work_hours: JSON.stringify({ start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5] }) });
+      const wh = workHours_(), hol = {};
+      const at = function (ymdhm) { return new Date(ymdhm.replace(' ', 'T') + ':00+07:00'); };
+      const due = function (stage, entered) {
+        return fmtDate_(stageSla_({ status: 'requested', stage: stage, stage_entered_at: at(entered), pricing_started_at: at(entered) }, wh, hol).due, 'yyyy-MM-dd HH:mm');
+      };
+      // 2026-10-12 = Monday
+      ok(due('pending_gm', '2026-10-12 00:12') === '2026-10-12 12:00', 'SLA working hours: request sent at night → 4 h counted from 08:00 (due 12:00, not 04:12)');
+      ok(due('pending_gm', '2026-10-12 17:00') === '2026-10-13 11:00', 'SLA working hours: 17:00 + 4 h → next day 11:00 (1 h today + 3 h tomorrow)');
+      ok(due('pending_gm', '2026-10-16 16:00') === '2026-10-19 10:00', 'SLA working hours: Friday 16:00 + 4 h → Monday 10:00 (Sat–Sun not counted)');
+      ok(due('pending_gm', '2026-10-17 09:00') === '2026-10-19 12:00', 'SLA working hours: sent on Saturday → counted from Monday 08:00');
+      setTestSettings_({ fpr_sla: JSON.stringify({ GM_REVIEW: { hours: 4 }, PRICING: { days: 2 }, SM_REVIEW: { hours: 4 }, GM_FINAL_REVIEW: { hours: 4 } }) });
+      ok(due('sourcing', '2026-10-12 08:00') === '2026-10-13 18:00', 'SLA working hours: pricing 2 days = 2 working days (20 h)');
+      ok(slaBasisText_(wh) === 'นับเฉพาะเวลาทำงาน 08:00–18:00 จ.–ศ.', 'SLA working hours: the page says how time is counted');
+      ok(JSON.parse(DEFAULT_SETTINGS.filter(function (x) { return x[0] === 'work_hours'; })[0][1]).start === '08:00', 'SLA working hours: default for new installs is 08:00–18:00 Mon–Fri');
     });
 
     wrap('NO_REAL_NETWORK', function () {
