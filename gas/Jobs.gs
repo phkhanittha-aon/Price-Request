@@ -8,16 +8,42 @@
  *   checkSlaAlerts         every hour    SLA warning (80%) / breach notifications
  *   runSelfTest            daily 07:00   schema, config, orphan tickets, log chain → Lark group on failure
  *   weeklyBackup           Monday 06:00  copy of the database spreadsheet, keeps the newest 12
- *   sendSlaReminders       every hour    FPR Reminder bot: requests over their SLA (Bots.gs)
+ *   sendSlaReminders       every hour    FPR Reminder bot: one card per late request — only when Settings reminder_mode = hourly
+ *   sendDailyDigest        daily 09:00   FPR Reminder bot: ONE summary of all open work (late / nearly late / in progress) — working days
  *
  * Time triggers run as the owner: there is no "current user", so actions are stamped 'system'.
  */
 
-const JOB_HANDLERS_ = ['dispatchNotifications', 'checkSlaAlerts', 'runSelfTest', 'weeklyBackup', 'sendSlaReminders', 'sendDealFollowUps', 'runRetention'];
+const JOB_HANDLERS_ = ['dispatchNotifications', 'checkSlaAlerts', 'runSelfTest', 'weeklyBackup', 'sendSlaReminders', 'sendDealFollowUps', 'runRetention', 'sendDailyDigest'];
 const BACKUP_KEEP_ = 12;
 
 function installTriggers() {
   requireOwner_();
+  return installTriggersCore_();
+}
+
+/** Admin › “⚙️ ติดตั้ง / ซ่อม Trigger” from the web page (the web app runs as the owner, so the triggers are the owner's). */
+function installTriggersFromWeb() {
+  return api_('installTriggersFromWeb', function () {
+    requireAdmin_(currentUser_());
+    return { message: installTriggersCore_(), triggers: triggerStatus_() };
+  });
+}
+
+/** Expected scheduled jobs → installed? + last run (Script Properties JOB_LAST_<name>). */
+function triggerStatus_() {
+  const have = {};
+  try { ScriptApp.getProjectTriggers().forEach(function (tr) { have[tr.getHandlerFunction()] = true; }); } catch (e) { /* no permission */ }
+  const p = PropertiesService.getScriptProperties();
+  const LABEL = { dispatchNotifications: 'ส่งแจ้งเตือน (ทุก 1 นาที)', checkSlaAlerts: 'ตรวจ SLA (ทุกชั่วโมง)', sendDailyDigest: 'สรุปงานค้าง 09:00',
+    sendSlaReminders: 'การ์ดงานเกิน SLA รายชั่วโมง', sendDealFollowUps: 'ติดตามลูกค้า 08:45', runSelfTest: 'ตรวจระบบ 07:00', weeklyBackup: 'สำรองข้อมูลวันจันทร์', runRetention: 'ล้างข้อมูลรายเดือน' };
+  return JOB_HANDLERS_.map(function (h) {
+    const last = p.getProperty('JOB_LAST_' + h);
+    return { handler: h, label: LABEL[h] || h, installed: !!have[h], last_run: last ? fmtDate_(new Date(last), 'dd/MM/yyyy HH:mm') : '' };
+  });
+}
+
+function installTriggersCore_() {
   ScriptApp.getProjectTriggers().forEach(function (tr) {
     if (JOB_HANDLERS_.indexOf(tr.getHandlerFunction()) !== -1) ScriptApp.deleteTrigger(tr);
   });
@@ -28,6 +54,7 @@ function installTriggers() {
   ScriptApp.newTrigger('weeklyBackup').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(6).inTimezone(CFG.TZ).create();
   ScriptApp.newTrigger('sendDealFollowUps').timeBased().everyDays(1).atHour(8).nearMinute(45).inTimezone(CFG.TZ).create();   // Lark DM: deals to follow up
   ScriptApp.newTrigger('runRetention').timeBased().onMonthDay(1).atHour(3).inTimezone(CFG.TZ).create();                      // monthly clean-up (Retention.gs)
+  ScriptApp.newTrigger('sendDailyDigest').timeBased().everyDays(1).atHour(9).nearMinute(0).inTimezone(CFG.TZ).create();      // 09:00 summary of open work (Bots.gs)
   const msg = 'Installed triggers: ' + JOB_HANDLERS_.join(', ');
   console.log(msg);
   return msg;
@@ -36,6 +63,7 @@ function installTriggers() {
 /** Hourly: queue one warning and one breach notification per ticket per stage visit. */
 function checkSlaAlerts() {
   requireJobContext_();
+  markJobRun_('checkSlaAlerts');
   try {
     const result = withLock_(function () {
       const warn = Number(setting_('sla_warning_ratio', 0.8));
@@ -82,6 +110,7 @@ function checkSlaAlerts() {
  */
 function sendDealFollowUps() {
   requireJobContext_();
+  markJobRun_('sendDealFollowUps');
   const p = bkk_(Date.now());
   if (workHours_().days.indexOf(p.dow) === -1 || holidaySet_()[p.ymd]) return { sent: 0, skipped: 'not a working day' };
   const today = todayBkk_();
@@ -134,6 +163,7 @@ function weeklyBackup() {
  */
 function runSelfTest() {
   requireJobContext_();
+  markJobRun_('runSelfTest');
   const out = [];
   const t = function (name, fn) {
     try {

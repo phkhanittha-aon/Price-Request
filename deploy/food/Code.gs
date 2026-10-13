@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-8
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-9
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-8';
+const APP_VERSION = '2026.10.14-9';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -310,7 +310,8 @@ const DEFAULT_SETTINGS = [
   ['retention', JSON.stringify({ notifications_read_days: 180, notif_log_days: 180, sla_alerts_days: 90, usage_raw_days: 90, error_log_days: 180, log_archive_months: 18, loser_photo_days: 180 }),
     'ล้างข้อมูลรายเดือน (runRetention): แจ้งเตือนที่อ่านแล้ว / NotifLog / ErrorLog 6 เดือน · SlaAlerts 3 เดือนหลังปิดงาน · UsageLog รวมเป็นรายเดือนหลัง 3 เดือน · TicketLogs ย้ายไปไฟล์ archive หลังปิดงาน 18 เดือน · รูป supplier ที่ไม่ได้รับเลือก ลบหลังปิดงาน 6 เดือน'],
   ['list_months', '6', 'หน้า รายการใบขอราคา / ติดตามการขาย / สรุป GP โหลดเฉพาะ N เดือนล่าสุด — งานที่ยังเปิดอยู่แสดงเสมอ · เลือก “ทั้งหมด” ได้ในหน้านั้น · 0 = โหลดทั้งหมดเสมอ'],
-  ['lark_dm_types', JSON.stringify(['sla_warning', 'sla_breach', 'deal_due']), 'Lark DM รายคน ส่งเฉพาะการแจ้งเตือนเพื่อติดตามงาน (เกิน / ใกล้ครบ SLA, ต้องติดตามลูกค้า) — แจ้งเตือนอื่นอยู่ที่กระดิ่งในเว็บ + การ์ดในกลุ่ม · ["*"] = ส่งทุกประเภท'],
+  ['lark_dm_types', JSON.stringify(['sla_warning', 'sla_breach', 'deal_due', 'daily_digest']), 'Lark DM รายคน ส่งเฉพาะการแจ้งเตือนเพื่อติดตามงาน (เกิน / ใกล้ครบ SLA, ต้องติดตามลูกค้า) — แจ้งเตือนอื่นอยู่ที่กระดิ่งในเว็บ + การ์ดในกลุ่ม · ["*"] = ส่งทุกประเภท'],
+  ['reminder_mode', 'daily', 'daily = FPR Reminder สรุปงานค้างเข้ากลุ่ม Lark วันละครั้ง 09:00 (วันทำงาน) · hourly = การ์ดแยกทุกใบที่เกิน SLA ทุกชั่วโมง (แจ้งซ้ำตาม reminder_repeat_work_hours)'],
   ['reminder_repeat_work_hours', '8', 'FPR Reminder แจ้งซ้ำรายการเดิมได้ไม่เกิน 1 ครั้งต่อกี่ชั่วโมง (นับเวลาทำงานแบบเดียวกับ SLA)'],
   ['max_photos_per_quote', '10', 'จำนวนรูปสินค้าสูงสุดต่อ Supplier 1 เจ้า (ต่อใบเสนอราคา 1 รายการ)'],
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],
@@ -1571,7 +1572,7 @@ function enqueueNotifications_(emails, t, type, title, body, link) {
   const rowsToInsert = [];
   const now = new Date();
   // Lark DM only for follow-up reminders (Settings lark_dm_types); everything else = web bell + group card
-  const dm = setting_('lark_dm_types', ['sla_warning', 'sla_breach', 'deal_due']);
+  const dm = setting_('lark_dm_types', ['sla_warning', 'sla_breach', 'deal_due', 'daily_digest']);
   const viaLark = Array.isArray(dm) && (dm.indexOf('*') !== -1 || dm.indexOf(type) !== -1);
   (emails || []).forEach(function (raw) {
     const email = String(raw || '').trim().toLowerCase();
@@ -4525,7 +4526,7 @@ function getAdminHealth() {
       dm: { types: Array.isArray(dmTypes) ? dmTypes : [], app_configured: larkConfigured_(), failed: count('failed'), no_user: count('no_lark_user') },
       stuck_owner: stuckOwner.slice(0, 20), stuck_owner_count: stuckOwner.length,
       no_sr: noSr.slice(0, 20), no_sr_count: noSr.length,
-      sla_breach: breach, errors_24h: errors,
+      sla_breach: breach, errors_24h: errors, triggers: triggerStatus_(), reminder_mode: reminderMode_(),
       db_url: db_().getUrl(), db_version: APP_VERSION
     };
   });
@@ -5271,6 +5272,7 @@ function larkCard_(n) {
 /** Trigger handler (every minute): deliver pending notifications. */
 function dispatchNotifications() {
   requireJobContext_();
+  markJobRun_('dispatchNotifications');
   if (!larkConfigured_()) return { skipped: 'not_configured' };
   const now = new Date();
   // 1) claim a batch under the lock
@@ -5698,6 +5700,9 @@ function sendBot_(bot, card, meta) {
  */
 function sendSlaReminders() {
   requireJobContext_();
+  markJobRun_('sendSlaReminders');
+  // v2026.10.14-9: overdue work goes to the group once a day at 09:00 (sendDailyDigest); hourly cards only on request
+  if (reminderMode_() !== 'hourly') return { reminded: [], skipped: 'reminder_mode = daily (สรุปงานค้าง 09:00)' };
   const wh = workHours_(), hol = holidaySet_();
   const repeat = Math.max(1, Number(setting_('reminder_repeat_work_hours', 8)) || 8) * 60;
   const now = new Date();
@@ -5722,6 +5727,107 @@ function sendSlaReminders() {
   });
   flushBotQueue_();
   return { reminded: sent };
+}
+
+/** Settings reminder_mode: 'daily' (default) | 'hourly' — plain text in the sheet (also accepts "hourly" with quotes). */
+function reminderMode_() {
+  const row = findOne_(TAB.SETTINGS, 'key', 'reminder_mode');
+  const v = String(row ? row.value : '').replace(/["'\s]/g, '').toLowerCase();
+  return v === 'hourly' ? 'hourly' : 'daily';
+}
+
+/** Last run of a scheduled job (Admin home shows it — “why is nothing coming?”). */
+function markJobRun_(name) {
+  try { PropertiesService.getScriptProperties().setProperty('JOB_LAST_' + name, new Date().toISOString()); } catch (e) { /* never breaks the job */ }
+}
+
+/**
+ * Daily 09:00 (working days of Settings work_hours, not on Holidays): ONE card in the Lark group from FPR Reminder —
+ * every open request grouped ⛔ เกิน SLA · ⚠️ ใกล้ครบ SLA · 🕘 กำลังดำเนินการ, with the person who must act (@mention for
+ * the late / nearly late ones) — plus a bell notice (and Lark DM when 'daily_digest' is in lark_dm_types) to each person
+ * listing their own waiting requests. opts.force = send now (Admin test button), also on a weekend.
+ */
+function sendDailyDigest(opts) {
+  requireJobContext_();
+  const o = opts || {};
+  markJobRun_('sendDailyDigest');
+  const wh = workHours_(), hol = holidaySet_();
+  const p = bkk_(Date.now());
+  if (!o.force && (wh.days.indexOf(p.dow) === -1 || hol[p.ymd])) return { sent: false, skipped: 'ไม่ใช่วันทำงาน' };
+  const warn = Number(setting_('sla_warning_ratio', 0.8)) || 0.8;
+  const now = new Date();
+  const groups = { breach: [], warning: [], normal: [] };
+  const perUser = {};
+  const result = withLock_(function () {
+    const names = {};
+    rows_(TAB.USERS).forEach(function (r) { names[String(r.email).toLowerCase()] = String(r.full_name || r.email); });
+    rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return OPEN_STATUSES.indexOf(t.status) !== -1; }).forEach(function (t) {
+      const s = stageSla_(t, wh, hol);
+      let level = 'normal';
+      if (s) {
+        if (now >= s.due) level = 'breach';
+        else if (workMinutesBetween_(s.start, now, wh, hol) >= s.minutes * warn) level = 'warning';
+      }
+      const owners = stageAssignees_(t).map(function (e) { return String(e || '').trim().toLowerCase(); }).filter(function (e, i, a) { return e && a.indexOf(e) === i; });
+      groups[level].push({ t: t, s: s, owners: owners });
+      owners.forEach(function (e) { (perUser[e] = perUser[e] || []).push({ t: t, level: level }); });
+    });
+    const byDue = function (a, b) { return (a.s ? a.s.due.getTime() : 9e15) - (b.s ? b.s.due.getTime() : 9e15); };
+    groups.breach.sort(byDue); groups.warning.sort(byDue); groups.normal.sort(byDue);   // most overdue first
+    const total = groups.breach.length + groups.warning.length + groups.normal.length;
+    const day = fmtDate_(now, 'dd/MM/yyyy');
+    const line = function (x) {
+      const who = x.owners.map(function (e) { return names[e] || e; }).join(', ') || '-';
+      return '• [' + x.t.ticket_no + '](' + fprLink_(x.t) + ') ' + (STAGE_LABEL_TH[x.t.stage] || x.t.stage) + ' · ' + who +
+        (x.s ? ' · ครบ ' + fmtDate_(x.s.due, 'dd/MM HH:mm') : '');
+    };
+    const section = function (title, list, max) {
+      if (!list.length) return '';
+      const rows = list.slice(0, max).map(line);
+      if (list.length > max) rows.push('… และอีก ' + (list.length - max) + ' ใบ');
+      return '**' + title + ' (' + list.length + ')**\n' + rows.join('\n');
+    };
+    const els = [];
+    if (!total) {
+      els.push({ tag: 'div', text: { tag: 'lark_md', content: '✅ ไม่มีงานค้าง — ทุกใบขอราคาเสร็จหรือปิดแล้ว' } });
+    } else {
+      [section('⛔ เกิน SLA', groups.breach, 15), section('⚠️ ใกล้ครบ SLA', groups.warning, 15), section('🕘 กำลังดำเนินการ', groups.normal, 10)]
+        .filter(String).forEach(function (c) { els.push({ tag: 'div', text: { tag: 'lark_md', content: c } }); });
+      const late = [];
+      groups.breach.concat(groups.warning).forEach(function (x) { x.owners.forEach(function (e) { if (late.indexOf(e) === -1) late.push(e); }); });
+      if (late.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '**ผู้ที่ต้องเร่งดำเนินการ:** ' + late.map(buildMention).join(' ') } });
+      els.push({ tag: 'note', elements: [{ tag: 'plain_text', content: 'SLA ' + slaBasisText_(wh) + ' · สรุปทุกวันทำงาน 09:00' }] });
+    }
+    let base = PropertiesService.getScriptProperties().getProperty(CFG.PROP.WEBAPP_URL) || '';
+    if (!base) { try { base = ScriptApp.getService().getUrl() || ''; } catch (e) { base = ''; } }
+    if (/^https:\/\//.test(base)) els.push({ tag: 'action', actions: [{ tag: 'button', type: 'primary', text: { tag: 'plain_text', content: 'เปิดรายการงานค้าง' }, url: base + '?page=tickets&scope=inbox' }] });
+    const card = { config: { wide_screen_mode: true },
+      header: { template: groups.breach.length ? 'red' : groups.warning.length ? 'orange' : total ? 'blue' : 'green',
+        title: { tag: 'plain_text', content: '📋 สรุปงานค้างประจำวัน ' + day + (total ? ' — ' + total + ' ใบ' + (groups.breach.length ? ' (เกิน SLA ' + groups.breach.length + ')' : '') : '') } },
+      elements: els };
+    BOT_QUEUE_.push({ bot: 'reminder', event: 'daily_digest', ticket_id: '', ticket_no: '', card: card, summary: cardText_(card) });
+
+    // each person: their own waiting requests (web bell; Lark DM when 'daily_digest' is in lark_dm_types)
+    let notified = 0;
+    Object.keys(perUser).forEach(function (e) {
+      const mine = perUser[e];
+      const b = mine.filter(function (x) { return x.level === 'breach'; }).length;
+      const body = mine.slice(0, 10).map(function (x) { return (x.level === 'breach' ? '⛔ ' : x.level === 'warning' ? '⚠️ ' : '• ') + x.t.ticket_no + ' — ' + (STAGE_LABEL_TH[x.t.stage] || x.t.stage); }).join('\n') +
+        (mine.length > 10 ? '\n… และอีก ' + (mine.length - 10) + ' ใบ' : '');
+      notified += enqueueNotifications_([e], null, 'daily_digest', '📋 งานที่รอคุณ ' + mine.length + ' ใบ' + (b ? ' (เกิน SLA ' + b + ')' : ''), body, base + '?page=tickets&scope=inbox');
+    });
+    return { total: total, breach: groups.breach.length, warning: groups.warning.length, people: notified };
+  });
+  const sent = flushBotQueue_();
+  return Object.assign({ sent: true, card: sent && sent[0] ? sent[0].status : '' }, result);
+}
+
+/** Admin › “📨 ส่งสรุปงานค้างตอนนี้” — the same 09:00 summary, sent now (test that the group really receives it). */
+function sendDailyDigestNow() {
+  return api_('sendDailyDigestNow', function () {
+    requireAdmin_(currentUser_());
+    return sendDailyDigest({ force: true });
+  });
 }
 
 // ---------------------------------------------------------------- Admin web screen: bot settings
@@ -5753,7 +5859,7 @@ function getBotSettings() {
         last: last ? { ts: fmtDate_(last.ts, 'dd/MM/yyyy HH:mm'), event: String(last.event), status: String(last.status), http_code: String(last.http_code), response: String(last.response).slice(0, 200) } : null };
     });
     const failed24 = log.filter(function (n) { return String(n.status) === 'failed' && new Date(n.ts).getTime() > Date.now() - 86400000; }).length;
-    return { bots: bots, webapp_url: p.getProperty(CFG.PROP.WEBAPP_URL) || '', failed_24h: failed24, db_url: db_().getUrl(), app_version: APP_VERSION };
+    return { bots: bots, webapp_url: p.getProperty(CFG.PROP.WEBAPP_URL) || '', failed_24h: failed24, db_url: db_().getUrl(), app_version: APP_VERSION, triggers: triggerStatus_() };
   });
 }
 
@@ -5906,16 +6012,42 @@ function testBots() {
  *   checkSlaAlerts         every hour    SLA warning (80%) / breach notifications
  *   runSelfTest            daily 07:00   schema, config, orphan tickets, log chain → Lark group on failure
  *   weeklyBackup           Monday 06:00  copy of the database spreadsheet, keeps the newest 12
- *   sendSlaReminders       every hour    FPR Reminder bot: requests over their SLA (Bots.gs)
+ *   sendSlaReminders       every hour    FPR Reminder bot: one card per late request — only when Settings reminder_mode = hourly
+ *   sendDailyDigest        daily 09:00   FPR Reminder bot: ONE summary of all open work (late / nearly late / in progress) — working days
  *
  * Time triggers run as the owner: there is no "current user", so actions are stamped 'system'.
  */
 
-const JOB_HANDLERS_ = ['dispatchNotifications', 'checkSlaAlerts', 'runSelfTest', 'weeklyBackup', 'sendSlaReminders', 'sendDealFollowUps', 'runRetention'];
+const JOB_HANDLERS_ = ['dispatchNotifications', 'checkSlaAlerts', 'runSelfTest', 'weeklyBackup', 'sendSlaReminders', 'sendDealFollowUps', 'runRetention', 'sendDailyDigest'];
 const BACKUP_KEEP_ = 12;
 
 function installTriggers() {
   requireOwner_();
+  return installTriggersCore_();
+}
+
+/** Admin › “⚙️ ติดตั้ง / ซ่อม Trigger” from the web page (the web app runs as the owner, so the triggers are the owner's). */
+function installTriggersFromWeb() {
+  return api_('installTriggersFromWeb', function () {
+    requireAdmin_(currentUser_());
+    return { message: installTriggersCore_(), triggers: triggerStatus_() };
+  });
+}
+
+/** Expected scheduled jobs → installed? + last run (Script Properties JOB_LAST_<name>). */
+function triggerStatus_() {
+  const have = {};
+  try { ScriptApp.getProjectTriggers().forEach(function (tr) { have[tr.getHandlerFunction()] = true; }); } catch (e) { /* no permission */ }
+  const p = PropertiesService.getScriptProperties();
+  const LABEL = { dispatchNotifications: 'ส่งแจ้งเตือน (ทุก 1 นาที)', checkSlaAlerts: 'ตรวจ SLA (ทุกชั่วโมง)', sendDailyDigest: 'สรุปงานค้าง 09:00',
+    sendSlaReminders: 'การ์ดงานเกิน SLA รายชั่วโมง', sendDealFollowUps: 'ติดตามลูกค้า 08:45', runSelfTest: 'ตรวจระบบ 07:00', weeklyBackup: 'สำรองข้อมูลวันจันทร์', runRetention: 'ล้างข้อมูลรายเดือน' };
+  return JOB_HANDLERS_.map(function (h) {
+    const last = p.getProperty('JOB_LAST_' + h);
+    return { handler: h, label: LABEL[h] || h, installed: !!have[h], last_run: last ? fmtDate_(new Date(last), 'dd/MM/yyyy HH:mm') : '' };
+  });
+}
+
+function installTriggersCore_() {
   ScriptApp.getProjectTriggers().forEach(function (tr) {
     if (JOB_HANDLERS_.indexOf(tr.getHandlerFunction()) !== -1) ScriptApp.deleteTrigger(tr);
   });
@@ -5926,6 +6058,7 @@ function installTriggers() {
   ScriptApp.newTrigger('weeklyBackup').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(6).inTimezone(CFG.TZ).create();
   ScriptApp.newTrigger('sendDealFollowUps').timeBased().everyDays(1).atHour(8).nearMinute(45).inTimezone(CFG.TZ).create();   // Lark DM: deals to follow up
   ScriptApp.newTrigger('runRetention').timeBased().onMonthDay(1).atHour(3).inTimezone(CFG.TZ).create();                      // monthly clean-up (Retention.gs)
+  ScriptApp.newTrigger('sendDailyDigest').timeBased().everyDays(1).atHour(9).nearMinute(0).inTimezone(CFG.TZ).create();      // 09:00 summary of open work (Bots.gs)
   const msg = 'Installed triggers: ' + JOB_HANDLERS_.join(', ');
   console.log(msg);
   return msg;
@@ -5934,6 +6067,7 @@ function installTriggers() {
 /** Hourly: queue one warning and one breach notification per ticket per stage visit. */
 function checkSlaAlerts() {
   requireJobContext_();
+  markJobRun_('checkSlaAlerts');
   try {
     const result = withLock_(function () {
       const warn = Number(setting_('sla_warning_ratio', 0.8));
@@ -5980,6 +6114,7 @@ function checkSlaAlerts() {
  */
 function sendDealFollowUps() {
   requireJobContext_();
+  markJobRun_('sendDealFollowUps');
   const p = bkk_(Date.now());
   if (workHours_().days.indexOf(p.dow) === -1 || holidaySet_()[p.ymd]) return { sent: 0, skipped: 'not a working day' };
   const today = todayBkk_();
@@ -6032,6 +6167,7 @@ function weeklyBackup() {
  */
 function runSelfTest() {
   requireJobContext_();
+  markJobRun_('runSelfTest');
   const out = [];
   const t = function (name, fn) {
     try {
@@ -9029,6 +9165,7 @@ function runFprCases_(results) {
 
     // ---------- reminder bot ----------
     wrap('FPR_REMINDER', function () {
+      setTestSettings_({ reminder_mode: 'hourly' });   // the per-request hourly cards (default is the 09:00 summary)
       const t = newReq(U.salesFood2, 'ลูกค้าค้าง SLA');
       withLock_(function () { updateRow_(TAB.TICKETS, t.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000) }); });
       expectErr(as(U.salesFood2, function () { try { sendSlaReminders(); return { ok: true }; } catch (e) { return { ok: false, code: e.code, error: e.message }; } }), 'FORBIDDEN',
@@ -9075,6 +9212,7 @@ function runFprCases_(results) {
       withLock_(function () { updateRow_(TAB.TICKETS, own.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000), last_reminded_at: '' }); });
       must(go(U.salesFood2, own.ticket_id, 'resubmit'));
       withLock_(function () { updateRow_(TAB.TICKETS, own.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000), last_reminded_at: '' }); });
+      setTestSettings_({ reminder_mode: 'hourly' });
       as(U.admin, function () { return sendSlaReminders(); });
       const rm = botLog_(own.ticket_id).filter(function (n) { return n.bot === 'FPR Reminder'; }).pop();
       ok(rm && /ผู้ขอ\n<at email=sales\.food2@/.test(rm.summary), 'Card: SLA reminder tags the requester too');
@@ -9775,6 +9913,33 @@ function runGmRequestCases_(results) {
       must(go(U.gm, t.ticket_id, 'gm_approve', ''));   // no sr_email — GM does not pick the SR in this mode
       ok(ticketById_(t.ticket_id).stage === 'doc_check' && activeItemsOf_(t.ticket_id)[0].sr_email === U.sr2, 'GM approve (by product group): no SR to choose, item goes to the group SR');
       withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-SHRIMP', { sr_email: '' }); });
+    });
+
+    wrap('DAILY_DIGEST', function () {
+      const keepHttp = TEST_HTTP_, keepBots = TEST_BOTS_;
+      const http = fakeHttp_();
+      TEST_HTTP_ = http;
+      TEST_BOTS_ = { fpr: { url: '', secret: '' }, reminder: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/rem', secret: 'sec-b' } };
+      try {
+        setTestSettings_({ reminder_mode: 'daily', work_hours: JSON.stringify({ start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5] }), sales_manager_step: 'false', assign_by_group: 'false', gm_assigns_sr: 'false' });
+        const late = must(as(U.salesFood1, function () { return createTicket(form({ customer_name: 'ค้างนาน' })); })).ticket;
+        withLock_(function () { updateRow_(TAB.TICKETS, late.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000), last_reminded_at: '' }); });
+        ok(as(U.admin, function () { return sendSlaReminders(); }).reminded.length === 0, 'Daily mode: no hourly card per request');
+        expectErr(as(U.salesFood1, function () { return sendDailyDigestNow(); }), 'FORBIDDEN', 'Daily summary: only Admin can send it now');
+        const r = as(U.admin, function () { return must(sendDailyDigestNow()); });
+        const log = rows_(TAB.NOTIF_LOG).filter(function (n) { return n.event === 'daily_digest'; }).pop();
+        ok(r.card === 'sent' && r.total >= 1 && r.breach >= 1 && log && log.bot === 'FPR Reminder', 'Daily summary: ONE card from FPR Reminder to the group (' + r.total + ' open, ' + r.breach + ' late)');
+        const sentCard = JSON.stringify(http.hooks[http.hooks.length - 1] || {});   // what the group really received (NotifLog keeps 1,000 chars)
+        ok(/⛔ เกิน SLA \(\d+\)/.test(sentCard) && /รอ GM อนุมัติฝั่งขาย · คุณสมชาย GM · ครบ/.test(sentCard) && sentCard.indexOf('<at email=gm@') !== -1 && sentCard.indexOf('… และอีก') !== -1,
+          'Daily summary: late requests first (stage · who · due), @mentions who must act (GM), long lists cut with “… และอีก”');
+        ok(!/ต้นทุน|unit_price|GP/.test(log.summary), 'Daily summary: no cost / GP in the group card');
+        ok(rows_(TAB.NOTIFICATIONS).some(function (n) { return n.type === 'daily_digest' && String(n.user_email).toLowerCase() === U.gm; }), 'Daily summary: GM also gets “งานที่รอคุณ” in the bell');
+        ok(triggerStatus_().some(function (x) { return x.handler === 'sendDailyDigest' && x.last_run; }), 'Daily summary: last run shown on the Admin page');
+        installTriggersCore_();
+        const tr = triggerStatus_();
+        ok(tr.every(function (x) { return x.installed; }) && tr.some(function (x) { return x.handler === 'sendDailyDigest'; }), 'Triggers: install puts the 09:00 summary in, Admin page shows every job installed');
+        expectErr(as(U.gm, function () { return installTriggersFromWeb(); }), 'FORBIDDEN', 'Triggers: only Admin installs them from the web page');
+      } finally { TEST_HTTP_ = keepHttp; TEST_BOTS_ = keepBots; }
     });
 
     wrap('SLA_WORKING_HOURS', function () {

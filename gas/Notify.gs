@@ -59,7 +59,7 @@ function enqueueNotifications_(emails, t, type, title, body, link) {
   const rowsToInsert = [];
   const now = new Date();
   // Lark DM only for follow-up reminders (Settings lark_dm_types); everything else = web bell + group card
-  const dm = setting_('lark_dm_types', ['sla_warning', 'sla_breach', 'deal_due']);
+  const dm = setting_('lark_dm_types', ['sla_warning', 'sla_breach', 'deal_due', 'daily_digest']);
   const viaLark = Array.isArray(dm) && (dm.indexOf('*') !== -1 || dm.indexOf(type) !== -1);
   (emails || []).forEach(function (raw) {
     const email = String(raw || '').trim().toLowerCase();

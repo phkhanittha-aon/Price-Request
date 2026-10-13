@@ -134,6 +134,7 @@ function larkCard_(n) {
 /** Trigger handler (every minute): deliver pending notifications. */
 function dispatchNotifications() {
   requireJobContext_();
+  markJobRun_('dispatchNotifications');
   if (!larkConfigured_()) return { skipped: 'not_configured' };
   const now = new Date();
   // 1) claim a batch under the lock

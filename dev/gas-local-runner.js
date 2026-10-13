@@ -185,7 +185,7 @@ const CacheService = {
 
 const triggers = [];
 const triggerBuilder = (fn) => {
-  const b = { timeBased: () => b, everyMinutes: () => b, everyHours: () => b, everyDays: () => b, atHour: () => b, inTimezone: () => b,
+  const b = { timeBased: () => b, everyMinutes: () => b, everyHours: () => b, everyDays: () => b, atHour: () => b, nearMinute: () => b, onMonthDay: () => b, inTimezone: () => b,
     onWeekDay: () => b, create: () => { const t = { getHandlerFunction: () => fn }; triggers.push(t); return t; } };
   return b;
 };

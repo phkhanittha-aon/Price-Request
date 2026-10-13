@@ -7,7 +7,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-8';
+const APP_VERSION = '2026.10.14-9';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -299,7 +299,8 @@ const DEFAULT_SETTINGS = [
   ['retention', JSON.stringify({ notifications_read_days: 180, notif_log_days: 180, sla_alerts_days: 90, usage_raw_days: 90, error_log_days: 180, log_archive_months: 18, loser_photo_days: 180 }),
     'ล้างข้อมูลรายเดือน (runRetention): แจ้งเตือนที่อ่านแล้ว / NotifLog / ErrorLog 6 เดือน · SlaAlerts 3 เดือนหลังปิดงาน · UsageLog รวมเป็นรายเดือนหลัง 3 เดือน · TicketLogs ย้ายไปไฟล์ archive หลังปิดงาน 18 เดือน · รูป supplier ที่ไม่ได้รับเลือก ลบหลังปิดงาน 6 เดือน'],
   ['list_months', '6', 'หน้า รายการใบขอราคา / ติดตามการขาย / สรุป GP โหลดเฉพาะ N เดือนล่าสุด — งานที่ยังเปิดอยู่แสดงเสมอ · เลือก “ทั้งหมด” ได้ในหน้านั้น · 0 = โหลดทั้งหมดเสมอ'],
-  ['lark_dm_types', JSON.stringify(['sla_warning', 'sla_breach', 'deal_due']), 'Lark DM รายคน ส่งเฉพาะการแจ้งเตือนเพื่อติดตามงาน (เกิน / ใกล้ครบ SLA, ต้องติดตามลูกค้า) — แจ้งเตือนอื่นอยู่ที่กระดิ่งในเว็บ + การ์ดในกลุ่ม · ["*"] = ส่งทุกประเภท'],
+  ['lark_dm_types', JSON.stringify(['sla_warning', 'sla_breach', 'deal_due', 'daily_digest']), 'Lark DM รายคน ส่งเฉพาะการแจ้งเตือนเพื่อติดตามงาน (เกิน / ใกล้ครบ SLA, ต้องติดตามลูกค้า) — แจ้งเตือนอื่นอยู่ที่กระดิ่งในเว็บ + การ์ดในกลุ่ม · ["*"] = ส่งทุกประเภท'],
+  ['reminder_mode', 'daily', 'daily = FPR Reminder สรุปงานค้างเข้ากลุ่ม Lark วันละครั้ง 09:00 (วันทำงาน) · hourly = การ์ดแยกทุกใบที่เกิน SLA ทุกชั่วโมง (แจ้งซ้ำตาม reminder_repeat_work_hours)'],
   ['reminder_repeat_work_hours', '8', 'FPR Reminder แจ้งซ้ำรายการเดิมได้ไม่เกิน 1 ครั้งต่อกี่ชั่วโมง (นับเวลาทำงานแบบเดียวกับ SLA)'],
   ['max_photos_per_quote', '10', 'จำนวนรูปสินค้าสูงสุดต่อ Supplier 1 เจ้า (ต่อใบเสนอราคา 1 รายการ)'],
   ['default_gp_percent', '15', 'GP % เริ่มต้นที่ SR เห็นในหน้าใบเสนอราคา (คิดเป็น % ของราคาขาย)'],

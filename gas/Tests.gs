@@ -1904,6 +1904,7 @@ function runFprCases_(results) {
 
     // ---------- reminder bot ----------
     wrap('FPR_REMINDER', function () {
+      setTestSettings_({ reminder_mode: 'hourly' });   // the per-request hourly cards (default is the 09:00 summary)
       const t = newReq(U.salesFood2, 'ลูกค้าค้าง SLA');
       withLock_(function () { updateRow_(TAB.TICKETS, t.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000) }); });
       expectErr(as(U.salesFood2, function () { try { sendSlaReminders(); return { ok: true }; } catch (e) { return { ok: false, code: e.code, error: e.message }; } }), 'FORBIDDEN',
@@ -1950,6 +1951,7 @@ function runFprCases_(results) {
       withLock_(function () { updateRow_(TAB.TICKETS, own.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000), last_reminded_at: '' }); });
       must(go(U.salesFood2, own.ticket_id, 'resubmit'));
       withLock_(function () { updateRow_(TAB.TICKETS, own.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000), last_reminded_at: '' }); });
+      setTestSettings_({ reminder_mode: 'hourly' });
       as(U.admin, function () { return sendSlaReminders(); });
       const rm = botLog_(own.ticket_id).filter(function (n) { return n.bot === 'FPR Reminder'; }).pop();
       ok(rm && /ผู้ขอ\n<at email=sales\.food2@/.test(rm.summary), 'Card: SLA reminder tags the requester too');
@@ -2650,6 +2652,33 @@ function runGmRequestCases_(results) {
       must(go(U.gm, t.ticket_id, 'gm_approve', ''));   // no sr_email — GM does not pick the SR in this mode
       ok(ticketById_(t.ticket_id).stage === 'doc_check' && activeItemsOf_(t.ticket_id)[0].sr_email === U.sr2, 'GM approve (by product group): no SR to choose, item goes to the group SR');
       withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD-SHRIMP', { sr_email: '' }); });
+    });
+
+    wrap('DAILY_DIGEST', function () {
+      const keepHttp = TEST_HTTP_, keepBots = TEST_BOTS_;
+      const http = fakeHttp_();
+      TEST_HTTP_ = http;
+      TEST_BOTS_ = { fpr: { url: '', secret: '' }, reminder: { url: 'https://open.larksuite.com/open-apis/bot/v2/hook/rem', secret: 'sec-b' } };
+      try {
+        setTestSettings_({ reminder_mode: 'daily', work_hours: JSON.stringify({ start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5] }), sales_manager_step: 'false', assign_by_group: 'false', gm_assigns_sr: 'false' });
+        const late = must(as(U.salesFood1, function () { return createTicket(form({ customer_name: 'ค้างนาน' })); })).ticket;
+        withLock_(function () { updateRow_(TAB.TICKETS, late.ticket_id, { stage_entered_at: new Date(Date.now() - 20 * 86400000), last_reminded_at: '' }); });
+        ok(as(U.admin, function () { return sendSlaReminders(); }).reminded.length === 0, 'Daily mode: no hourly card per request');
+        expectErr(as(U.salesFood1, function () { return sendDailyDigestNow(); }), 'FORBIDDEN', 'Daily summary: only Admin can send it now');
+        const r = as(U.admin, function () { return must(sendDailyDigestNow()); });
+        const log = rows_(TAB.NOTIF_LOG).filter(function (n) { return n.event === 'daily_digest'; }).pop();
+        ok(r.card === 'sent' && r.total >= 1 && r.breach >= 1 && log && log.bot === 'FPR Reminder', 'Daily summary: ONE card from FPR Reminder to the group (' + r.total + ' open, ' + r.breach + ' late)');
+        const sentCard = JSON.stringify(http.hooks[http.hooks.length - 1] || {});   // what the group really received (NotifLog keeps 1,000 chars)
+        ok(/⛔ เกิน SLA \(\d+\)/.test(sentCard) && /รอ GM อนุมัติฝั่งขาย · คุณสมชาย GM · ครบ/.test(sentCard) && sentCard.indexOf('<at email=gm@') !== -1 && sentCard.indexOf('… และอีก') !== -1,
+          'Daily summary: late requests first (stage · who · due), @mentions who must act (GM), long lists cut with “… และอีก”');
+        ok(!/ต้นทุน|unit_price|GP/.test(log.summary), 'Daily summary: no cost / GP in the group card');
+        ok(rows_(TAB.NOTIFICATIONS).some(function (n) { return n.type === 'daily_digest' && String(n.user_email).toLowerCase() === U.gm; }), 'Daily summary: GM also gets “งานที่รอคุณ” in the bell');
+        ok(triggerStatus_().some(function (x) { return x.handler === 'sendDailyDigest' && x.last_run; }), 'Daily summary: last run shown on the Admin page');
+        installTriggersCore_();
+        const tr = triggerStatus_();
+        ok(tr.every(function (x) { return x.installed; }) && tr.some(function (x) { return x.handler === 'sendDailyDigest'; }), 'Triggers: install puts the 09:00 summary in, Admin page shows every job installed');
+        expectErr(as(U.gm, function () { return installTriggersFromWeb(); }), 'FORBIDDEN', 'Triggers: only Admin installs them from the web page');
+      } finally { TEST_HTTP_ = keepHttp; TEST_BOTS_ = keepBots; }
     });
 
     wrap('SLA_WORKING_HOURS', function () {

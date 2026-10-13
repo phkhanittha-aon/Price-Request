@@ -32,6 +32,14 @@ Pages.admin = (function () {
       '<b>Security settings: ✅ Set signature verification</b> (ไม่ต้องตั้ง keywords / IP) → คัดลอก Webhook URL และ Secret มาวางด้านล่าง → บันทึก → กด “ส่งการ์ดทดสอบ”' +
       (d.failed_24h ? '<div class="notice warn" style="margin-top:8px">มีการ์ดส่งไม่สำเร็จ ' + d.failed_24h + ' ครั้งใน 24 ชม. — ดูรายละเอียดในแท็บ NotifLog</div>' : '') + '</div>' +
       d.bots.map(botCard).join('') +
+      '<section class="card"><h3>⏰ แจ้งเตือนอัตโนมัติ (Trigger)</h3>' +
+      '<div class="small muted">สรุปงานค้างเข้ากลุ่ม Lark (บอท FPR Reminder) ทุกวันทำงาน 09:00 · ถ้าไม่มีแจ้งเตือนเลย ให้ดูว่า Trigger ติดตั้งแล้วหรือยัง</div>' +
+      '<ul class="health small" style="margin-top:8px">' + (d.triggers || []).map(function (x) {
+        return '<li class="' + (x.installed ? 'ok' : 'bad') + '">' + (x.installed ? '✓ ' : '⚠ ') + esc(x.label) + ' — ' + (x.installed ? 'ติดตั้งแล้ว' : '<b>ยังไม่ได้ติดตั้ง</b>') +
+          (x.last_run ? ' · ทำงานล่าสุด ' + esc(x.last_run) : ' · ยังไม่เคยทำงาน') + '</li>';
+      }).join('') + '</ul>' +
+      '<div class="actions"><button class="btn" id="ad-trig">⚙️ ติดตั้ง / ซ่อม Trigger</button><button class="btn primary" id="ad-digest">📨 ส่งสรุปงานค้างตอนนี้</button></div>' +
+      '<div class="small" id="ad-trig-out"></div></section>' +
       '<section class="card"><h3>🔗 ลิงก์เว็บแอป (ปุ่ม “เปิดใบขอราคา” ในการ์ด)</h3><div class="small">ปัจจุบัน: ' + (d.webapp_url ? '<code>' + esc(d.webapp_url) + '</code>' : '<span class="sla warning">ยังไม่ได้ตั้ง — ใช้ลิงก์ของ deployment ปัจจุบันแทน</span>') + '</div>' +
       '<div class="fgrid two" style="margin-top:8px"><label class="field"><span>Web app URL (/exec)</span><input type="url" id="ad-webapp" style="width:100%" placeholder="https://script.google.com/a/macros/mglobalsourcing.net/s/…/exec" value="' + esc(d.webapp_url) + '"></label></div>' +
       '<div class="actions"><button class="btn" id="ad-webapp-save">💾 บันทึกลิงก์</button></div></section>' +
@@ -77,6 +85,18 @@ Pages.admin = (function () {
           .map(function (k) { return esc(k) + ' ' + r.counts[k]; }).join(' · ');
       }).catch(function (e) { out.innerHTML = '<span class="sla breach">' + esc(e.error) + '</span>'; })
         .then(function () { btn.disabled = false; });
+    };
+    $('#ad-trig', view).onclick = function () {
+      const out = $('#ad-trig-out', view); out.textContent = 'กำลังติดตั้ง...';
+      api('installTriggersFromWeb').then(function () { toast('ติดตั้ง Trigger แล้ว', 'ok'); load(view); })
+        .catch(function (e) { out.innerHTML = '<span class="sla breach">' + esc(e.error) + '</span> — ให้เจ้าของสคริปต์เปิด Apps Script แล้ว Run <code>installTriggers</code>'; });
+    };
+    $('#ad-digest', view).onclick = function () {
+      const out = $('#ad-trig-out', view); out.textContent = 'กำลังส่ง...';
+      api('sendDailyDigestNow').then(function (r) {
+        out.innerHTML = r.card === 'sent' ? '<span class="sla ok">✓ ส่งเข้ากลุ่ม Lark แล้ว</span> — งานค้าง ' + r.total + ' ใบ (เกิน SLA ' + r.breach + ', ใกล้ครบ ' + r.warning + ')'
+          : '<span class="sla breach">✗ การ์ดส่งไม่สำเร็จ (' + esc(r.card || 'ไม่ได้ตั้งค่า') + ')</span> — ตรวจ Webhook ของ FPR Reminder ด้านบน';
+      }).catch(function (e) { out.innerHTML = '<span class="sla breach">' + esc(e.error) + '</span>'; });
     };
     $('#ad-webapp-save', view).onclick = function () {
       api('saveWebappUrl', $('#ad-webapp', view).value).then(function () { toast('บันทึกลิงก์แล้ว', 'ok'); load(view); }).catch(function (e) { toast(e.error, 'err', 9000); });

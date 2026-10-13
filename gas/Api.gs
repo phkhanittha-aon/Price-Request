@@ -330,7 +330,7 @@ function getAdminHealth() {
       dm: { types: Array.isArray(dmTypes) ? dmTypes : [], app_configured: larkConfigured_(), failed: count('failed'), no_user: count('no_lark_user') },
       stuck_owner: stuckOwner.slice(0, 20), stuck_owner_count: stuckOwner.length,
       no_sr: noSr.slice(0, 20), no_sr_count: noSr.length,
-      sla_breach: breach, errors_24h: errors,
+      sla_breach: breach, errors_24h: errors, triggers: triggerStatus_(), reminder_mode: reminderMode_(),
       db_url: db_().getUrl(), db_version: APP_VERSION
     };
   });

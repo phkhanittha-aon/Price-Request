@@ -313,6 +313,9 @@ function sendBot_(bot, card, meta) {
  */
 function sendSlaReminders() {
   requireJobContext_();
+  markJobRun_('sendSlaReminders');
+  // v2026.10.14-9: overdue work goes to the group once a day at 09:00 (sendDailyDigest); hourly cards only on request
+  if (reminderMode_() !== 'hourly') return { reminded: [], skipped: 'reminder_mode = daily (สรุปงานค้าง 09:00)' };
   const wh = workHours_(), hol = holidaySet_();
   const repeat = Math.max(1, Number(setting_('reminder_repeat_work_hours', 8)) || 8) * 60;
   const now = new Date();
@@ -337,6 +340,107 @@ function sendSlaReminders() {
   });
   flushBotQueue_();
   return { reminded: sent };
+}
+
+/** Settings reminder_mode: 'daily' (default) | 'hourly' — plain text in the sheet (also accepts "hourly" with quotes). */
+function reminderMode_() {
+  const row = findOne_(TAB.SETTINGS, 'key', 'reminder_mode');
+  const v = String(row ? row.value : '').replace(/["'\s]/g, '').toLowerCase();
+  return v === 'hourly' ? 'hourly' : 'daily';
+}
+
+/** Last run of a scheduled job (Admin home shows it — “why is nothing coming?”). */
+function markJobRun_(name) {
+  try { PropertiesService.getScriptProperties().setProperty('JOB_LAST_' + name, new Date().toISOString()); } catch (e) { /* never breaks the job */ }
+}
+
+/**
+ * Daily 09:00 (working days of Settings work_hours, not on Holidays): ONE card in the Lark group from FPR Reminder —
+ * every open request grouped ⛔ เกิน SLA · ⚠️ ใกล้ครบ SLA · 🕘 กำลังดำเนินการ, with the person who must act (@mention for
+ * the late / nearly late ones) — plus a bell notice (and Lark DM when 'daily_digest' is in lark_dm_types) to each person
+ * listing their own waiting requests. opts.force = send now (Admin test button), also on a weekend.
+ */
+function sendDailyDigest(opts) {
+  requireJobContext_();
+  const o = opts || {};
+  markJobRun_('sendDailyDigest');
+  const wh = workHours_(), hol = holidaySet_();
+  const p = bkk_(Date.now());
+  if (!o.force && (wh.days.indexOf(p.dow) === -1 || hol[p.ymd])) return { sent: false, skipped: 'ไม่ใช่วันทำงาน' };
+  const warn = Number(setting_('sla_warning_ratio', 0.8)) || 0.8;
+  const now = new Date();
+  const groups = { breach: [], warning: [], normal: [] };
+  const perUser = {};
+  const result = withLock_(function () {
+    const names = {};
+    rows_(TAB.USERS).forEach(function (r) { names[String(r.email).toLowerCase()] = String(r.full_name || r.email); });
+    rows_(TAB.TICKETS).map(normTicket_).filter(function (t) { return OPEN_STATUSES.indexOf(t.status) !== -1; }).forEach(function (t) {
+      const s = stageSla_(t, wh, hol);
+      let level = 'normal';
+      if (s) {
+        if (now >= s.due) level = 'breach';
+        else if (workMinutesBetween_(s.start, now, wh, hol) >= s.minutes * warn) level = 'warning';
+      }
+      const owners = stageAssignees_(t).map(function (e) { return String(e || '').trim().toLowerCase(); }).filter(function (e, i, a) { return e && a.indexOf(e) === i; });
+      groups[level].push({ t: t, s: s, owners: owners });
+      owners.forEach(function (e) { (perUser[e] = perUser[e] || []).push({ t: t, level: level }); });
+    });
+    const byDue = function (a, b) { return (a.s ? a.s.due.getTime() : 9e15) - (b.s ? b.s.due.getTime() : 9e15); };
+    groups.breach.sort(byDue); groups.warning.sort(byDue); groups.normal.sort(byDue);   // most overdue first
+    const total = groups.breach.length + groups.warning.length + groups.normal.length;
+    const day = fmtDate_(now, 'dd/MM/yyyy');
+    const line = function (x) {
+      const who = x.owners.map(function (e) { return names[e] || e; }).join(', ') || '-';
+      return '• [' + x.t.ticket_no + '](' + fprLink_(x.t) + ') ' + (STAGE_LABEL_TH[x.t.stage] || x.t.stage) + ' · ' + who +
+        (x.s ? ' · ครบ ' + fmtDate_(x.s.due, 'dd/MM HH:mm') : '');
+    };
+    const section = function (title, list, max) {
+      if (!list.length) return '';
+      const rows = list.slice(0, max).map(line);
+      if (list.length > max) rows.push('… และอีก ' + (list.length - max) + ' ใบ');
+      return '**' + title + ' (' + list.length + ')**\n' + rows.join('\n');
+    };
+    const els = [];
+    if (!total) {
+      els.push({ tag: 'div', text: { tag: 'lark_md', content: '✅ ไม่มีงานค้าง — ทุกใบขอราคาเสร็จหรือปิดแล้ว' } });
+    } else {
+      [section('⛔ เกิน SLA', groups.breach, 15), section('⚠️ ใกล้ครบ SLA', groups.warning, 15), section('🕘 กำลังดำเนินการ', groups.normal, 10)]
+        .filter(String).forEach(function (c) { els.push({ tag: 'div', text: { tag: 'lark_md', content: c } }); });
+      const late = [];
+      groups.breach.concat(groups.warning).forEach(function (x) { x.owners.forEach(function (e) { if (late.indexOf(e) === -1) late.push(e); }); });
+      if (late.length) els.push({ tag: 'div', text: { tag: 'lark_md', content: '**ผู้ที่ต้องเร่งดำเนินการ:** ' + late.map(buildMention).join(' ') } });
+      els.push({ tag: 'note', elements: [{ tag: 'plain_text', content: 'SLA ' + slaBasisText_(wh) + ' · สรุปทุกวันทำงาน 09:00' }] });
+    }
+    let base = PropertiesService.getScriptProperties().getProperty(CFG.PROP.WEBAPP_URL) || '';
+    if (!base) { try { base = ScriptApp.getService().getUrl() || ''; } catch (e) { base = ''; } }
+    if (/^https:\/\//.test(base)) els.push({ tag: 'action', actions: [{ tag: 'button', type: 'primary', text: { tag: 'plain_text', content: 'เปิดรายการงานค้าง' }, url: base + '?page=tickets&scope=inbox' }] });
+    const card = { config: { wide_screen_mode: true },
+      header: { template: groups.breach.length ? 'red' : groups.warning.length ? 'orange' : total ? 'blue' : 'green',
+        title: { tag: 'plain_text', content: '📋 สรุปงานค้างประจำวัน ' + day + (total ? ' — ' + total + ' ใบ' + (groups.breach.length ? ' (เกิน SLA ' + groups.breach.length + ')' : '') : '') } },
+      elements: els };
+    BOT_QUEUE_.push({ bot: 'reminder', event: 'daily_digest', ticket_id: '', ticket_no: '', card: card, summary: cardText_(card) });
+
+    // each person: their own waiting requests (web bell; Lark DM when 'daily_digest' is in lark_dm_types)
+    let notified = 0;
+    Object.keys(perUser).forEach(function (e) {
+      const mine = perUser[e];
+      const b = mine.filter(function (x) { return x.level === 'breach'; }).length;
+      const body = mine.slice(0, 10).map(function (x) { return (x.level === 'breach' ? '⛔ ' : x.level === 'warning' ? '⚠️ ' : '• ') + x.t.ticket_no + ' — ' + (STAGE_LABEL_TH[x.t.stage] || x.t.stage); }).join('\n') +
+        (mine.length > 10 ? '\n… และอีก ' + (mine.length - 10) + ' ใบ' : '');
+      notified += enqueueNotifications_([e], null, 'daily_digest', '📋 งานที่รอคุณ ' + mine.length + ' ใบ' + (b ? ' (เกิน SLA ' + b + ')' : ''), body, base + '?page=tickets&scope=inbox');
+    });
+    return { total: total, breach: groups.breach.length, warning: groups.warning.length, people: notified };
+  });
+  const sent = flushBotQueue_();
+  return Object.assign({ sent: true, card: sent && sent[0] ? sent[0].status : '' }, result);
+}
+
+/** Admin › “📨 ส่งสรุปงานค้างตอนนี้” — the same 09:00 summary, sent now (test that the group really receives it). */
+function sendDailyDigestNow() {
+  return api_('sendDailyDigestNow', function () {
+    requireAdmin_(currentUser_());
+    return sendDailyDigest({ force: true });
+  });
 }
 
 // ---------------------------------------------------------------- Admin web screen: bot settings
@@ -368,7 +472,7 @@ function getBotSettings() {
         last: last ? { ts: fmtDate_(last.ts, 'dd/MM/yyyy HH:mm'), event: String(last.event), status: String(last.status), http_code: String(last.http_code), response: String(last.response).slice(0, 200) } : null };
     });
     const failed24 = log.filter(function (n) { return String(n.status) === 'failed' && new Date(n.ts).getTime() > Date.now() - 86400000; }).length;
-    return { bots: bots, webapp_url: p.getProperty(CFG.PROP.WEBAPP_URL) || '', failed_24h: failed24, db_url: db_().getUrl(), app_version: APP_VERSION };
+    return { bots: bots, webapp_url: p.getProperty(CFG.PROP.WEBAPP_URL) || '', failed_24h: failed24, db_url: db_().getUrl(), app_version: APP_VERSION, triggers: triggerStatus_() };
   });
 }
 

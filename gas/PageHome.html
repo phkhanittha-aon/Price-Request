@@ -120,6 +120,12 @@ Pages.home = (function () {
           line(h.stuck_owner_count > 0, h.stuck_owner_count ? 'ใบที่ค้างเพราะผู้รับผิดชอบไม่ได้ใช้งาน/ไม่มีในระบบ ' + h.stuck_owner_count + ' ใบ: ' + tlinks(h.stuck_owner) : 'ไม่มีใบที่ค้างเพราะผู้รับผิดชอบไม่ได้ใช้งาน') +
           line(h.no_sr_count > 0, h.no_sr_count ? 'ใบที่มีสินค้ายังไม่มี SR (รอ SR Manager แบ่งงาน) ' + h.no_sr_count + ' ใบ: ' + tlinks(h.no_sr) : 'สินค้าทุกรายการมี SR รับผิดชอบแล้ว') +
           line(h.sla_breach > 0, 'ใบที่เกิน SLA ตอนนี้ ' + h.sla_breach + ' ใบ') +
+          (function () {
+            const miss = (h.triggers || []).filter(function (x) { return !x.installed; });
+            const dg = (h.triggers || []).filter(function (x) { return x.handler === 'sendDailyDigest'; })[0];
+            return line(miss.length > 0, miss.length ? 'Trigger ยังไม่ได้ติดตั้ง ' + miss.length + ' ตัว (' + miss.map(function (x) { return esc(x.label); }).join(', ') + ') — <b>แจ้งเตือนอัตโนมัติจะไม่ทำงาน</b> · ไปที่ ⚙️ ตั้งค่า Lark Bot › ติดตั้ง Trigger'
+              : 'แจ้งเตือนอัตโนมัติทำงานอยู่ · สรุปงานค้าง 09:00' + (dg && dg.last_run ? ' (ล่าสุด ' + esc(dg.last_run) + ')' : ''));
+          })() +
           line(h.errors_24h > 0, 'ข้อผิดพลาดของระบบ ' + h.errors_24h + ' ครั้ง' + (h.errors_24h ? ' (ดูแท็บ ErrorLog)' : '')) +
           '</ul><p class="small muted">ฐานข้อมูล: <a href="' + esc(h.db_url) + '" target="_blank" rel="noopener">เปิด Google Sheet</a> · v' + esc(h.db_version) +
           ' · ตั้งค่าบอท: <a href="#" data-go-admin>⚙️ ตั้งค่า Lark Bot</a> · ตรวจละเอียด: Run <code>runSelfTest</code></p>';
