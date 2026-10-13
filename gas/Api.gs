@@ -195,6 +195,8 @@ function summaryRow_(t, ctx, now) {
     parent_ticket_no: t.parent_ticket_id && ctx.ticketNos ? (ctx.ticketNos[t.parent_ticket_id] || '') : '',
     item_count: items.length,
     item_names: items.map(function (i) { return String(i.product_name); }).join(' | '),
+    // with quantity — what approvers look at in the list (“กุ้งขาว 500 กก. · หมึก 200 กก.”)
+    item_lines: items.map(function (i) { return String(i.product_name) + (Number(i.qty) > 0 ? ' ' + Number(i.qty).toLocaleString('en-US') + ' ' + String(i.uom || '') : ''); }).join(' · '),
     group_codes: groupCodes,
     root_codes: rootCodes,
     age_days: Math.floor(hoursBetween_(new Date(t.created_at), end ? new Date(end) : now) / 24),

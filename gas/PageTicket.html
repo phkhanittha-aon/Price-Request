@@ -424,7 +424,7 @@ Pages.ticket = (function () {
     if (ui.select === 'sr_gm' && state.ref.assign_by_group) {
       html = '<p class="small"><b>ส่งให้ SR ตามกลุ่มสินค้าอัตโนมัติ</b> (ไม่ต้องเลือก)</p><ul class="small" style="margin:4px 0 0;padding-left:18px">' +
         d.items.filter(function (it) { return !it.quote_status; }).map(function (it) {
-          return '<li>#' + it.line_no + ' ' + esc(it.product_name) + ' <span class="muted">(' + esc(it.product_group_name || '–') + ')</span> → ' +
+          return '<li>#' + it.line_no + ' ' + esc(it.product_name) + ' · <b>' + fmtNum(it.qty) + ' ' + esc(it.uom) + '</b>/เดือน <span class="muted">(' + esc(it.product_group_name || '–') + ')</span> → ' +
             (it.route_sr_name ? '<b>' + esc(it.route_sr_name) + '</b>' : '<span class="sla warning">SR Manager แบ่งงาน</span>') + '</li>';
         }).join('') + '</ul>';
     }

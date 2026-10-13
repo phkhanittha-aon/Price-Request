@@ -972,7 +972,7 @@ var HtmlService = {};
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-5';
+const APP_VERSION = '2026.10.14-6';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -5310,6 +5310,8 @@ function summaryRow_(t, ctx, now) {
     parent_ticket_no: t.parent_ticket_id && ctx.ticketNos ? (ctx.ticketNos[t.parent_ticket_id] || '') : '',
     item_count: items.length,
     item_names: items.map(function (i) { return String(i.product_name); }).join(' | '),
+    // with quantity — what approvers look at in the list (“กุ้งขาว 500 กก. · หมึก 200 กก.”)
+    item_lines: items.map(function (i) { return String(i.product_name) + (Number(i.qty) > 0 ? ' ' + Number(i.qty).toLocaleString('en-US') + ' ' + String(i.uom || '') : ''); }).join(' · '),
     group_codes: groupCodes,
     root_codes: rootCodes,
     age_days: Math.floor(hoursBetween_(new Date(t.created_at), end ? new Date(end) : now) / 24),
@@ -8248,7 +8250,7 @@ function fakeDrive_() {
     </aside>
     <div class="content">
       <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.14-5 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.14-6 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
     </div>
   </div>
   <div class="side-ov" id="side-ov"></div>
@@ -9016,7 +9018,7 @@ Pages.home = (function () {
       (inbox.length ? '<ul class="tasks">' + inbox.slice(0, 10).map(function (r) {
         return '<li><a href="#" data-ticket="' + esc(r.ticket_id) + '"><span class="tdot ' + esc(r.sla_status) + '" aria-hidden="true"></span><div class="tmain"><b>' + esc(r.ticket_no) + '</b> ' +
           (r.priority !== 'normal' ? prioText(r.priority) + ' ' : '') + (r.is_follow_up ? '<span class="badge tag-follow">📌 ส่งตามหลัง</span> ' : '') +
-          '<span class="small">' + esc(r.stage_label) + '</span><div class="small muted">' + esc(r.customer_name || r.title) + ' · ' + esc(r.item_names).slice(0, 80) + '</div></div>' +
+          '<span class="small">' + esc(r.stage_label) + '</span><div class="small muted">' + esc(r.customer_name || r.title) + ' · ' + esc(r.item_lines || r.item_names).slice(0, 110) + '</div></div>' +
           '<div class="tside small">' + slaBadge(r.sla_status) + (r.due_date ? '<div class="muted">ต้องการ ' + esc(fmtDate(r.due_date)) + '</div>' : '') + '</div></a></li>';
       }).join('') + '</ul>' : '<p class="empty small">ไม่มีงานรอคุณตอนนี้</p>') + '</div>';
     if (follow.length) {
@@ -9982,7 +9984,7 @@ Pages.tickets = (function () {
           (r.is_inbox && r.outcome === 'open' ? ' <span class="badge tag-me">รอคุณ</span>' : '') +
           (r.revision_count ? ' <span class="badge">แก้ราคา ' + r.revision_count + '</span>' : '') +
           (r.parent_ticket_no ? ' <span class="badge tag-follow">📌 จาก ' + esc(r.parent_ticket_no) + '</span>' : '') + '</div>' +
-          '<div>' + esc(r.title) + '</div><div class="small muted">' + esc(r.item_names).slice(0, 120) + '</div></td>' +
+          '<div>' + esc(r.title) + '</div><div class="small muted">' + esc(r.item_lines || r.item_names).slice(0, 160) + '</div></td>' +
           '<td data-label="สถานะ">' + statusBadge(r.status, r.status_label) + '<div class="small">' + esc(r.stage_label) + '</div></td>' +
           '<td data-label="ผู้ขอ">' + esc(r.requestor_name) + '</td>' +
           '<td data-label="SR">' + esc(r.sr_name || '–') + '</td>' +
@@ -10544,7 +10546,7 @@ Pages.ticket = (function () {
     if (ui.select === 'sr_gm' && state.ref.assign_by_group) {
       html = '<p class="small"><b>ส่งให้ SR ตามกลุ่มสินค้าอัตโนมัติ</b> (ไม่ต้องเลือก)</p><ul class="small" style="margin:4px 0 0;padding-left:18px">' +
         d.items.filter(function (it) { return !it.quote_status; }).map(function (it) {
-          return '<li>#' + it.line_no + ' ' + esc(it.product_name) + ' <span class="muted">(' + esc(it.product_group_name || '–') + ')</span> → ' +
+          return '<li>#' + it.line_no + ' ' + esc(it.product_name) + ' · <b>' + fmtNum(it.qty) + ' ' + esc(it.uom) + '</b>/เดือน <span class="muted">(' + esc(it.product_group_name || '–') + ')</span> → ' +
             (it.route_sr_name ? '<b>' + esc(it.route_sr_name) + '</b>' : '<span class="sla warning">SR Manager แบ่งงาน</span>') + '</li>';
         }).join('') + '</ul>';
     }

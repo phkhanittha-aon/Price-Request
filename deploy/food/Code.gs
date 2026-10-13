@@ -1,5 +1,5 @@
 /**
- * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-5
+ * MGS Food Price Request — Code.gs (ALL server code in one file) · version 2026.10.14-6
  * Built from the repository gas/*.gs by dev/build-deploy.js — do not edit here, edit gas/ and rebuild.
  *
  * Apps Script project needs exactly 3 files:  Code.gs (this) · Index.html · appsscript.json
@@ -18,7 +18,7 @@
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-5';
+const APP_VERSION = '2026.10.14-6';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -4389,6 +4389,8 @@ function summaryRow_(t, ctx, now) {
     parent_ticket_no: t.parent_ticket_id && ctx.ticketNos ? (ctx.ticketNos[t.parent_ticket_id] || '') : '',
     item_count: items.length,
     item_names: items.map(function (i) { return String(i.product_name); }).join(' | '),
+    // with quantity — what approvers look at in the list (“กุ้งขาว 500 กก. · หมึก 200 กก.”)
+    item_lines: items.map(function (i) { return String(i.product_name) + (Number(i.qty) > 0 ? ' ' + Number(i.qty).toLocaleString('en-US') + ' ' + String(i.uom || '') : ''); }).join(' · '),
     group_codes: groupCodes,
     root_codes: rootCodes,
     age_days: Math.floor(hoursBetween_(new Date(t.created_at), end ? new Date(end) : now) / 24),

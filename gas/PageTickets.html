@@ -164,7 +164,7 @@ Pages.tickets = (function () {
           (r.is_inbox && r.outcome === 'open' ? ' <span class="badge tag-me">รอคุณ</span>' : '') +
           (r.revision_count ? ' <span class="badge">แก้ราคา ' + r.revision_count + '</span>' : '') +
           (r.parent_ticket_no ? ' <span class="badge tag-follow">📌 จาก ' + esc(r.parent_ticket_no) + '</span>' : '') + '</div>' +
-          '<div>' + esc(r.title) + '</div><div class="small muted">' + esc(r.item_names).slice(0, 120) + '</div></td>' +
+          '<div>' + esc(r.title) + '</div><div class="small muted">' + esc(r.item_lines || r.item_names).slice(0, 160) + '</div></td>' +
           '<td data-label="สถานะ">' + statusBadge(r.status, r.status_label) + '<div class="small">' + esc(r.stage_label) + '</div></td>' +
           '<td data-label="ผู้ขอ">' + esc(r.requestor_name) + '</td>' +
           '<td data-label="SR">' + esc(r.sr_name || '–') + '</td>' +

@@ -83,7 +83,7 @@ Pages.home = (function () {
       (inbox.length ? '<ul class="tasks">' + inbox.slice(0, 10).map(function (r) {
         return '<li><a href="#" data-ticket="' + esc(r.ticket_id) + '"><span class="tdot ' + esc(r.sla_status) + '" aria-hidden="true"></span><div class="tmain"><b>' + esc(r.ticket_no) + '</b> ' +
           (r.priority !== 'normal' ? prioText(r.priority) + ' ' : '') + (r.is_follow_up ? '<span class="badge tag-follow">📌 ส่งตามหลัง</span> ' : '') +
-          '<span class="small">' + esc(r.stage_label) + '</span><div class="small muted">' + esc(r.customer_name || r.title) + ' · ' + esc(r.item_names).slice(0, 80) + '</div></div>' +
+          '<span class="small">' + esc(r.stage_label) + '</span><div class="small muted">' + esc(r.customer_name || r.title) + ' · ' + esc(r.item_lines || r.item_names).slice(0, 110) + '</div></div>' +
           '<div class="tside small">' + slaBadge(r.sla_status) + (r.due_date ? '<div class="muted">ต้องการ ' + esc(fmtDate(r.due_date)) + '</div>' : '') + '</div></a></li>';
       }).join('') + '</ul>' : '<p class="empty small">ไม่มีงานรอคุณตอนนี้</p>') + '</div>';
     if (follow.length) {
