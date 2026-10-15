@@ -981,7 +981,7 @@ var HtmlService = {};
  * Secrets (Lark app secret, etc.) live in Script Properties, never here.
  */
 
-const APP_VERSION = '2026.10.14-11';
+const APP_VERSION = '2026.10.15-1';
 
 const CFG = {
   APP_NAME: 'MGS Food Price Request',
@@ -3854,8 +3854,52 @@ function generateChecklist_(ticketId) {
       });
     });
   });
+  // the documents Sales asked for (form chips “เอกสารที่ต้องการ”) are checklist lines too — so a request whose product group
+  // has no checklist template still has something to tick and the “ยืนยันเอกสารครบ” step
+  const t = ticketById_(ticketId);
+  docListOf_(t ? t.documents_needed : '').forEach(function (name, i) {
+    const key = 'doc_' + name.toLowerCase().replace(/[^a-z0-9ก-๙]+/g, '_').slice(0, 60);
+    if (existing['|' + key]) return;
+    existing['|' + key] = true;
+    toInsert.push({
+      check_id: uuid_(), ticket_id: ticketId, product_group_code: '', item_key: key, label: 'เอกสาร: ' + name, is_required: true,
+      sort_order: i + 1, is_checked: false, checked_by: '', checked_at: '', note: '', updated_at: now
+    });
+  });
   insertRows_(TAB.CHECKLIST, toInsert);
   return toInsert.length;
+}
+
+/** “Spec sheet, COA, Food Safety Cert (GMP / HACCP / BRC / FSSC 22000)” → ['Spec sheet', 'COA', 'Food Safety Cert (…)'] (commas inside brackets kept). */
+function docListOf_(text) {
+  const s = String(text || '').trim();
+  if (!s || /^ไม่ต้องการ/.test(s)) return [];
+  const out = [];
+  let depth = 0, cur = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charAt(i);
+    if (c === '(') depth++;
+    if (c === ')') depth = Math.max(0, depth - 1);
+    if (c === ',' && !depth) { if (cur.trim()) out.push(cur.trim()); cur = ''; } else cur += c;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out.filter(function (x, i, a) { return a.indexOf(x) === i; }).slice(0, 20).map(function (x) { return cleanText_(x, 200); });
+}
+
+/**
+ * The SR opens a request that is in “ตรวจเอกสาร” but has no checklist yet (made before the documents became lines,
+ * or its product group has no template) → build it now. Only the SR / Admin who may tick it.
+ */
+function ensureChecklist(ticketId) {
+  return api_('ensureChecklist', function () {
+    return withLock_(function () {
+      const u = currentUser_();
+      const t = ticketForUser_(u, ticketId);
+      if (!canEditChecklist_(u, t)) throw appError_('FORBIDDEN', 'ตรวจเอกสารได้เฉพาะ SR ผู้รับงาน ในขั้นตอนตรวจเอกสาร');
+      const added = checklistOf_(t.ticket_id).length ? 0 : generateChecklist_(t.ticket_id);
+      return { added: added, checklist: checklistOf_(t.ticket_id) };
+    });
+  });
 }
 
 /**
@@ -8270,7 +8314,7 @@ function fakeDrive_() {
 }
 
 
-  const PUBLIC = { verifyLogChain: verifyLogChain, createTicket: createTicket, transitionTicket: transitionTicket, getTicket: getTicket, updateTicketRequest: updateTicketRequest, saveItem: saveItem, deleteItem: deleteItem, updateChecklist: updateChecklist, saveQuotation: saveQuotation, deleteQuotation: deleteQuotation, selectQuotation: selectQuotation, saveSourcingDraft: saveSourcingDraft, saveChecklist: saveChecklist, setItemQuoteStatus: setItemQuoteStatus, listSuppliers: listSuppliers, saveSupplier: saveSupplier, setSupplierActive: setSupplierActive, mergeSuppliers: mergeSuppliers, getSupplierLog: getSupplierLog, supplierHints: supplierHints, migrateSuppliers: migrateSuppliers, listDeals: listDeals, updateDeal: updateDeal, getGpSummary: getGpSummary, listTickets: listTickets, getPoll: getPoll, getAdminHealth: getAdminHealth, getNotifications: getNotifications, markNotificationsRead: markNotificationsRead, getDashboard: getDashboard, listTicketBoard: listTicketBoard, getSalesHistory: getSalesHistory, beginUpload: beginUpload, uploadChunk: uploadChunk, deleteAttachment: deleteAttachment, openAttachment: openAttachment, getPhotoPreviews: getPhotoPreviews, dispatchNotifications: dispatchNotifications, testLarkConnection: testLarkConnection, buildMention: buildMention, sendSlaReminders: sendSlaReminders, sendDailyDigest: sendDailyDigest, sendDailyDigestNow: sendDailyDigestNow, getBotSettings: getBotSettings, saveBotSettings: saveBotSettings, saveWebappUrl: saveWebappUrl, testBotSend: testBotSend, setup: setup, installReminderTrigger: installReminderTrigger, testBots: testBots, installTriggers: installTriggers, installTriggersFromWeb: installTriggersFromWeb, checkSlaAlerts: checkSlaAlerts, sendDealFollowUps: sendDealFollowUps, weeklyBackup: weeklyBackup, runSelfTest: runSelfTest, runRetention: runRetention, exportHistory: exportHistory, doGet: doGet, getBootstrap: getBootstrap, setupDatabase: setupDatabase, createNewDatabase: createNewDatabase, seedMasterData: seedMasterData, seedDemoData: seedDemoData };
+  const PUBLIC = { verifyLogChain: verifyLogChain, createTicket: createTicket, transitionTicket: transitionTicket, getTicket: getTicket, ensureChecklist: ensureChecklist, updateTicketRequest: updateTicketRequest, saveItem: saveItem, deleteItem: deleteItem, updateChecklist: updateChecklist, saveQuotation: saveQuotation, deleteQuotation: deleteQuotation, selectQuotation: selectQuotation, saveSourcingDraft: saveSourcingDraft, saveChecklist: saveChecklist, setItemQuoteStatus: setItemQuoteStatus, listSuppliers: listSuppliers, saveSupplier: saveSupplier, setSupplierActive: setSupplierActive, mergeSuppliers: mergeSuppliers, getSupplierLog: getSupplierLog, supplierHints: supplierHints, migrateSuppliers: migrateSuppliers, listDeals: listDeals, updateDeal: updateDeal, getGpSummary: getGpSummary, listTickets: listTickets, getPoll: getPoll, getAdminHealth: getAdminHealth, getNotifications: getNotifications, markNotificationsRead: markNotificationsRead, getDashboard: getDashboard, listTicketBoard: listTicketBoard, getSalesHistory: getSalesHistory, beginUpload: beginUpload, uploadChunk: uploadChunk, deleteAttachment: deleteAttachment, openAttachment: openAttachment, getPhotoPreviews: getPhotoPreviews, dispatchNotifications: dispatchNotifications, testLarkConnection: testLarkConnection, buildMention: buildMention, sendSlaReminders: sendSlaReminders, sendDailyDigest: sendDailyDigest, sendDailyDigestNow: sendDailyDigestNow, getBotSettings: getBotSettings, saveBotSettings: saveBotSettings, saveWebappUrl: saveWebappUrl, testBotSend: testBotSend, setup: setup, installReminderTrigger: installReminderTrigger, testBots: testBots, installTriggers: installTriggers, installTriggersFromWeb: installTriggersFromWeb, checkSlaAlerts: checkSlaAlerts, sendDealFollowUps: sendDealFollowUps, weeklyBackup: weeklyBackup, runSelfTest: runSelfTest, runRetention: runRetention, exportHistory: exportHistory, doGet: doGet, getBootstrap: getBootstrap, setupDatabase: setupDatabase, createNewDatabase: createNewDatabase, seedMasterData: seedMasterData, seedDemoData: seedDemoData };
   createNewDatabase();
   seedDemoData();
   TEST_HTTP_ = fakeHttp_();     // uploads go to a fake Drive
@@ -8428,7 +8472,7 @@ function fakeDrive_() {
     </aside>
     <div class="content">
       <main id="view"><div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div></main>
-      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.14-11 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
+      <footer>MGS Food Price Request · เวอร์ชัน <span id="ver">2026.10.15-1 · prototype</span> · เวลาแสดงตามเขตเวลา Asia/Bangkok</footer>
     </div>
   </div>
   <div class="side-ov" id="side-ov"></div>
@@ -11793,6 +11837,7 @@ Pages.pricing = (function () {
     const open = d.ticket.stage === 'doc_check' || d.ticket.stage === 'need_info';
     return '<details class="card" id="pc-card"' + (open ? ' open' : '') + '><summary><h3 style="display:inline">ตรวจเอกสาร (' + done + '/' + d.checklist.length + ')</h3> ' +
       (reqLeft ? '<span class="sla warning">⚠ ยังขาดที่บังคับ ' + reqLeft + '</span>' : '<span class="sla ok">✓ ครบตามที่บังคับ</span>') + '</summary>' +
+      (d.checklist.length ? '' : '<p class="small muted" style="margin-top:10px">ไม่มีรายการเอกสารให้ติ๊ก (กลุ่มสินค้านี้ยังไม่ได้ตั้งรายการตรวจ และ Sales ไม่ได้ระบุเอกสาร) — ตรวจรายละเอียดสินค้า / ไฟล์จาก Sales แล้วกด “ยืนยันเอกสารครบ”</p>') +
       '<div style="margin-top:10px">' + d.checklist.map(function (c) {
         return '<div class="chk"><label><input type="checkbox" data-chk="' + esc(c.check_id) + '"' + (c.is_checked ? ' checked' : '') + (editable ? '' : ' disabled') + '> ' +
           esc(c.label) + (c.is_required ? ' <span class="req">*</span>' : ' <span class="muted small">(ไม่บังคับ)</span>') + '</label>' +
@@ -12050,7 +12095,7 @@ Pages.pricing = (function () {
     const d = ctx.d;
     const view = ctx.view;
     const docPhase = d.ticket.stage === 'doc_check' || d.ticket.stage === 'need_info';
-    view.innerHTML = headerHtml(d) + filesHtml(d) + (d.checklist.length ? checklistHtml(d) : '') +
+    view.innerHTML = headerHtml(d) + filesHtml(d) + (d.checklist.length || docPhase ? checklistHtml(d) : '') +
       (docPhase && d.items.every(function (it) { return !it.quotations.length; }) ?
         '<div class="notice">ติ๊กเอกสารให้ครบแล้วกด “ยืนยันเอกสารครบ” ก่อน จึงจะกรอกราคา vendor ได้ หรือกด “ขอข้อมูลเพิ่มจาก Sales” ถ้าเอกสารไม่พอ</div>' :
         d.items.map(itemCard).join('') + '<div class="card" id="pp-summary"></div>') +
@@ -12632,6 +12677,15 @@ Pages.pricing = (function () {
         if (!d.permissions.can_view_quotes) { go({ page: 'ticket', id: route.id }, true); return; }
         ctx = { d: d, model: fromDetail(d), dirty: false, view: view, hints: null };
         render();
+        // older request in “ตรวจเอกสาร” with no checklist yet → build it (documents Sales asked for + product-group template)
+        if (d.ticket.stage === 'doc_check' && !d.checklist.length && d.permissions.can_edit_checklist) {
+          const mine0 = ctx;
+          api('ensureChecklist', d.ticket.ticket_id).then(function (r) {
+            if (ctx !== mine0 || !r.checklist.length) return;
+            ctx.d.checklist = r.checklist;
+            render();
+          }).catch(function () { /* the empty card still lets the SR confirm */ });
+        }
         // last price per supplier for these products (hint only) — loaded after the page is on screen
         if (d.permissions.can_edit_quotes) {
           const mine = ctx;

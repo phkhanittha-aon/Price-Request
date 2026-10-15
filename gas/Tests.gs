@@ -2681,6 +2681,44 @@ function runGmRequestCases_(results) {
       } finally { TEST_HTTP_ = keepHttp; TEST_BOTS_ = keepBots; }
     });
 
+    wrap('CHECKLIST_FROM_DOCUMENTS', function () {
+      setTestSettings_({ sales_manager_step: 'false', assign_by_group: 'false', gm_assigns_sr: 'true' });
+      // product group with NO checklist template (like FOOD-OTHERS / a group added in the sheet without checklist_json)
+      const mk = function (docs) {
+        return must(as(U.salesFood1, function () { return createTicket(form({ documents_needed: docs, items: [
+          { product_group_code: 'FOOD-OTHERS', product_name: 'กุ้งขาว RHOSO', net_weight: '80-100%', size: 'M', packing_size: '1 kg', qty: 10, uom: 'กก.', target_price: 0 }] })); })).ticket.ticket_id;
+      };
+      withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD', { checklist_json: '[]' }); });   // parent template off for this case
+      try {
+        const id = mk('Spec sheet, COA, Food Safety Cert (GMP / HACCP / BRC / FSSC 22000)');
+        must(go(U.gm, id, 'gm_approve', '', { sr_email: U.sr1 }));
+        const labels = checklistOf_(id).map(function (c) { return c.label; });
+        ok(labels.join('|') === 'เอกสาร: Spec sheet|เอกสาร: COA|เอกสาร: Food Safety Cert (GMP / HACCP / BRC / FSSC 22000)',
+          'Checklist: the documents Sales asked for become lines to tick (commas inside brackets kept) — ' + labels.length + ' lines');
+        as(U.sr1, function () { checklistOf_(id).forEach(function (c) { must(updateChecklist(c.check_id, true, '')); }); });
+        must(go(U.sr1, id, 'doc_complete'));
+        ok(ticketById_(id).stage === 'sourcing', 'Checklist: SR ticks them and goes on to pricing');
+        // no template and no documents → nothing to tick, the SR can still confirm
+        const id2 = mk('');
+        must(go(U.gm, id2, 'gm_approve', '', { sr_email: U.sr1 }));
+        ok(checklistOf_(id2).length === 0, 'Checklist: empty when there is no template and no document');
+        must(go(U.sr1, id2, 'doc_complete'));
+        ok(ticketById_(id2).stage === 'sourcing', 'Checklist: empty checklist does not block “ยืนยันเอกสารครบ”');
+        // older request stuck with an empty checklist → built when the SR opens the page
+        const id3 = mk('COA');
+        must(go(U.gm, id3, 'gm_approve', '', { sr_email: U.sr1 }));
+        withLock_(function () { deleteRowsWhere_(TAB.CHECKLIST, function (c) { return c.ticket_id === id3; }); });
+        expectErr(as(U.salesFood1, function () { return ensureChecklist(id3); }), 'FORBIDDEN', 'Checklist: only the SR builds a missing checklist');
+        const r = as(U.sr1, function () { return must(ensureChecklist(id3)); });
+        ok(r.added === 1 && r.checklist[0].label === 'เอกสาร: COA' && as(U.sr1, function () { return must(ensureChecklist(id3)); }).added === 0,
+          'Checklist: missing checklist built once when the SR opens the page (not twice)');
+      } finally {
+        withLock_(function () { updateRow_(TAB.PRODUCT_GROUPS, 'FOOD', { checklist_json: JSON.stringify([{ key: 'spec', label: 'Spec สินค้า (ชนิด/สายพันธุ์)', required: true }, { key: 'size_grade', label: 'ขนาด / เกรด', required: true },
+          { key: 'packing', label: 'รูปแบบบรรจุ (Packing / น้ำหนักต่อแพ็ค)', required: true }, { key: 'net_weight', label: '% Net Weight (ไม่รวมน้ำแข็ง)', required: true },
+          { key: 'origin', label: 'ประเทศต้นทาง', required: false }, { key: 'shelf_life', label: 'อายุสินค้า / เงื่อนไขการเก็บรักษา', required: false }]) }); });
+      }
+    });
+
     wrap('NO_LARK_DM', function () {
       const def = DEFAULT_SETTINGS.filter(function (x) { return x[0] === 'lark_dm_types'; })[0][1];
       setTestSettings_({ lark_dm_types: def });

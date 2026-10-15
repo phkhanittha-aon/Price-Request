@@ -1167,8 +1167,52 @@ function generateChecklist_(ticketId) {
       });
     });
   });
+  // the documents Sales asked for (form chips “เอกสารที่ต้องการ”) are checklist lines too — so a request whose product group
+  // has no checklist template still has something to tick and the “ยืนยันเอกสารครบ” step
+  const t = ticketById_(ticketId);
+  docListOf_(t ? t.documents_needed : '').forEach(function (name, i) {
+    const key = 'doc_' + name.toLowerCase().replace(/[^a-z0-9ก-๙]+/g, '_').slice(0, 60);
+    if (existing['|' + key]) return;
+    existing['|' + key] = true;
+    toInsert.push({
+      check_id: uuid_(), ticket_id: ticketId, product_group_code: '', item_key: key, label: 'เอกสาร: ' + name, is_required: true,
+      sort_order: i + 1, is_checked: false, checked_by: '', checked_at: '', note: '', updated_at: now
+    });
+  });
   insertRows_(TAB.CHECKLIST, toInsert);
   return toInsert.length;
+}
+
+/** “Spec sheet, COA, Food Safety Cert (GMP / HACCP / BRC / FSSC 22000)” → ['Spec sheet', 'COA', 'Food Safety Cert (…)'] (commas inside brackets kept). */
+function docListOf_(text) {
+  const s = String(text || '').trim();
+  if (!s || /^ไม่ต้องการ/.test(s)) return [];
+  const out = [];
+  let depth = 0, cur = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charAt(i);
+    if (c === '(') depth++;
+    if (c === ')') depth = Math.max(0, depth - 1);
+    if (c === ',' && !depth) { if (cur.trim()) out.push(cur.trim()); cur = ''; } else cur += c;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out.filter(function (x, i, a) { return a.indexOf(x) === i; }).slice(0, 20).map(function (x) { return cleanText_(x, 200); });
+}
+
+/**
+ * The SR opens a request that is in “ตรวจเอกสาร” but has no checklist yet (made before the documents became lines,
+ * or its product group has no template) → build it now. Only the SR / Admin who may tick it.
+ */
+function ensureChecklist(ticketId) {
+  return api_('ensureChecklist', function () {
+    return withLock_(function () {
+      const u = currentUser_();
+      const t = ticketForUser_(u, ticketId);
+      if (!canEditChecklist_(u, t)) throw appError_('FORBIDDEN', 'ตรวจเอกสารได้เฉพาะ SR ผู้รับงาน ในขั้นตอนตรวจเอกสาร');
+      const added = checklistOf_(t.ticket_id).length ? 0 : generateChecklist_(t.ticket_id);
+      return { added: added, checklist: checklistOf_(t.ticket_id) };
+    });
+  });
 }
 
 /**

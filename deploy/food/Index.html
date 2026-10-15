@@ -4148,6 +4148,7 @@ Pages.pricing = (function () {
     const open = d.ticket.stage === 'doc_check' || d.ticket.stage === 'need_info';
     return '<details class="card" id="pc-card"' + (open ? ' open' : '') + '><summary><h3 style="display:inline">ตรวจเอกสาร (' + done + '/' + d.checklist.length + ')</h3> ' +
       (reqLeft ? '<span class="sla warning">⚠ ยังขาดที่บังคับ ' + reqLeft + '</span>' : '<span class="sla ok">✓ ครบตามที่บังคับ</span>') + '</summary>' +
+      (d.checklist.length ? '' : '<p class="small muted" style="margin-top:10px">ไม่มีรายการเอกสารให้ติ๊ก (กลุ่มสินค้านี้ยังไม่ได้ตั้งรายการตรวจ และ Sales ไม่ได้ระบุเอกสาร) — ตรวจรายละเอียดสินค้า / ไฟล์จาก Sales แล้วกด “ยืนยันเอกสารครบ”</p>') +
       '<div style="margin-top:10px">' + d.checklist.map(function (c) {
         return '<div class="chk"><label><input type="checkbox" data-chk="' + esc(c.check_id) + '"' + (c.is_checked ? ' checked' : '') + (editable ? '' : ' disabled') + '> ' +
           esc(c.label) + (c.is_required ? ' <span class="req">*</span>' : ' <span class="muted small">(ไม่บังคับ)</span>') + '</label>' +
@@ -4405,7 +4406,7 @@ Pages.pricing = (function () {
     const d = ctx.d;
     const view = ctx.view;
     const docPhase = d.ticket.stage === 'doc_check' || d.ticket.stage === 'need_info';
-    view.innerHTML = headerHtml(d) + filesHtml(d) + (d.checklist.length ? checklistHtml(d) : '') +
+    view.innerHTML = headerHtml(d) + filesHtml(d) + (d.checklist.length || docPhase ? checklistHtml(d) : '') +
       (docPhase && d.items.every(function (it) { return !it.quotations.length; }) ?
         '<div class="notice">ติ๊กเอกสารให้ครบแล้วกด “ยืนยันเอกสารครบ” ก่อน จึงจะกรอกราคา vendor ได้ หรือกด “ขอข้อมูลเพิ่มจาก Sales” ถ้าเอกสารไม่พอ</div>' :
         d.items.map(itemCard).join('') + '<div class="card" id="pp-summary"></div>') +
@@ -4987,6 +4988,15 @@ Pages.pricing = (function () {
         if (!d.permissions.can_view_quotes) { go({ page: 'ticket', id: route.id }, true); return; }
         ctx = { d: d, model: fromDetail(d), dirty: false, view: view, hints: null };
         render();
+        // older request in “ตรวจเอกสาร” with no checklist yet → build it (documents Sales asked for + product-group template)
+        if (d.ticket.stage === 'doc_check' && !d.checklist.length && d.permissions.can_edit_checklist) {
+          const mine0 = ctx;
+          api('ensureChecklist', d.ticket.ticket_id).then(function (r) {
+            if (ctx !== mine0 || !r.checklist.length) return;
+            ctx.d.checklist = r.checklist;
+            render();
+          }).catch(function () { /* the empty card still lets the SR confirm */ });
+        }
         // last price per supplier for these products (hint only) — loaded after the page is on screen
         if (d.permissions.can_edit_quotes) {
           const mine = ctx;
